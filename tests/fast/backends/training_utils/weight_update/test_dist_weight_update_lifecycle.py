@@ -93,6 +93,8 @@ def _make_updater(engines: list[_RecordingApiClient], *, pause_generation_mode: 
         check_lora_weight_equal=False,
         sglang_speculative_algorithm=None,
         enable_mtp_training=False,
+        fully_async=False,
+        colocate=True,
     )
     with patch(f"{_UPDATER_MODULE}.get_weight_transfer_protocol", return_value=protocol):
         return WeightUpdater(
