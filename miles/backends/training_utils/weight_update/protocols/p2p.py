@@ -148,15 +148,20 @@ class UpdateWeightP2P(WeightTransferProtocol):
         rollout_engines: Sequence[SGLangApiClient],
         engine_gpu_counts: Sequence[int] | None,
         engine_gpu_offsets: Sequence[int] | None,
+        engine_cell_ids: Sequence[str],
         parallel_state: ParallelState,
         placement: WeightUpdatePlacement,
         selector: str,
     ) -> None:
         """Assign and validate write targets, reusing replicas, mappings, transport and buffers across reconnects."""
+        assert len(engine_cell_ids) == len(rollout_engines), (
+            f"[P2P-Shared] {len(engine_cell_ids)} cell ids for {len(rollout_engines)} rollout engines; "
+            f"the per-engine metadata must describe the same engines"
+        )
+
         self.rollout_engines = rollout_engines
         self._cell_updaters_of_rollout_engine_ind = {
-            rollout_engine_ind: _P2PRolloutCellUpdater(rollout_engine_ind=rollout_engine_ind)
-            for rollout_engine_ind in range(len(rollout_engines))
+            cell_id: _P2PRolloutCellUpdater(cell_id=cell_id) for cell_id in engine_cell_ids
         }
         assignments = assign_rollout_engine_ranks(parallel_state, placement, engine_gpu_counts)
         self.is_sender = bool(assignments)

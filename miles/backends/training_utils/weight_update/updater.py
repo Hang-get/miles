@@ -78,16 +78,18 @@ class WeightUpdater:
     def connect_rollout_engines(
         self,
         rollout_engines: Sequence[SGLangApiClient],
-        engine_gpu_counts: Sequence[int] | None = None,
-        engine_gpu_offsets: Sequence[int] | None = None,
+        engine_gpu_counts: Sequence[int] | None,
+        engine_gpu_offsets: Sequence[int] | None,
+        engine_cell_ids: Sequence[str],
     ) -> None:
         self.protocol.connect(
-            rollout_engines,
-            engine_gpu_counts,
-            engine_gpu_offsets,
-            self.parallel_state,
-            self._hf_weight_iterator.placement,
-            self._hf_weight_iterator.weight_update_selector,
+            rollout_engines=rollout_engines,
+            engine_gpu_counts=engine_gpu_counts,
+            engine_gpu_offsets=engine_gpu_offsets,
+            engine_cell_ids=engine_cell_ids,
+            parallel_state=self.parallel_state,
+            placement=self._hf_weight_iterator.placement,
+            selector=self._hf_weight_iterator.weight_update_selector,
         )
         assert self.protocol.is_sender is not None, "connect() must set is_sender"
         self._registered_adapters.clear()
@@ -103,6 +105,7 @@ class WeightUpdater:
             info.rollout_engines,
             engine_gpu_counts=info.engine_gpu_counts,
             engine_gpu_offsets=info.engine_gpu_offsets,
+            engine_cell_ids=info.engine_cell_ids,
         )
         self.conn_status.mark_reconnected(info.snapshot_cell_id_to_hashes)
         dist.barrier(group=get_gloo_group())

@@ -299,6 +299,7 @@ class _P2PSenderHarness:
             rollout_engines=apis,
             engine_gpu_counts=[api.gpu_count for api in apis],
             engine_gpu_offsets=None,
+            engine_cell_ids=[api.cell_id for api in apis],
             parallel_state=None,
             placement=placement,
             selector=selector,
