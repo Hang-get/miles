@@ -3851,6 +3851,8 @@ def miles_validate_args(args):
             f"so one group already puts n_samples_per_prompt trajectories in flight"
         )
 
+    _resolve_rollout_functions(args)
+
     if args.namespaced_radix_cache is None:
         args.namespaced_radix_cache = args.fully_async and args.pause_generation_mode == "in_place"
         if args.namespaced_radix_cache:
@@ -3862,12 +3864,14 @@ def miles_validate_args(args):
             )
 
     if args.namespaced_radix_cache:
+        assert args.use_session_server in (
+            False,
+            "v2",
+        ), "--namespaced-radix-cache requires --use-session-server v2 when using a session server"
         assert not use_legacy_rollout_v1(), (
             "--namespaced-radix-cache requires the class-based rollout API; "
             "unset MILES_USE_LEGACY_ROLLOUT_V1 or pass --no-namespaced-radix-cache"
         )
-
-    _resolve_rollout_functions(args)
 
     # Both snapshot postures drive the same RolloutManager._eval_checkpoint path.
     # (The fleet-vs-CheckpointEvalFn conflict is asserted where the posture is derived.)
