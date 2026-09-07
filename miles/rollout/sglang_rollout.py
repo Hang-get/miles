@@ -199,6 +199,8 @@ async def generate(
     if not evaluation:
         configure_rollout_topk_logprobs_request(args, payload)
 
+    if (extra_key := sample.kv_cache_namespace) is not None:
+        payload["extra_key"] = extra_key
     if lora_rollout_enabled(args):
         payload["lora_path"] = LORA_ADAPTER_NAME
 
