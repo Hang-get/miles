@@ -162,6 +162,7 @@ def _merge_sample_pair(a: Sample, b: Sample, tokenizer) -> Sample:
             reward=_merge_equal_value("reward"),
             loss_mask=a.loss_mask + [0] * obs_len + b.loss_mask,
             weight_versions=a.weight_versions + b.weight_versions,
+            kv_cache_namespace=_merge_equal_value("kv_cache_namespace"),
             rollout_log_probs=a.rollout_log_probs + [0.0] * obs_len + b.rollout_log_probs,
             rollout_topk_token_ids=merge_rollout_topk_logprobs_field(a, b, "rollout_topk_token_ids", obs_len),
             rollout_topk_log_probs=merge_rollout_topk_logprobs_field(a, b, "rollout_topk_log_probs", obs_len),
