@@ -14,6 +14,7 @@ from megatron.training.checkpointing import load_checkpoint as _load_checkpoint_
 from megatron.training.checkpointing import save_checkpoint
 from megatron.training.global_vars import get_args
 
+from miles.backends.training_utils.model_companion import ModelCompanionInstallationUtils
 from miles.backends.training_utils.weight_update.snapshot_publisher import SnapshotPublisher
 from miles.utils import megatron_bridge_utils
 from miles_plugins.models.deepseek_v4.arguments import assert_checkpoint_is_current, is_dsv4_model
@@ -269,7 +270,11 @@ def _load_hf_weights_with_mbridge(ddp_model, args, load_path: str) -> None:
     else:
         bypass = nullcontext()
     logger.info(f"Load checkpoint from HuggingFace model into Megatron via mbridge (path={load_path})")
-    with _hide_critic_value_head_from_hf_load(ddp_model), bypass:
+    with (
+        ModelCompanionInstallationUtils.hide(ddp_model),
+        _hide_critic_value_head_from_hf_load(ddp_model),
+        bypass,
+    ):
         bridge = AutoBridge.from_pretrained(load_path, trust_remote_code=True)
         bridge.load_weights(ddp_model, load_path, memory_efficient=True)
     torch.cuda.synchronize()
