@@ -3,6 +3,7 @@ import logging
 import os
 import shutil
 from contextlib import ExitStack, nullcontext
+from functools import partial
 
 import torch
 import torch.distributed as dist
@@ -28,6 +29,7 @@ from miles.backends.training_utils.loss.objective import (
 )
 from miles.backends.training_utils.metrics import train_dump
 from miles.backends.training_utils.metrics.log_utils import log_cpu_memory, log_perf_data, log_rollout_data
+from miles.backends.training_utils.model_companion import ModelCompanionInstallationUtils
 from miles.backends.training_utils.replay.data import fill_replay_data, register_replay_list_sequential
 from miles.backends.training_utils.types import TrainStepOutput
 from miles.backends.training_utils.weight_update.hf_weight_iterator import WeightUpdatePlacement
@@ -232,7 +234,7 @@ class MegatronTrainRayActor(TrainRayActor):
             main_cast_ctx = build_main_cast_context(args, model=self.model, optimizer=self.optimizer)
 
         self.weights_backuper = TensorBackuper.create(
-            source_getter=self._named_actor_weights,
+            source_getter=partial(self._named_actor_weights, include_model_companion=True),
             main_cast_ctx=main_cast_ctx,
         )
         self._active_model_tag: str | None = "actor"
@@ -866,12 +868,13 @@ class MegatronTrainRayActor(TrainRayActor):
             self.args, rollout_id, self.model, publisher=self.snapshot_publisher, path=path, raise_on_error=True
         )
 
-    def _named_actor_weights(self, *, translate_gpu_to_cpu: bool = False):
+    def _named_actor_weights(self, *, translate_gpu_to_cpu: bool = False, include_model_companion: bool = False):
         return named_params_and_buffers(
             self.args,
             self.model,
             convert_to_global_name=self.args.megatron_to_hf_mode == "raw",
             translate_gpu_to_cpu=translate_gpu_to_cpu,
+            include_model_companion=include_model_companion,
         )
 
     def _get_actor_weights(self):
@@ -879,7 +882,11 @@ class MegatronTrainRayActor(TrainRayActor):
             return dict(self._named_actor_weights(translate_gpu_to_cpu=True))
         # use cpu backup only when weight is not live on gpu
         if self.args.colocate or self._asleep or self._active_model_tag != "actor":
-            return self.weights_backuper.get("actor")
+            return {
+                name: tensor
+                for name, tensor in self.weights_backuper.get("actor").items()
+                if not ModelCompanionInstallationUtils.is_companion_parameter(name)
+            }
         return dict(self._named_actor_weights())
 
     @with_logs
