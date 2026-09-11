@@ -5,6 +5,7 @@ import torch
 
 from miles.rollout.generate_utils.rollout_topk_logprobs import validate_rollout_topk_logprobs_sample
 from miles.utils import object_store
+from miles.utils.audit_utils.sample_ownership.recorder import SampleOwnershipRecorder
 from miles.utils.dp_schedule import build_dp_schedule, has_full_schedule_config
 from miles.utils.lora.utils import is_multi_lora_enabled
 from miles.utils.object_store import ValueSpec
@@ -400,6 +401,9 @@ def split_train_data_by_dp_scheduled_raw(
         global_batch_size=global_batch_size,
         rollout_indices=data["rollout_ids"],
     )
+
+    _log_dp_schedule_trim(args=args, data=data, partitions=partitions)
+
     logger.info(
         f"Rollout-side DP schedule: num_samples={len(total_lengths)}, "
         f"num_rollouts={num_rollouts}, num_microbatches={num_microbatches}"
@@ -411,6 +415,22 @@ def split_train_data_by_dp_scheduled_raw(
         shard["micro_batch_indices"] = micro_batch_indices[rank]
         shard["num_rollouts"] = num_rollouts
     return shards
+
+
+def _log_dp_schedule_trim(*, args, data: dict[str, Any], partitions: list[list[int]]) -> None:
+    if not args.enable_sample_ownership_checker:
+        return
+
+    retained_rows = {index for partition in partitions for index in partition}
+    retained_sources = {data["lineage_source_sample_indices"][index] for index in retained_rows}
+    dropped_sources = [
+        source_index
+        for index, source_index in enumerate(data["lineage_source_sample_indices"])
+        if index not in retained_rows and source_index not in retained_sources
+    ]
+    SampleOwnershipRecorder.log_dropped_source_sample_indices(
+        args=args, source_sample_indices=dropped_sources, reason="dp_schedule_trim"
+    )
 
 
 def split_train_data_by_dp_raw(args, data: dict[str, Any], *, dp_size: int) -> list[dict[str, Any]]:
