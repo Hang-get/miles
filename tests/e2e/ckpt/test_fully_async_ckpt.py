@@ -1,8 +1,19 @@
+import logging
 import os
+from argparse import Namespace
+from pathlib import Path
 
 from tests.ci.ci_register import register_cuda_ci, register_rocm_ci
 
+from miles.utils.audit_utils.event_analyzer.analyzer import run_sample_ownership_analysis
+from miles.utils.audit_utils.event_analyzer.rules.sample_ownership.check import completed_actor_steps
+from miles.utils.audit_utils.event_analyzer.rules.sample_ownership.models import SampleOwnershipViolation
+from miles.utils.audit_utils.event_logger.logger import read_events
+from miles.utils.audit_utils.event_logger.models import DataSourceIssuedSamplesEvent
 from miles.utils.external_utils import command_utils
+from miles.utils.simple_checkpointer import load_simple_checkpoint
+
+logger = logging.getLogger(__name__)
 
 register_cuda_ci(
     est_time=1200, suite="stage-c-8-gpu-h100", labels=["ckpt", "fully-async"], hardware=["hopper", "blackwell"]
@@ -39,7 +50,7 @@ def _prepare() -> None:
     )
 
 
-def _execute(mode: str) -> None:
+def _execute(mode: str, *, missing_training_step: bool = False) -> None:
     U = command_utils.default_config().create_backend()
     ckpt_args = f"--hf-checkpoint /root/models/{MODEL_NAME}/ " f"--ref-load /root/models/{MODEL_NAME}_torch_dist "
     if mode == "save":
@@ -106,6 +117,9 @@ def _execute(mode: str) -> None:
     if mode == "load":
         ci_args += "--ci-check-model-hash "
 
+    if missing_training_step:
+        ci_args += "--update-weights-interval 3 --ci-inject-missing-prefetched-batch-bug "
+
     misc_args = (
         # default dropout in megatron is 0.1
         "--attention-dropout 0.0 "
@@ -141,12 +155,70 @@ def _execute(mode: str) -> None:
     )
 
 
-def run() -> None:
+def run(*, missing_training_step: bool = False) -> None:
     _prepare()
     for proxy_var in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY"):
         os.environ.pop(proxy_var, None)
-    _execute("save")
-    _execute("load")
+    _execute("save", missing_training_step=missing_training_step)
+    if missing_training_step:
+        expected_missing = _prefetched_sample_indices()
+        try:
+            _execute("load", missing_training_step=True)
+        except Exception:
+            logger.exception("Training failed; checking that the sample ownership checker rejected the injected loss")
+            _assert_missing_sample(expected_missing=expected_missing)
+        else:
+            raise AssertionError("The sample ownership checker missed the injected batch loss")
+    else:
+        _execute("load")
+
+
+def _prefetched_sample_indices() -> set[int]:
+    iteration = _get_latest_checkpointed_iteration()
+    directory = Path(f"/root/models/{MODEL_NAME}_miles/rollout/{iteration}/executor")
+    outputs = load_simple_checkpoint(directory=directory)
+    prefetched = [data for key, (data, _) in outputs.items() if key.rollout_id == iteration + 1]
+    assert len(prefetched) == 1, f"Checkpoint has no next batch to replay: {list(outputs)}"
+    assert len(prefetched[0]) == ROLLOUT_BATCH_SIZE * N_SAMPLES_PER_PROMPT
+    indices = set()
+    for sample in prefetched[0]:
+        assert sample.lineage is not None, "Prefetched sample has no source lineage"
+        indices.add(sample.lineage.source_sample_index)
+    assert len(indices) == ROLLOUT_BATCH_SIZE * N_SAMPLES_PER_PROMPT
+    return indices
+
+
+def _assert_missing_sample(*, expected_missing: set[int]) -> None:
+    directory = Path(f"/root/models/{MODEL_NAME}_miles/events")
+    events = read_events(directory, strict=True)
+    steps = completed_actor_steps(events)
+    assert steps, "the resumed run recorded no completed step"
+    latest_completed_rollout_id = max(step.rollout_id for step in steps)
+    expected_mature = {
+        sample_index
+        for event in events
+        if isinstance(event, DataSourceIssuedSamplesEvent)
+        and latest_completed_rollout_id - event.rollout_id >= SAMPLE_OWNERSHIP_GRACE_STEPS
+        for group in event.groups
+        for sample_index in group.sample_indices
+        if sample_index in expected_missing
+    }
+    assert expected_mature, "the resumed run failed before any injected missing sample matured"
+
+    args = Namespace(
+        enable_sample_ownership_checker=True,
+        sample_ownership_grace_steps=SAMPLE_OWNERSHIP_GRACE_STEPS,
+        ci_test=True,
+    )
+    try:
+        run_sample_ownership_analysis(args=args, event_dir=directory)
+    except SampleOwnershipViolation as violation:
+        untrained = [
+            issue for issue in violation.issues if issue.description == "source sample had no training outcome"
+        ]
+        assert expected_mature <= {issue.sample_index for issue in untrained}, violation.issues
+    else:
+        raise AssertionError("The injected batch loss left no sample ownership violation behind")
 
 
 if __name__ == "__main__":
