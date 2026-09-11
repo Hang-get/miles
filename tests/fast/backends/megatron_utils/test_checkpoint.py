@@ -19,6 +19,7 @@ class TestRawMbridgeCompanionIsolation:
         models = [torch.nn.Linear(2, 2), torch.nn.Linear(2, 2)]
         companions = [ModelCompanion(pipeline_rank=0, chunk_index=i, replica_id=(0, 0, 0)) for i in range(2)]
         for model, companion in zip(models, companions, strict=True):
+            companion.weight_version.fill_(7)
             companion.sample_consumptions.data = torch.tensor([[1, 2, 3, 4, 0]])
             model.add_module("model_companion", companion)
 
@@ -30,5 +31,6 @@ class TestRawMbridgeCompanionIsolation:
         assert observed == [{"weight", "bias"}, {"weight", "bias"}]
         for model, companion in zip(models, companions, strict=True):
             assert model.model_companion is companion
+            assert companion.weight_version.item() == 7
             assert companion.sample_consumptions.tolist() == [[1, 2, 3, 4, 0]]
             torch.testing.assert_close(model.weight, torch.full_like(model.weight, 5))

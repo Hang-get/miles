@@ -37,7 +37,11 @@ from miles.backends.training_utils.metrics.log_utils import (
     aggregate_train_losses,
     log_train_step,
 )
-from miles.backends.training_utils.model_companion import ModelCompanionSampleConsumptionUtils, SampleIdentityExtractor
+from miles.backends.training_utils.model_companion import (
+    ModelCompanionSampleConsumptionUtils,
+    ModelCompanionWeightVersionUtils,
+    SampleIdentityExtractor,
+)
 from miles.backends.training_utils.types import TrainStepOutcome
 from miles.backends.training_utils.weight_update.snapshot_publisher import SnapshotPublisher
 from miles.utils.audit_utils.witness.allocator import WitnessInfo
@@ -664,6 +668,7 @@ def train_one_step(
     if not disable_optimizer and valid_step:
         update_successful, grad_norm, num_zeros_in_grad = optimizer.step()
         assert update_successful
+        ModelCompanionWeightVersionUtils.bump_weight_version(model)
         opt_param_scheduler.step(increment=num_rollouts)
 
     if args.enable_sample_ownership_checker:
