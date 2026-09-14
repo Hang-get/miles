@@ -2336,8 +2336,9 @@ def get_miles_extra_args_provider(add_custom_arguments=None):
             )
             parser.add_argument(
                 "--enable-sample-ownership-checker",
-                action="store_true",
-                help="Verify exactly one outcome for every consumed sample and every mature issued sample.",
+                action=argparse.BooleanOptionalAction,
+                help="Verify exactly one outcome for every consumed sample and every mature issued sample; "
+                "CI enables this unless it is explicitly disabled.",
             )
             parser.add_argument(
                 "--enable-witness",
@@ -3318,6 +3319,8 @@ def validate_log_probs_backend_args(args) -> None:
 
 
 def _resolve_sample_ownership_check(args: argparse.Namespace) -> None:
+    if args.enable_sample_ownership_checker is None:
+        args.enable_sample_ownership_checker = args.ci_test
     if not args.enable_sample_ownership_checker:
         return
 
@@ -3339,6 +3342,7 @@ def _resolve_sample_ownership_check(args: argparse.Namespace) -> None:
             (multi_policy, "multi-policy training has separate model companion lineages"),
             (args.debug_train_only, "train-only mode has no issuing data source"),
             (args.debug_rollout_only, "rollout-only mode has no trainer model companion"),
+            (args.debug_disable_optimizer, "a disabled optimizer trains nothing"),
             (args.num_critic_only_steps > 0, "critic-only warmup steps drop actor samples"),
         )
         if condition
