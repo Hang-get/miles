@@ -3,6 +3,8 @@ import json
 import logging
 import os
 import re
+import tempfile
+from pathlib import Path
 from string import Formatter
 from typing import Any
 
@@ -2220,8 +2222,16 @@ def get_miles_extra_args_provider(add_custom_arguments=None):
                 "--save-debug-event-data",
                 type=str,
                 default=None,
-                help="Where the audit events of this run go, including the env report. Defaults to "
-                "<save>/events, so that a run that checkpoints also records what it ran as.",
+                help="Where the audit events of this run go, including the env report. Defaults to <save>/events "
+                "(or <dump-details>/events); --ci-test falls back to a run-specific directory under --ci-event-root.",
+            )
+            parser.add_argument(
+                "--ci-event-root",
+                type=str,
+                default=None,
+                help="Root for automatic CI event directories. Defaults to the system temporary directory; "
+                "the Kubernetes launcher supplies its shared run root. Explicit event, save, and dump directories "
+                "take precedence.",
             )
             parser.add_argument(
                 "--dump-details",
@@ -2335,12 +2345,28 @@ def get_miles_extra_args_provider(add_custom_arguments=None):
                 help="Enable event analyzer to run sanity checks (e.g. cross-replica checksum consistency) before each training step.",
             )
             parser.add_argument(
+                "--log-inference-engine-weight-checksums",
+                action=argparse.BooleanOptionalAction,
+                default=None,
+                help="Ask every inference engine for a full weight checksum after each weight update and record it "
+                "in the event log. The engines materialize all weights to answer, which costs a large transient "
+                "allocation, so this defaults on only when an event directory was explicitly requested.",
+            )
+            parser.add_argument(
                 "--enable-sample-ownership-checker",
                 action=argparse.BooleanOptionalAction,
                 help="Verify exactly one outcome for every consumed sample and every mature issued sample; "
                 "CI enables this unless it is explicitly disabled. Every actor step appends one full "
                 "consumption snapshot per replica to the event log, whose size therefore grows with steps "
                 "times consumed samples, so this is meant for CI and debugging.",
+            )
+            parser.add_argument(
+                "--sample-ownership-grace-steps",
+                type=int,
+                default=None,
+                help="Completed rollout training steps before checking an issued sample (default: 10, or 2 in CI). "
+                "The same grace applies at shutdown: recent unconsumed samples may remain unchecked. "
+                "Repeated consumption and repeated drops are still checked within the grace window.",
             )
             parser.add_argument(
                 "--enable-witness",
@@ -3320,7 +3346,20 @@ def validate_log_probs_backend_args(args) -> None:
         )
 
 
+def _resolve_event_logging(args: argparse.Namespace) -> None:
+    event_directory_was_requested = args.save_debug_event_data is not None
+
+    if not event_directory_was_requested and args.ci_test:
+        root = Path(args.ci_event_root) if args.ci_event_root is not None else Path(tempfile.gettempdir())
+        args.save_debug_event_data = str(root / "miles-ci" / args.run_uuid / EVENTS_DIRNAME)
+
+    if args.log_inference_engine_weight_checksums is None:
+        args.log_inference_engine_weight_checksums = event_directory_was_requested or args.enable_event_analyzer
+
+
 def _resolve_sample_ownership_check(args: argparse.Namespace) -> None:
+    if args.sample_ownership_grace_steps is None:
+        args.sample_ownership_grace_steps = 2 if args.ci_test else 10
     if args.enable_sample_ownership_checker is None:
         args.enable_sample_ownership_checker = args.ci_test
     if not args.enable_sample_ownership_checker:
@@ -3351,6 +3390,15 @@ def _resolve_sample_ownership_check(args: argparse.Namespace) -> None:
     ]
     if unsupported:
         raise ValueError(f"--enable-sample-ownership-checker is not supported here: {'; '.join(unsupported)}")
+
+    if args.sample_ownership_grace_steps < 0:
+        raise ValueError("--sample-ownership-grace-steps must be non-negative")
+
+    if args.save_debug_event_data is None:
+        raise ValueError(
+            "--enable-sample-ownership-checker needs an event directory: "
+            "pass --save-debug-event-data, --save, or --dump-details"
+        )
 
 
 def miles_validate_args(args):
@@ -4064,6 +4112,7 @@ def miles_validate_args(args):
 
     args.run_uuid = _resolve_run_uuid(args)
 
+    _resolve_event_logging(args)
     _resolve_sample_ownership_check(args)
 
     if args.use_rollout_indexer_replay:
