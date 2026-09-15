@@ -11,6 +11,7 @@ from miles.backends.sglang_utils.sglang_api_client import SGLangApiClient
 from miles.backends.training_utils.parallel import ParallelState
 from miles.backends.training_utils.weight_update.hf_weight_iterator import WeightUpdatePlacement
 from miles.backends.training_utils.weight_update.protocol import WeightTransferProtocol
+from miles.backends.training_utils.weight_update.protocols.p2p_rollout_cell_updater import _P2PRolloutCellUpdater
 from miles.backends.training_utils.weight_update.protocols.transports.mooncake import MooncakeTransport, RemoteShard
 from miles.backends.training_utils.weight_update.protocols.utils.loader_probe import HfTensorSpec
 from miles.backends.training_utils.weight_update.protocols.utils.model_param_stager import ModelParamStager
@@ -53,6 +54,9 @@ class _RunnerSender:
         return hf_name in self.model_replicas.hf_name_mapping.param_names_by_hf_name
 
 
+# ============================== transfer protocol ==============================
+
+
 class UpdateWeightP2P(WeightTransferProtocol):
     """Write target and supported MTP draft weights to published GPU addresses over Mooncake."""
 
@@ -66,6 +70,7 @@ class UpdateWeightP2P(WeightTransferProtocol):
         self._transport: MooncakeTransport | None = None
         self._transfer_buffers: TransferBuffers | None = None
         self._runner_senders: list[_RunnerSender] = []
+        self._cell_updaters_of_rollout_engine_ind: dict[int, _P2PRolloutCellUpdater] = {}
 
     def begin_sync(
         self, weight_version: int, iter_buckets: Callable[..., Iterator[list[tuple[str, torch.Tensor]]]]
@@ -149,6 +154,10 @@ class UpdateWeightP2P(WeightTransferProtocol):
     ) -> None:
         """Assign and validate write targets, reusing replicas, mappings, transport and buffers across reconnects."""
         self.rollout_engines = rollout_engines
+        self._cell_updaters_of_rollout_engine_ind = {
+            rollout_engine_ind: _P2PRolloutCellUpdater(rollout_engine_ind=rollout_engine_ind)
+            for rollout_engine_ind in range(len(rollout_engines))
+        }
         assignments = assign_rollout_engine_ranks(parallel_state, placement, engine_gpu_counts)
         self.is_sender = bool(assignments)
 
