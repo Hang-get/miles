@@ -33,6 +33,9 @@ def restore(args: Namespace) -> None:
     if args.save_debug_event_data is None or args.requested_load is None:
         return
 
+    if args.train_backend == "megatron" and args.finetune:
+        return
+
     requested_load = Path(args.requested_load)
     iteration = _read_checkpoint_iteration(args)
     if iteration is None:
