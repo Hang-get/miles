@@ -106,6 +106,12 @@ class FullyAsyncRolloutFn(BaseRolloutFn):
             return await self._call_eval(input)
         self._curr_kv_cache_namespace = compute_kv_cache_namespace(self.args, input)
         if self._worker is None:
+            assert (
+                input.weight_version is not None or self.args.debug_rollout_only or self.args.debug_skip_weight_update
+            ), (
+                "the orchestration publishes the restored weight version before the producer starts, or every "
+                "group a checkpoint restored is filtered out as stale"
+            )
             self._worker = asyncio.create_task(self._worker_loop())
             self._worker.add_done_callback(self._on_worker_error)
             logger.info("Started fully-async rollout worker")
