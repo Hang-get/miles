@@ -3401,3 +3401,46 @@ def test_fully_async_without_over_sampling_batch_size_does_not_warn(caplog):
         _resolve_rollout_functions(args)
 
     assert "over-sampling-batch-size" not in caplog.text
+
+
+class TestMilesValidateArgsDiskDeltaResume:
+    @staticmethod
+    def _parse(load_dir, tmp_path):
+        parser = argparse.ArgumentParser()
+        get_miles_extra_args_provider()(parser)
+        parser.set_defaults(finetune=False)
+        return parser.parse_args(
+            [
+                "--update-weight-transfer-mode",
+                "disk-delta",
+                "--update-weight-disk-dir",
+                str(tmp_path / "shared"),
+                "--update-weight-local-checkpoint-dir",
+                str(tmp_path / "local"),
+                "--hf-checkpoint",
+                str(tmp_path),
+                "--ref-load",
+                str(tmp_path),
+                "--load",
+                str(load_dir),
+                "--num-rollout",
+                "1",
+            ]
+            + REQUIRED_ARGS
+        )
+
+    def test_resuming_from_a_training_checkpoint_is_rejected(self, tmp_path):
+        """The first sync only snapshots --hf-checkpoint, so the restored weights would never reach the engines."""
+        load_dir = tmp_path / "ckpt"
+        load_dir.mkdir()
+        (load_dir / "latest_checkpointed_iteration.txt").write_text("10")
+
+        with pytest.raises(ValueError, match="cannot resume from a training checkpoint"):
+            miles_validate_args(self._parse(load_dir, tmp_path))
+
+    def test_a_load_directory_without_a_checkpoint_still_starts(self, tmp_path):
+        """A fresh run points --load at a directory megatron has not written yet, and that is the supported shape."""
+        load_dir = tmp_path / "ckpt"
+        load_dir.mkdir()
+
+        miles_validate_args(self._parse(load_dir, tmp_path))
