@@ -44,6 +44,12 @@ class TestCustomFunctionResolution:
         assert restored.config.threshold == 0.7
         assert unpickled == restored
 
+    def test_serialized_hooks_cannot_fill_missing_fields_from_defaults(self) -> None:
+        """Incomplete hook payloads are rejected even when local schema defaults exist."""
+        with function_registry.temporary('hook', SimpleNamespace(config_class=_HookConfig)):
+            with pytest.raises(ValueError, match='Incomplete configuration.*threshold'):
+                CustomFunctionConfig.model_validate({'path': 'hook', 'config': {}})
+
 class TestLegacyCustomArguments:
 
     def test_suppressed_defaults_cannot_be_silently_synthesized(self) -> None:
