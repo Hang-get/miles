@@ -70,7 +70,6 @@ class UpdateWeightP2P(WeightTransferProtocol):
         self._transport: MooncakeTransport | None = None
         self._transfer_buffers: TransferBuffers | None = None
         self._runner_senders: list[_RunnerSender] = []
-        self._cell_updaters_of_rollout_engine_ind: dict[int, _P2PRolloutCellUpdater] = {}
 
     def begin_sync(
         self, weight_version: int, iter_buckets: Callable[..., Iterator[list[tuple[str, torch.Tensor]]]]
@@ -160,8 +159,9 @@ class UpdateWeightP2P(WeightTransferProtocol):
         )
 
         self.rollout_engines = rollout_engines
-        self._cell_updaters_of_rollout_engine_ind = {
-            cell_id: _P2PRolloutCellUpdater(cell_id=cell_id) for cell_id in engine_cell_ids
+        self.cell_updaters_of_cell_id = {
+            cell_id: _P2PRolloutCellUpdater(cell_id=cell_id, api_client=api_client)
+            for api_client, cell_id in zip(rollout_engines, engine_cell_ids, strict=True)
         }
         assignments = assign_rollout_engine_ranks(parallel_state, placement, engine_gpu_counts)
         self.is_sender = bool(assignments)
