@@ -276,6 +276,11 @@ class _P2PSenderHarness:
             "_allocate_transfer_buffer",
             lambda buffer_nbytes, device: torch.empty(buffer_nbytes, dtype=torch.uint8, device=device),
         )
+        monkeypatch.setitem(
+            p2p_protocol._P2PRolloutCellUpdater.__init__.__globals__,
+            "ThreadPoolExecutor",
+            lambda **kwargs: _ObservedExecutor(self.waiting_threads, **kwargs),
+        )
 
     def loaded_event(self, tp_rank: int) -> threading.Event:
         return self._loaded_events.setdefault(tp_rank, threading.Event())
