@@ -32,7 +32,7 @@ from miles.backends.training_utils.torch_native.step_runner import StepRunner
 from miles.backends.training_utils.types import TrainStepOutcome, TrainStepOutput
 from miles.backends.training_utils.weight_update.updater import WeightUpdater
 from miles.ray.rollout.inference_controller import UpdatableEngines
-from miles.ray.train_actor import TrainRayActor
+from miles.ray.train_actor import TrainRayActor, WeightUpdateOutput
 from miles.utils.audit_utils.witness.allocator import WitnessInfo
 from miles.utils.distributed_utils import get_gloo_group
 from miles.utils.dp_schedule import TrainParallelConfig
@@ -289,9 +289,9 @@ class TorchNativeTrainRayActor(TrainRayActor):
             )
 
     @timer
-    def update_weights(self, info: UpdatableEngines) -> int | None:  # type: ignore[override]
+    def update_weights(self, info: UpdatableEngines) -> WeightUpdateOutput:  # type: ignore[override]
         if self.args.debug_train_only or self.args.debug_rollout_only:
-            return None
+            return WeightUpdateOutput(weight_version=None, failed_cell_ids=())
         self.weight_updater.reconnect_if_needed(info)
         print_memory("before update_weights")
         next_version = self._published_weight_version + 1
@@ -303,7 +303,7 @@ class TorchNativeTrainRayActor(TrainRayActor):
                 info.rollout_engines, weight_version=self._published_weight_version
             )
         clear_memory()
-        return self._published_weight_version
+        return WeightUpdateOutput(weight_version=self._published_weight_version, failed_cell_ids=())
 
 
 def _step_loss(args, num_microbatches: int, logits: torch.Tensor, batch: dict) -> tuple[torch.Tensor, dict]:
