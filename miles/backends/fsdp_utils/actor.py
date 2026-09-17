@@ -200,9 +200,13 @@ class FSDPTrainRayActor(TorchNativeTrainRayActor):
             # Resolve natively-supported archs by model_type string: AutoConfig/AutoModel registries can
             # be re-registered at runtime (sglang vendors a nemotron_h config whose hybrid_override_pattern
             # parsing mis-places the attention layers), which would silently train a mis-shaped model.
-            native_cls_name = MODEL_FOR_CAUSAL_LM_MAPPING_NAMES.get(getattr(self.hf_config, "model_type", ""))
+            native_cls_name = MODEL_FOR_CAUSAL_LM_MAPPING_NAMES.get(
+                getattr(self.hf_config, "model_type", "")
+            )  # config-access-exempt: model-family schemas differ in optional model_type metadata
             if native_cls_name is not None:
-                return getattr(transformers, native_cls_name)
+                return getattr(
+                    transformers, native_cls_name
+                )  # config-access-exempt: attribute selected at runtime from native_cls_name
             return AutoModelForCausalLM
 
     def _build_model_with_attn_bridge(self, checkpoint_path: str, init_context):
