@@ -4,7 +4,6 @@ import dataclasses
 import gc
 import logging
 import math
-from argparse import Namespace
 from collections.abc import Callable, Sequence
 from contextlib import nullcontext
 from functools import partial
@@ -44,6 +43,7 @@ from miles.backends.training_utils.model_companion import (
 )
 from miles.backends.training_utils.types import TrainStepOutcome
 from miles.backends.training_utils.weight_update.snapshot_publisher import SnapshotPublisher
+from miles.utils.args.runtime import TrainerConfig
 from miles.utils.audit_utils.witness.allocator import WitnessInfo
 from miles.utils.audit_utils.witness.module import witness_dump_and_clear_stale
 from miles.utils.dumper_utils import DumperMegatronUtil, DumperPhase
@@ -80,7 +80,7 @@ from .fp32_param_utils import enforce_marked_param_dtypes
 from .lora.bridge import _ensure_model_list, _setup_lora_model_via_bridge  # noqa: F401
 
 
-def get_optimizer_param_scheduler(args: Namespace, optimizer: MegatronOptimizer) -> OptimizerParamScheduler | None:
+def get_optimizer_param_scheduler(args: TrainerConfig, optimizer: MegatronOptimizer) -> OptimizerParamScheduler | None:
     """Create and configure the optimizer learning-rate/weight-decay scheduler.
 
     This configures iteration-based schedules derived from the global batch size
@@ -138,7 +138,7 @@ def _is_muon_optimizer(optimizer: str | None) -> bool:
 
 
 def setup_model_and_optimizer(
-    args: Namespace,
+    args: TrainerConfig,
     role: str = "actor",
 ) -> tuple[list[DDP], MegatronOptimizer | None, OptimizerParamScheduler | None]:
     """Build model(s), wrap with DDP, and construct optimizer and scheduler.
@@ -155,6 +155,7 @@ def setup_model_and_optimizer(
             - The learning-rate/weight-decay scheduler tied to the optimizer, or
               ``None`` when ``--debug-disable-optimizer`` is set.
     """
+    assert isinstance(args, TrainerConfig)
     assert not args.moe_use_upcycling
     assert args.load is not None or args.pretrained_checkpoint is not None
 
@@ -275,7 +276,7 @@ def disable_forward_pre_hook(model_chunks: Sequence[DDP], param_sync: bool = Tru
         model_chunk.disable_forward_pre_hook(param_sync=param_sync)
 
 
-def should_disable_forward_pre_hook(args: Namespace) -> bool:
+def should_disable_forward_pre_hook(args: TrainerConfig) -> bool:
     """Block forward pre-hook for certain configurations."""
     return args.use_distributed_optimizer and args.overlap_param_gather
 
@@ -288,7 +289,7 @@ def should_disable_forward_pre_hook(args: Namespace) -> bool:
 @torch.no_grad()
 def forward_only(
     f: Callable[..., dict[str, list[torch.Tensor]]],
-    args: Namespace,
+    args: TrainerConfig,
     model: Sequence[DDP],
     data_iterator: Sequence[DataIterator],
     num_microbatches: Sequence[int],
@@ -570,7 +571,7 @@ def run_forward_backward_pass(
 
 
 def train_one_step(
-    args: Namespace,
+    args: TrainerConfig,
     rollout_id: int,
     step_id: int,
     data_iterator: Sequence[DataIterator],
@@ -959,7 +960,7 @@ def save(
 
 
 def initialize_model_and_optimizer(
-    args: Namespace,
+    args: TrainerConfig,
     role: str = "actor",
     checkpointing_context=None,
 ) -> tuple[list[DDP], MegatronOptimizer | None, OptimizerParamScheduler | None, LoadCheckpointOutput]:
@@ -974,6 +975,7 @@ def initialize_model_and_optimizer(
         tuple[list[DDP], MegatronOptimizer, OptimizerParamScheduler, LoadCheckpointOutput]:
             DDP-wrapped model chunks, optimizer, scheduler, and what the load answered.
     """
+    assert isinstance(args, TrainerConfig)
     model, optimizer, opt_param_scheduler = build_model_and_optimizer(args, role=role)
 
     load_output = load_model_state(
@@ -988,7 +990,7 @@ def initialize_model_and_optimizer(
 
 
 def build_model_and_optimizer(
-    args: Namespace, *, role: str
+    args: TrainerConfig, *, role: str
 ) -> tuple[list[DDP], MegatronOptimizer | None, OptimizerParamScheduler | None]:
     model, optimizer, opt_param_scheduler = setup_model_and_optimizer(args, role)
     model[0].role = role
@@ -1003,7 +1005,7 @@ class LoadCheckpointOutput:
 
 
 def load_model_state(
-    args: Namespace,
+    args: TrainerConfig,
     *,
     model: list[DDP],
     optimizer: MegatronOptimizer | None,
