@@ -986,7 +986,7 @@ class MegatronTrainRayActor(TrainRayActor):
             failed_cells, _ = partition(cell_updaters.items(), lambda kv: not kv[1].is_errored)
             failed_cell_ids = tuple(cell_id for cell_id, _ in failed_cells)
 
-            if getattr(self.args, "keep_old_actor", False):
+            if self.args.keep_old_actor:
                 if self.args.update_weights_interval == 1:
                     logger.info("updating model queue: rollout_actor -> old_actor, actor -> rollout_actor")
                     # Queue-style update: rollout_actor params -> old_actor, actor params -> rollout_actor
