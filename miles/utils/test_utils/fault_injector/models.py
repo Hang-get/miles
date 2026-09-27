@@ -23,6 +23,7 @@ class FaultHookName(StrEnum):
     TRAINER_WEIGHT_UPDATE_BEFORE_ALL_GATHER = "trainer_weight_update_before_all_gather"
     TRAINER_WEIGHT_UPDATE_BEFORE_SEND = "trainer_weight_update_before_send"
     TRAINER_STEP_BEFORE_ALLREDUCE = "trainer_step_before_allreduce"
+    TRAINER_CONTROLLER_STEP_START = "trainer_controller_step_start"
     TRAINER_CONTROLLER_STEP_END = "trainer_controller_step_end"
     ORCHESTRATOR_STEP_END = "orchestrator_step_end"
 
@@ -35,7 +36,7 @@ class FaultHookName(StrEnum):
                 | FaultHookName.TRAINER_STEP_BEFORE_ALLREDUCE
             ):
                 return FaultHookOwner.TRAINER_ACTOR
-            case FaultHookName.TRAINER_CONTROLLER_STEP_END:
+            case FaultHookName.TRAINER_CONTROLLER_STEP_START | FaultHookName.TRAINER_CONTROLLER_STEP_END:
                 return FaultHookOwner.TRAINER_CONTROLLER
             case FaultHookName.ORCHESTRATOR_STEP_END:
                 return FaultHookOwner.ORCHESTRATOR
