@@ -383,6 +383,9 @@ trainer_weight_update_before_all_gather:
   2. Rollout 3: stop_process (SIGSTOP)
   3. Rollout 5: deadlock_thread
   --update-weights-timeout 120: the controller gives a stopped or deadlocked cell up after 120s
+  Rollouts 2, 4 and 6: sleep 90s at trainer_controller_step_start, before the refresh. A heal
+  (mini FT controller poll, resume delay, relaunch) takes ~40s against ~16s steps, and the trainer
+  does not wait for a healing cell, so without the pause the next rollout would train without it
 
 Assertions:
   1. Reconfigure events: zero on the baseline; on the target exactly one heal per fault, at
