@@ -46,4 +46,5 @@ async def run_hot_restart_soak(
             events_dir=run.events_dir,
         ),
         evidence_dir=evidence_dir,
+        observation_ends_with_sut=False,
     )
