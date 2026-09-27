@@ -179,7 +179,10 @@ Compare: dumps rel <= 0.0085; metrics rtol=1e-2, atol=1e-8
 1. Baseline: normal DP on debug rollout data (real engines in a real-rollout mode)
 2. Target: the same arguments plus get_ft_args(mode), which is --use-fault-tolerance
    --ft-components <the mode's ft_components> --api-server-port 0
-3. Compare:
+3. Real-rollout mode only, both sides: --debug-deterministic-collective --clip-grad 10.0, as in
+   scenario_trainer_with_failure's kill_train__dp2_cp2 mode, so the weights stay bitwise equal
+   across the two topologies and the live temperature-0.8 samples of every rollout match
+4. Compare:
    - Tensor-level: compare_dumps (weights, grads via dumper & sglang comparator)
    - Metric-level: compare_metrics (MetricEvent, requires train/grad_norm and train/loss)
    - Rank matching: grouping_skip_keys=["rank", "dp", "edp"], the two sides differing in
