@@ -29,6 +29,7 @@ async def run_soak(
     event_log: EventLog,
     observer: SoakObserver,
     evidence_dir: Path,
+    observation_ends_with_sut: bool,
 ) -> SoakRunner:
     runner = _create_runner(
         config=config,
@@ -48,6 +49,7 @@ async def run_soak(
     assert_end_state_complete(
         runner.event_log.events,
         expected_count_of_kind={kind: one.expected_count for kind, one in runner.config.target_configs.items()},
+        observation_ends_with_sut=observation_ends_with_sut,
     )
     return runner
 

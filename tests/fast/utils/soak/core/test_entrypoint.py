@@ -66,6 +66,7 @@ class _SoakWorld:
             event_log=self.event_log,
             observer=self.observer,
             evidence_dir=self.dump_dir.parent / "stop-output",
+            observation_ends_with_sut=False,
         )
 
 
