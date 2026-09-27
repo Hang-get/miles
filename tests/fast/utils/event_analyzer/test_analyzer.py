@@ -296,6 +296,21 @@ class TestRunAnalysisFromArgs:
         args = Namespace(enable_event_analyzer=True, save_debug_event_data=str(tmp_path))
         run_analysis_from_args(args)
 
+    def test_a_mismatch_appended_after_a_passing_analysis_is_caught_by_the_next_one(self, tmp_path: Path) -> None:
+        """Reusing the parsed events of earlier passes still analyzes the events appended since."""
+        logger_a = EventLogger(log_dir=tmp_path, file_name="a.jsonl", source=_make_source(cell_index=0, rank=0))
+        logger_b = EventLogger(log_dir=tmp_path, file_name="b.jsonl", source=_make_source(cell_index=1, rank=0))
+        _log_checksum_event(logger_a, rollout_id=0, param_hashes={"pp0.w": "aaa"})
+        _log_checksum_event(logger_b, rollout_id=0, param_hashes={"pp0.w": "aaa"})
+        args = Namespace(enable_event_analyzer=True, save_debug_event_data=str(tmp_path))
+        run_analysis_from_args(args)
+
+        _log_checksum_event(logger_a, rollout_id=1, param_hashes={"pp0.w": "bbb"})
+        _log_checksum_event(logger_b, rollout_id=1, param_hashes={"pp0.w": "zzz"})
+
+        with pytest.raises(ValueError, match="rollout_1"):
+            run_analysis_from_args(args)
+
 
 class TestRunSampleOwnershipAnalysis:
     @staticmethod
@@ -357,7 +372,9 @@ class TestRunSampleOwnershipAnalysis:
 
     def test_a_disabled_check_reads_nothing(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Disabled checking does not even open the event log."""
-        monkeypatch.setattr(analyzer_module, "read_events", lambda *args, **kwargs: pytest.fail("disabled check ran"))
+        monkeypatch.setattr(
+            analyzer_module, "_event_reader", lambda *args, **kwargs: pytest.fail("disabled check ran")
+        )
 
         run_sample_ownership_analysis(args=self._args(enable_sample_ownership_checker=False))
 
