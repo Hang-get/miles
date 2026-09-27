@@ -40,7 +40,7 @@ from tests.utils.soak.ft.actions.base import CellFaultForms
 from tests.utils.soak.ft.actions.factory import compute_mean_interval_seconds_of_kind, create_cell_fault_forms
 from tests.utils.soak.ft.checkers.healing import assert_healing
 from tests.utils.soak.ft.entrypoint import run_cell_soak
-from tests.utils.soak.ft.types import ACTOR_CELL_TYPE, ROLLOUT_CELL_TYPE
+from tests.utils.soak.ft.types import ACTOR_CELL_TYPE, ROLLOUT_CELL_TYPE, FaultTrigger
 
 from miles.utils.external_utils import command_utils
 
@@ -76,7 +76,13 @@ def run_ci(
     ft_mode: FTTestMode = resolve_mode(mode)
     if fully_async:
         assert_mode_supports_fully_async(ft_mode, mode=mode)
-    triggers = fault_triggers.resolve(requested_triggers, has_real_rollout=ft_mode.has_real_rollout)
+    triggers = fault_triggers.resolve(
+        requested_triggers, has_real_rollout=ft_mode.has_real_rollout, trainer_ft="train" in ft_mode.ft_components
+    )
+    assert FaultTrigger.HOOK not in triggers or ft_mode.num_cells <= ft_mode.rollout_num_engines, (
+        f"Hook-triggered faults need every trainer cell to send weights to an engine, but {ft_mode.num_cells} "
+        f"cells share {ft_mode.rollout_num_engines} engines; run this mode with --fault-triggers timer"
+    )
 
     config = create_soak_config(command_utils.default_config())
     test_name: str = TEST_NAME + fault_triggers.compute_test_name_suffix(triggers)
@@ -107,7 +113,7 @@ def run_ci(
         mean_interval_seconds_of_cell_type=mean_interval_seconds_of_cell_type,
         train_args=train_args,
         fully_async=fully_async,
-        cell_fault_forms=create_cell_fault_forms(config, triggers=triggers),
+        cell_fault_forms=create_cell_fault_forms(config, triggers=triggers, weight_update_all_gathers=False),
     )
 
     fault_triggers.assert_hook_evidence(forms=injector.forms, events=injector.event_log.events, dump_dir=dump_dir)

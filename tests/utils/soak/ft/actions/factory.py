@@ -21,23 +21,38 @@ ROLLOUT_FAULT_ACTIONS: list[FaultAction] = [KillProcessAction()]
 
 HOOK_FAULT_LIFETIME_SECONDS: float = 300.0
 HOOK_FAULT_MAX_DELAY_MS: float = 1000.0
-ACTOR_HOOK_FAULT_ACTIONS: list[FaultAction] = [KillProcessAction(), StopProcessAction(), DeadlockThreadAction()]
+ACTOR_HOOK_FAULT_ACTIONS_OF_HOOK: dict[FaultHookName, list[FaultAction]] = {
+    FaultHookName.TRAINER_WEIGHT_UPDATE_BEFORE_ALL_GATHER: [
+        KillProcessAction(),
+        StopProcessAction(),
+        DeadlockThreadAction(),
+    ],
+    FaultHookName.TRAINER_WEIGHT_UPDATE_BEFORE_SEND: [KillProcessAction(), StopProcessAction()],
+}
 ROLLOUT_HOOK_FAULT_ACTIONS: list[FaultAction] = [KillProcessAction()]
-HOOK_FAULT_NAMES: list[FaultHookName] = [
-    FaultHookName.TRAINER_WEIGHT_UPDATE_BEFORE_ALL_GATHER,
-    FaultHookName.TRAINER_WEIGHT_UPDATE_BEFORE_SEND,
-]
 
 CELL_TYPE_OF_FT_COMPONENT: dict[str, str] = {"train": ACTOR_CELL_TYPE, "rollout": ROLLOUT_CELL_TYPE}
 
 
 def create_cell_fault_forms(
-    config: command_utils.ExecuteTrainConfig, *, triggers: frozenset[FaultTrigger]
+    config: command_utils.ExecuteTrainConfig,
+    *,
+    triggers: frozenset[FaultTrigger],
+    weight_update_all_gathers: bool = True,
 ) -> CellFaultForms:
     forms: CellFaultForms = {ACTOR_CELL_TYPE: [], ROLLOUT_CELL_TYPE: []}
     for trigger in sorted(triggers):
         for kind, kind_forms in _CREATE_FORMS_OF_TRIGGER[trigger](config).items():
             forms[kind] += kind_forms
+    if not weight_update_all_gathers:
+        forms[ACTOR_CELL_TYPE] = [
+            form
+            for form in forms[ACTOR_CELL_TYPE]
+            if not (
+                isinstance(form, InjectFaultForm)
+                and form.hook_name is FaultHookName.TRAINER_WEIGHT_UPDATE_BEFORE_ALL_GATHER
+            )
+        ]
     return forms
 
 
@@ -85,8 +100,8 @@ def _create_hook_forms(config: command_utils.ExecuteTrainConfig) -> CellFaultFor
             lifetime_seconds=HOOK_FAULT_LIFETIME_SECONDS,
             max_delay_ms=0 if isinstance(action, DeadlockThreadAction) else HOOK_FAULT_MAX_DELAY_MS,
         )
-        for hook_name in HOOK_FAULT_NAMES
-        for action in ACTOR_HOOK_FAULT_ACTIONS
+        for hook_name, actions in ACTOR_HOOK_FAULT_ACTIONS_OF_HOOK.items()
+        for action in actions
     ]
 
     match config.cluster_backend:
