@@ -113,6 +113,12 @@ class TestGetGsm8kTrainArgs:
         assert "--fully-async" in get_gsm8k_train_args(seed=7, num_rollout=30, test_name="t", fully_async=True).split()
         assert "--fully-async" not in get_gsm8k_train_args(seed=7, num_rollout=30, test_name="t").split()
 
+    def test_only_a_fully_async_run_widens_the_sample_ownership_grace(self) -> None:
+        """Fully-async generation outruns training, so 1024-token stragglers need more than the CI grace of 2."""
+        fully_async = get_gsm8k_train_args(seed=7, num_rollout=30, test_name="t", fully_async=True)
+        assert _value_of(fully_async, "--sample-ownership-grace-steps") == "10"
+        assert "--sample-ownership-grace-steps" not in get_gsm8k_train_args(seed=7, num_rollout=30, test_name="t")
+
 
 class TestPrepareGsm8kRun:
     def test_the_run_is_bound_to_one_fresh_dump_dir_and_its_evidence(
