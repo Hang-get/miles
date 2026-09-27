@@ -41,6 +41,7 @@ TRAIN_GPUS: int = 4
 ROLLOUT_GPUS: int = 4
 CONTEXT_PARALLEL_SIZE: int = 2
 ROLLOUT_GPUS_PER_ENGINE: int = 1
+FULLY_ASYNC_SAMPLE_OWNERSHIP_GRACE_STEPS: int = 10
 
 
 class Gsm8kLaunchSpec(FrozenStrictBaseModel):
@@ -239,6 +240,8 @@ def get_gsm8k_train_args(
         "--ci-metric-checker-key eval/gsm8k "
         f"--ci-metric-checker-threshold {metric_threshold} "
     )
+    if fully_async:
+        ci_args += f"--sample-ownership-grace-steps {FULLY_ASYNC_SAMPLE_OWNERSHIP_GRACE_STEPS} "
 
     misc_args = (
         # default dropout in megatron is 0.1
