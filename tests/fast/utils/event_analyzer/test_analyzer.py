@@ -25,7 +25,6 @@ from miles.utils.audit_utils.event_analyzer.analyzer import (
 from miles.utils.audit_utils.event_analyzer.rules.inference_engine_weight_checksum_coverage import (
     WeightUpdateCoverageIssue,
 )
-from miles.utils.audit_utils.event_analyzer.rules.inference_engine_weight_movement import WeightMovementIssue
 from miles.utils.audit_utils.event_logger.logger import EventLogger
 from miles.utils.audit_utils.event_logger.models import (
     InferenceEngineWeightChecksumEvent,
@@ -206,8 +205,11 @@ class TestWeightPublicationRulesWiredIn:
 
         assert isinstance(issue, WeightUpdateCoverageIssue)
 
-    def test_an_unchanged_tensor_between_settled_versions_is_reported(self, tmp_path: Path) -> None:
-        """run_analysis runs the per-tensor movement rule when the trainer arguments allow it."""
+    def test_an_unchanged_tensor_between_settled_versions_is_only_a_warning(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A bf16 tensor can stay unchanged under a small learning rate, so the reported issue only warns."""
+        caplog.set_level(logging.WARNING)
         self._write(
             tmp_path,
             [
@@ -226,8 +228,30 @@ class TestWeightPublicationRulesWiredIn:
         )
 
         [issue] = run_analysis(event_dir=tmp_path)
+        run_analysis_from_args(Namespace(enable_event_analyzer=True, save_debug_event_data=str(tmp_path)))
 
-        assert isinstance(issue, WeightMovementIssue)
+        assert issue.kind == "unchanged_tensors"
+        assert [
+            record.getMessage() for record in caplog.records if "unchanged tensor checksums" in record.getMessage()
+        ]
+
+    def test_a_changed_tensor_set_between_settled_versions_still_fails(self, tmp_path: Path) -> None:
+        """Rounding explains an unchanged value but never a vanished tensor, so a set change stays a failure."""
+        self._write(
+            tmp_path,
+            [
+                make_trainer_args(),
+                make_checksum(
+                    second=1.0, update_id="u1", weight_version=1, snapshots={"a": ("h1", {"w": "1", "b": "1"})}
+                ),
+                make_checksum(second=2.0, update_id="u2", weight_version=2, snapshots={"a": ("h2", {"w": "2"})}),
+                make_step_end(second=9.0, cell_outcomes={}),
+            ],
+        )
+
+        [issue] = run_analysis(event_dir=tmp_path)
+
+        assert (issue.kind, issue.description) == ("tensor_set_changed", "tensor set changed")
 
 
 class TestRunAnalysisFromArgs:

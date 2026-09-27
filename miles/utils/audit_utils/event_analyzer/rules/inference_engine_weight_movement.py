@@ -1,5 +1,5 @@
 from itertools import pairwise
-from typing import Any
+from typing import Any, Literal
 
 from miles.utils.audit_utils.event_analyzer.rules.utils import trainer_args
 from miles.utils.audit_utils.event_logger.models import (
@@ -20,7 +20,12 @@ class WeightMovementIssue(FrozenStrictBaseModel):
     debug_trainer_load_state_timestamp: float
     weight_version_before: int
     weight_version_after: int
+    kind: Literal["tensor_set_changed", "unchanged_tensors"]
     description: str
+
+    @property
+    def is_warning_only(self) -> bool:
+        return self.kind == "unchanged_tensors"
 
 
 def check(events: list[Event], *, include_latest: bool = False) -> list[WeightMovementIssue]:
@@ -47,9 +52,9 @@ def check(events: list[Event], *, include_latest: bool = False) -> list[WeightMo
         for before, after in pairwise(sorted(by_version)):
             previous, current = by_version[before], by_version[after]
             if previous.keys() != current.keys():
-                description = "tensor set changed"
+                kind, description = "tensor_set_changed", "tensor set changed"
             elif unchanged := sorted(name for name in current if current[name] == previous[name]):
-                description = f"unchanged tensor checksums: {unchanged}"
+                kind, description = "unchanged_tensors", f"unchanged tensor checksums: {unchanged}"
             else:
                 continue
             issues.append(
@@ -58,6 +63,7 @@ def check(events: list[Event], *, include_latest: bool = False) -> list[WeightMo
                     debug_trainer_load_state_timestamp=load_state_timestamp,
                     weight_version_before=before,
                     weight_version_after=after,
+                    kind=kind,
                     description=description,
                 )
             )
