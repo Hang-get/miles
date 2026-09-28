@@ -5,6 +5,8 @@ import sys
 from pathlib import Path
 from typing import Literal
 
+from pydantic import Field
+
 from miles.utils.file_utils import atomic_write_text
 from miles.utils.test_utils.fault_injector.actions.base import BaseFaultAction, FaultHookContext, FaultHookResources
 
@@ -13,6 +15,15 @@ logger = logging.getLogger(__name__)
 SLEEP_FOREVER_INTERVAL_SECONDS: float = 60.0
 PARKABLE_TRAIN_SCRIPT: str = "train.py"
 FROZEN_SENTINEL_SUFFIX: str = "_frozen_at.json"
+
+
+class SleepAction(BaseFaultAction):
+    kind: Literal["sleep"] = "sleep"
+    seconds: float = Field(gt=0)
+
+    async def __call__(self, *, context: FaultHookContext, resources: FaultHookResources) -> None:
+        logger.warning(f"Fault hook: sleeping {self.seconds}s at rollout {context.rollout_id}")
+        await asyncio.sleep(self.seconds)
 
 
 class SleepForeverAction(BaseFaultAction):
