@@ -18,6 +18,7 @@ _UNREADABLE_PHASE = "Unknown"
 _MISSING_POD_POLLS = 3
 _DEAD_POD_POLLS = 3
 _FAILING_POD_POLLS = 3
+_UNREADABLE_GENERATION_POLLS = 30
 _NO_VERDICT_EXIT_CODE = 1
 
 
@@ -46,11 +47,19 @@ def wait_for_run(
     missing_polls = 0
     dead_polls = 0
     failing_polls = 0
+    unreadable_polls = 0
     while True:
         generation = _read_active_generation(read_active_state_file)
         if not generation.readable:
+            unreadable_polls += 1
+            if unreadable_polls >= _UNREADABLE_GENERATION_POLLS:
+                raise RuntimeError(
+                    f"Could not read the active orchestrator generation for {unreadable_polls} polls in a row, so "
+                    f"the run can no longer be followed"
+                )
             time.sleep(_POLL_INTERVAL_SECONDS)
             continue
+        unreadable_polls = 0
 
         if generation.state_file is not None and generation.state_file != state_file:
             logger.info(f"The active orchestrator generation moved from {state_file} to {generation.state_file}")
