@@ -49,10 +49,17 @@ class ConfigSnapshotProcess(FrozenStrictBaseModel):
     diffs: dict[str, str]
 
 
+class ConfigSnapshotProcessDiff(FrozenStrictBaseModel):
+    ranks: list[int]
+    base_ref: str
+    base_diff: str
+    diffs: dict[str, str]
+
+
 class ConfigSnapshotCase(FrozenStrictBaseModel):
     """Collect all logical process snapshots for one test case."""
 
-    processes: dict[str, ConfigSnapshotProcess]
+    processes: dict[str, ConfigSnapshotProcess | ConfigSnapshotProcessDiff]
 
 
 # =============================== Test attempts ================================

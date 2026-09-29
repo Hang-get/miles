@@ -7,6 +7,7 @@ from miles.utils.audit_utils.config_snapshot.models import (
     ConfigSnapshotCase,
     ConfigSnapshotPoint,
     ConfigSnapshotProcess,
+    ConfigSnapshotProcessDiff,
     ConfigSnapshotRecord,
 )
 from miles.utils.audit_utils.config_snapshot.normalizer import normalize_record, normalized_source_name
@@ -34,7 +35,38 @@ class ConfigSnapshotConverter:
             if (existing := processes.get(name)) is not None:
                 process = _merge_ranks(existing=existing, process=process, name=name)
             processes[name] = process
-        return ConfigSnapshotCase(processes=dict(sorted(processes.items())))
+        return ConfigSnapshotCase(processes=_compress_process_bases(processes))
+
+
+def _compress_process_bases(
+    processes: dict[str, ConfigSnapshotProcess],
+) -> dict[str, ConfigSnapshotProcess | ConfigSnapshotProcessDiff]:
+    bases: dict[str, tuple[str, ConfigSnapshotProcess]] = {}
+    result: dict[str, ConfigSnapshotProcess | ConfigSnapshotProcessDiff] = {}
+    for name, process in sorted(processes.items()):
+        source = name.rsplit("/", maxsplit=1)[-1]
+        if source not in bases:
+            bases[source] = (name, process)
+            result[name] = process
+            continue
+
+        base_name, base = bases[source]
+        compressed = ConfigSnapshotProcessDiff(
+            ranks=process.ranks,
+            base_ref=base_name,
+            base_diff="".join(
+                difflib.unified_diff(
+                    dump_snapshot(base.base).splitlines(keepends=True),
+                    dump_snapshot(process.base).splitlines(keepends=True),
+                    fromfile=base_name,
+                    tofile=name,
+                    n=0,
+                )
+            ),
+            diffs=process.diffs,
+        )
+        result[name] = compressed if len(dump_snapshot(compressed)) < len(dump_snapshot(process)) else process
+    return result
 
 
 def _convert_process(records: list[ConfigSnapshotRecord]) -> ConfigSnapshotProcess:
