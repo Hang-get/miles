@@ -4,15 +4,18 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
+import yaml
+
+from miles.utils.audit_utils.config_snapshot.compact import ConfigSnapshotBases
 from miles.utils.audit_utils.config_snapshot.converter import ConfigSnapshotConverter
 from miles.utils.audit_utils.config_snapshot.models import ConfigSnapshotTestAttempt
+from miles.utils.audit_utils.config_snapshot.serialization import dump_config_snapshot
 from miles.utils.audit_utils.config_snapshot.storage import ConfigSnapshotStorage
 from miles.utils.file_utils import atomic_write_text
 from miles.utils.test_utils.snapshot import (
     SNAPSHOT_RECORD_DIR_ENV_VAR,
     SNAPSHOT_UPDATE_ENV_VAR,
     assert_matches_snapshot,
-    dump_snapshot,
 )
 
 logger = logging.getLogger(__name__)
@@ -28,6 +31,7 @@ class ConfigSnapshotTestRunner:
     directory: Path
     storage: ConfigSnapshotStorage
     golden: Path
+    bases: Path
 
     @property
     def record_directory(self) -> Path:
@@ -44,6 +48,7 @@ class ConfigSnapshotTestRunner:
             directory=directory,
             storage=ConfigSnapshotStorage(directory=directory / "records"),
             golden=cls.golden_path(test=test, repo_root=repo_root),
+            bases=repo_root.resolve() / "tests/snapshots/runtime_config/base.yaml",
         )
         attempt.record_directory.mkdir(parents=True)
         attempt._write_status(completed=False)
@@ -59,7 +64,9 @@ class ConfigSnapshotTestRunner:
                 return
             assert_matches_snapshot(
                 snapshot=self.golden,
-                actual=dump_snapshot(case),
+                actual=dump_config_snapshot(
+                    case, bases=ConfigSnapshotBases.model_validate(yaml.safe_load(self.bases.read_text()))
+                ),
                 subject=f"runtime configuration; raw dumps: {self.record_directory}",
                 update=bool(os.environ.get(SNAPSHOT_UPDATE_ENV_VAR)),
             )

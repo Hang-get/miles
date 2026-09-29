@@ -58,25 +58,23 @@ class ConfigSnapshotRecord(FrozenStrictBaseModel):
 # ============================ Converted snapshots =============================
 
 
+class ConfigSnapshotDelta(FrozenStrictBaseModel):
+    set: dict[str, JsonValue]
+    remove: list[str]
+
+
 class ConfigSnapshotProcess(FrozenStrictBaseModel):
     """Represent equivalent ranks using one base sample and per-stage diffs."""
 
     ranks: list[int]
     base: JsonValue
-    diffs: dict[str, str]
-
-
-class ConfigSnapshotProcessDiff(FrozenStrictBaseModel):
-    ranks: list[int]
-    base_ref: str
-    base_diff: str
-    diffs: dict[str, str]
+    diffs: dict[str, ConfigSnapshotDelta]
 
 
 class ConfigSnapshotCase(FrozenStrictBaseModel):
     """Collect all logical process snapshots for one test case."""
 
-    processes: dict[str, ConfigSnapshotProcess | ConfigSnapshotProcessDiff]
+    processes: dict[str, ConfigSnapshotProcess]
 
 
 # =============================== Test attempts ================================
