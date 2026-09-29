@@ -159,6 +159,7 @@ def load_checkpoint(
                 checkpointing_context=checkpointing_context,
                 skip_load_to_model_and_opt=skip_load_to_model_and_opt,
             )
+        restored_trained_iteration = not args.backend.finetune
     else:
         result_iteration, _ = _load_checkpoint_hf(
             ddp_model=ddp_model,
@@ -166,7 +167,7 @@ def load_checkpoint(
             args=args,
             load_path=load_path,
         )
-    restored_trained_iteration = not args.backend.finetune
+        restored_trained_iteration = False
 
     # Load LoRA adapter weights if available
     native_optimizer_restored = False
