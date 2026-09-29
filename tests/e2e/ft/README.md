@@ -325,7 +325,7 @@ Compare: dumps rel <= 0 (bitwise); metrics rtol=0 / atol=0 over train/* and roll
 
 Regime (both sides):
   - the shared deterministic rollout recipe: --sglang-enable-deterministic-inference,
-    --sglang-attention-backend flashinfer and --deterministic-mode
+    --sglang-attention-backend flashinfer, --deterministic-mode and --sglang-disable-overlap-schedule
   - --debug-deterministic-collective and scenario_trainer_deterministic's deterministic env vars
   - --sglang-disable-radix-cache
   - --update-weight-transfer-mode p2p --sglang-router-policy round_robin: disaggregated P2P only
@@ -353,6 +353,7 @@ Assertions:
 
 - **Why it exists**: an engine dying and a fresh one taking over mid-generation is supposed to be invisible to training, and "invisible" is a claim about bits; the rollout soak asserts survival only.
 - **Why the shared deterministic recipe**: the assertion is deterministic replay across fresh inference engines, not true-on-policy training. Reusing the same FlashInfer recipe as the main deterministic trainer-FT test avoids a second, incompatible attention-backend contract.
+- **Why the shared recipe disables the overlap scheduler**: the rollout health check calls SGLang's `/health_generate`, a greedy one-token request. Under the overlap scheduler it joins the running decode batch before its finish is known, and SGLang does not recompute the batch's sampling-path flags when it leaves, so the temperature-only rollout requests keep sampling through the top-k path, which hashes sorted ranks instead of token ids: seeded requests then draw different tokens from bitwise identical distributions (5 of 160 rollouts across repeated no-fault runs, 0 of 160 with overlap off). Without overlap the one-token request finishes before it can join.
 - **Why `--sglang-disable-radix-cache`**: a replacement engine serves with a cold prefix cache where the baseline's was warm, and deterministic inference is nowhere documented as prefix-cache-length invariant.
 - **Why this recipe disables batch-variant MM fallback**: a rollout worker loss changes co-batching while the pool is healing; permitting an `einsum` fallback would make the same seeded request depend on that temporary batch shape. The scenario injects the environment override without changing the production default.
 - **Why `--rollout-health-check-interval 1`**: healthy generation can finish between two five-second polls; the short scenario needs at least one fresh Serving observation for its rollout witness.
