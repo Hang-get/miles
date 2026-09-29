@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar
 
+from miles.utils.audit_utils.config_snapshot.generated_values import read_generated_values
 from miles.utils.audit_utils.config_snapshot.models import (
     ConfigSnapshotContext,
     ConfigSnapshotPoint,
@@ -61,5 +62,6 @@ class ConfigSnapshotDumper:
             context=state.context,
             point=ConfigSnapshotPoint(stage=stage, index=index),
             config=redact_config_values(snapshot_values(config)),
+            generated_values=read_generated_values(),
         )
         state.storage.write(record)

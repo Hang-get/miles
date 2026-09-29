@@ -5,12 +5,17 @@ from pydantic import JsonValue
 
 from miles.utils.audit_utils.config_snapshot.models import (
     ConfigSnapshotCase,
+    ConfigSnapshotGeneratedValue,
     ConfigSnapshotPoint,
     ConfigSnapshotProcess,
     ConfigSnapshotProcessDiff,
     ConfigSnapshotRecord,
 )
-from miles.utils.audit_utils.config_snapshot.normalizer import normalize_record, normalized_source_name
+from miles.utils.audit_utils.config_snapshot.normalizer import (
+    collect_generated_values,
+    normalize_record,
+    normalized_source_name,
+)
 from miles.utils.audit_utils.process_identity import TrainProcessIdentity
 from miles.utils.test_utils.snapshot import dump_snapshot
 
@@ -20,6 +25,7 @@ _BASE = ConfigSnapshotPoint(stage="process_config", index=0).to_key()
 class ConfigSnapshotConverter:
     @classmethod
     def convert(cls, records: list[ConfigSnapshotRecord]) -> ConfigSnapshotCase:
+        generated_values = collect_generated_values(records)
         by_capture: dict[str, list[ConfigSnapshotRecord]] = defaultdict(list)
         for record in records:
             by_capture[record.context.capture_id].append(record)
@@ -31,7 +37,10 @@ class ConfigSnapshotConverter:
                 f"{context.name}/{context.deploy_component}/{context.deploy_instance_id}/"
                 f"{normalized_source_name(context.source)}"
             )
-            process = _convert_process(capture_records)
+            process = _convert_process(
+                capture_records,
+                generated_values=generated_values[context.generation],
+            )
             if (existing := processes.get(name)) is not None:
                 process = _merge_ranks(existing=existing, process=process, name=name)
             processes[name] = process
@@ -69,7 +78,11 @@ def _compress_process_bases(
     return result
 
 
-def _convert_process(records: list[ConfigSnapshotRecord]) -> ConfigSnapshotProcess:
+def _convert_process(
+    records: list[ConfigSnapshotRecord],
+    *,
+    generated_values: list[ConfigSnapshotGeneratedValue],
+) -> ConfigSnapshotProcess:
     context = records[0].context
     samples: dict[str, JsonValue] = {}
     for record in sorted(records, key=lambda record: (record.point.stage, record.point.index)):
@@ -78,7 +91,7 @@ def _convert_process(records: list[ConfigSnapshotRecord]) -> ConfigSnapshotProce
         name = record.point.to_key()
         if name in samples:
             raise ValueError(f"Duplicate snapshot stage for capture {context.capture_id}: {name}")
-        samples[name] = normalize_record(record)
+        samples[name] = normalize_record(record, generated_values=generated_values)
     if _BASE not in samples:
         raise ValueError(f"Missing {_BASE} for capture {context.capture_id}")
 
