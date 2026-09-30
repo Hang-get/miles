@@ -20,6 +20,7 @@ def _make_generate_args() -> Namespace:
         use_rollout_routing_replay=False,
         use_rollout_indexer_replay=False,
         use_sampling_support_replay=False,
+        rollout_top_logprobs_num=0,
         partial_rollout=False,
         mask_offpolicy_in_partial_rollout=False,
         lora_rank=0,

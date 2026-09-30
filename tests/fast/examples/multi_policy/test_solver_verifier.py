@@ -46,6 +46,7 @@ def _make_input(*, prompt: str | list[dict[str, str]], label: str) -> GenerateFn
         sglang_speculative_algorithm=None,
         rollout_max_response_len=16,
         rollout_max_context_len=None,
+        rollout_top_logprobs_num=0,
         use_rollout_routing_replay=False,
         use_rollout_indexer_replay=False,
         use_sampling_support_replay=False,
