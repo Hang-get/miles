@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import tempfile
+from pathlib import Path
 from string import Formatter
 from typing import Any
 
@@ -2204,7 +2205,15 @@ def get_miles_extra_args_provider(add_custom_arguments=None):
                 type=str,
                 default=None,
                 help="Where the audit events of this run go, including the env report. Defaults to <save>/events "
-                "(or <dump-details>/events); --ci-test falls back to a run-specific temporary directory.",
+                "(or <dump-details>/events); --ci-test falls back to a run-specific directory under --ci-event-root.",
+            )
+            parser.add_argument(
+                "--ci-event-root",
+                type=str,
+                default=None,
+                help="Root for automatic CI event directories. Defaults to the system temporary directory; "
+                "the Kubernetes launcher supplies its shared run root. Explicit event, save, and dump directories "
+                "take precedence.",
             )
             parser.add_argument(
                 "--dump-details",
@@ -3295,7 +3304,8 @@ def _resolve_event_logging(args: argparse.Namespace) -> None:
     event_directory_was_requested = args.save_debug_event_data is not None
 
     if not event_directory_was_requested and args.ci_test:
-        args.save_debug_event_data = os.path.join(tempfile.gettempdir(), "miles-ci", args.run_uuid, EVENTS_DIRNAME)
+        root = Path(args.ci_event_root) if args.ci_event_root is not None else Path(tempfile.gettempdir())
+        args.save_debug_event_data = str(root / "miles-ci" / args.run_uuid / EVENTS_DIRNAME)
 
     if args.log_inference_engine_weight_checksums is None:
         args.log_inference_engine_weight_checksums = event_directory_was_requested or args.enable_event_analyzer
