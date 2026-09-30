@@ -27,6 +27,7 @@ def _args(
         megatron_config=megatron_config,
         train_backend="megatron",
         finetune=False,
+        enable_sample_ownership_checker=True,
     )
 
 
