@@ -242,6 +242,7 @@ def get_gsm8k_train_args(
     )
     if fully_async:
         ci_args += f"--sample-ownership-grace-steps {FULLY_ASYNC_SAMPLE_OWNERSHIP_GRACE_STEPS} "
+        ci_args += "--sglang-enable-prefill-weight-versions "
 
     misc_args = (
         # default dropout in megatron is 0.1
