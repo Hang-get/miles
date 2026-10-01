@@ -67,6 +67,10 @@ def assert_take_overs_resumed_within_save_interval(dump_dir: str, *, records: Se
 
 def _read_replaced_logs(dump_dir: str, *, num_take_overs: int) -> list[dict[int, str]]:
     discarded_dirs = read_discarded_event_dirs(dump_dir)
+    replaced = [read_finished_steps_once(one, what=str(one)) for one in discarded_dirs]
+    first_trained_archive = next((index for index, log in enumerate(replaced) if log), len(replaced))
+    discarded_dirs = discarded_dirs[first_trained_archive:]
+    replaced = replaced[first_trained_archive:]
     assert len(discarded_dirs) == num_take_overs, (
         f"every take-over rolls the log it replaced aside, but {num_take_overs} of them left "
         f"{[one.name for one in discarded_dirs]} under {dump_dir}"
@@ -77,7 +81,6 @@ def _read_replaced_logs(dump_dir: str, *, num_take_overs: int) -> list[dict[int,
         sorted(set(rolled_aside_at)) == rolled_aside_at
     ), f"the take-overs under {dump_dir} rolled their logs aside at {rolled_aside_at}, two in the same second"
 
-    replaced = [read_finished_steps_once(one, what=str(one)) for one in discarded_dirs]
     surviving = read_finished_steps_once(Path(dump_dir) / EVENTS_DIRNAME, what="the surviving event log")
     return [*replaced, surviving]
 
