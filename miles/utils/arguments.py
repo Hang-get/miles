@@ -3397,7 +3397,12 @@ def miles_validate_args(args):
         raise ValueError("broadcast_packed requires Megatron non-colocated weight transfer")
     validate_dashboard_args(args)
 
-    args.ft_components = _resolve_ft_components(args)
+    if args.dumper_enable and args.use_fault_tolerance:
+        logger.info("Dumper mode: disabling --use-fault-tolerance to suppress fault tolerance heartbeats")
+        args.use_fault_tolerance = False
+        args.ft_components = []
+    else:
+        args.ft_components = _resolve_ft_components(args)
     assert "rollout" not in args.ft_components or supports_partial_target_weight_update(args), (
         "rollout fault tolerance needs a partial-target weight update (--update-weight-transfer-mode p2p, no "
         "--colocate): a rollout cell may be stopped during a weight update"
@@ -4251,11 +4256,6 @@ def validate_async_off_policy_correction(args) -> None:
 def _maybe_apply_dumper_overrides(args) -> None:
     if not args.dumper_enable:
         return
-
-    if args.use_fault_tolerance:
-        logger.info("Dumper mode: disabling --use-fault-tolerance to suppress fault tolerance heartbeats")
-        args.use_fault_tolerance = False
-        args.ft_components = []
 
     logger.info("Dumper mode: all heartbeat mechanisms disabled")
     args.router_disable_health_check = True
