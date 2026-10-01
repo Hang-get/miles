@@ -10,6 +10,10 @@ exercise the schedule itself (``partitions`` and ``micro_batch_indices``).
 """
 
 from __future__ import annotations
+from miles.backends.megatron_utils.megatron_config import MegatronArgsNamespace
+from miles.utils.args.runtime import TrainerConfig
+from miles.utils.dp_schedule import _calculate_workloads
+
 
 import random
 from types import SimpleNamespace
@@ -451,3 +455,12 @@ def test_train_parallel_config_declares_schedule_support() -> None:
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__]))
+
+
+def test_trainer_flops_workloads_read_backend_model_dimensions() -> None:
+    """Delayed trainer scheduling computes actual FLOPs using its backend-owned model dimensions."""
+    backend = MegatronArgsNamespace(hidden_size=2, num_attention_heads=1, num_query_groups=1, vocab_size=3, ffn_hidden_size=4, num_experts=None, num_layers=1, kv_channels=2, q_lora_rank=None, kv_lora_rank=None, qk_pos_emb_head_dim=0, qk_head_dim=2, v_head_dim=2)
+    config = TrainerConfig.model_construct(train_backend='megatron', backend=backend)
+    before = vars(backend).copy()
+    assert _calculate_workloads([0, 1, 3], config) == [0, 96, 312]
+    assert vars(backend) == before
