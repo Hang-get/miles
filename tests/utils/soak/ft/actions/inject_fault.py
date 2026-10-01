@@ -95,23 +95,12 @@ class InjectFaultForm(BaseCellFaultForm):
             ),
         )
         async with httpx.AsyncClient(timeout=5.0) as client:
-            try:
-                response = await client.post(
-                    f"{self.base_url}/api/v1/cells/{details.hook_target.cell_id}/fault-hook",
-                    content=command.model_dump_json(),
-                    headers={"Content-Type": "application/json"},
-                )
-                if response.is_server_error:
-                    logger.warning(
-                        "Fault submission outcome is unknown for %s: HTTP %s %s",
-                        request.request_id,
-                        response.status_code,
-                        response.text,
-                    )
-                else:
-                    response.raise_for_status()
-            except httpx.TransportError:
-                logger.warning("Fault submission outcome is unknown: %s", request.request_id, exc_info=True)
+            response = await client.post(
+                f"{self.base_url}/api/v1/cells/{details.hook_target.cell_id}/fault-hook",
+                content=command.model_dump_json(),
+                headers={"Content-Type": "application/json"},
+            )
+            response.raise_for_status()
             report_applied(await self._read_effect(client=client, request=request, fault_target=fault_target))
 
     def _compute_hook_action(
