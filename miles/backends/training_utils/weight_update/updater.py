@@ -175,6 +175,24 @@ class WeightUpdater:
         protocol.after_engines_resumed()
         return True
 
+    def check_weight_version(self, weight_version: int) -> None:
+        cell_updaters = list(self.protocol.cell_updaters_of_cell_id.values())
+        healthy_cells = [cell for cell in cell_updaters if not cell.is_errored]
+        mismatch: str | None = None
+        if healthy_cells:
+            cell = random.choice(healthy_cells)
+            engine_version = cell.submit_client_call("get_weight_version").result()
+            if not cell.is_errored and str(engine_version) != str(weight_version):
+                mismatch = f"Weight version mismatch! Engine: {engine_version}, Updater: {weight_version}"
+
+        _mark_cells_errored_on_any_rank(cell_updaters)
+        group = get_gloo_group()
+        mismatches: list[str | None] = [None] * dist.get_world_size(group=group)
+        dist.all_gather_object(mismatches, mismatch, group=group)
+        for message in mismatches:
+            if message is not None:
+                raise RuntimeError(message)
+
     def _iter_base_buckets(self, *, materialize: bool):
         return self._hf_weight_iterator.iter_hf_weights(self.weights_getter(), materialize=materialize)
 

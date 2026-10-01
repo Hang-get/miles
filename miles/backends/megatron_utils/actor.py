@@ -970,16 +970,12 @@ class MegatronTrainRayActor(TrainRayActor):
                 self.weight_updater.update_weights(weight_version=weight_version)
             print_memory("after update_weights")
 
-            cell_updaters = self.weight_updater.protocol.cell_updaters_of_cell_id
-            failed_cells, updated_cells = partition(cell_updaters.items(), lambda kv: not kv[1].is_errored)
-            updated_cell_ids = tuple(cell_id for cell_id, _ in updated_cells)
-            failed_cell_ids = tuple(cell_id for cell_id, _ in failed_cells)
-
-            updated_engines = [
-                e for e, c in zip(rollout_engines, info.engine_cell_ids, strict=True) if c in updated_cell_ids
-            ]
             if self.args.ci_test and not is_lora_enabled(self.args):
-                self.weight_updater.verify_engine_version(updated_engines, weight_version=weight_version)
+                self.weight_updater.check_weight_version(weight_version=weight_version)
+
+            cell_updaters = self.weight_updater.protocol.cell_updaters_of_cell_id
+            failed_cells, _ = partition(cell_updaters.items(), lambda kv: not kv[1].is_errored)
+            failed_cell_ids = tuple(cell_id for cell_id, _ in failed_cells)
 
             if getattr(self.args, "keep_old_actor", False):
                 if self.args.update_weights_interval == 1:
