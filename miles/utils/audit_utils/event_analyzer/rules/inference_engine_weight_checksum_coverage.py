@@ -6,7 +6,7 @@ from miles.utils.audit_utils.event_logger.models import (
 )
 from miles.utils.pydantic_utils import FrozenStrictBaseModel
 
-__all__ = ["check", "settled_published_updates"]
+__all__ = ["check", "check_published_updates", "settled_published_updates"]
 
 
 class WeightUpdateCoverageIssue(FrozenStrictBaseModel):
@@ -17,13 +17,21 @@ class WeightUpdateCoverageIssue(FrozenStrictBaseModel):
 
 def check(events: list[Event], *, include_latest: bool = False) -> list[WeightUpdateCoverageIssue]:
     """Check: every settled published weight update has one checksum record covering the engines it updated."""
+    return check_published_updates(
+        results=settled_published_updates(events, include_latest=include_latest), events=events
+    )
+
+
+def check_published_updates(
+    *, results: list[WeightUpdateResultEvent], events: list[Event]
+) -> list[WeightUpdateCoverageIssue]:
     checksums: dict[str, list[InferenceEngineWeightChecksumEvent]] = {}
     for event in events:
         if isinstance(event, InferenceEngineWeightChecksumEvent):
             checksums.setdefault(event.debug_weight_update_id, []).append(event)
 
     issues: list[WeightUpdateCoverageIssue] = []
-    for result in settled_published_updates(events, include_latest=include_latest):
+    for result in results:
         records = checksums.get(result.debug_weight_update_id, [])
         if len(records) != 1:
             issues.append(_issue(result, f"{len(records)} engine checksum records instead of one"))

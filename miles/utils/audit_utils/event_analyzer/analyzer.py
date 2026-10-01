@@ -14,6 +14,9 @@ from miles.utils.audit_utils.event_analyzer.rules import (
     inference_engine_weight_movement,
 )
 from miles.utils.audit_utils.event_analyzer.rules import witness as witness_rule
+from miles.utils.audit_utils.event_analyzer.rules.inference_engine_weight_checksum_coverage import (
+    WeightUpdateCoverageIssue,
+)
 from miles.utils.audit_utils.event_analyzer.rules.inference_engine_weight_movement import WeightMovementIssue
 from miles.utils.audit_utils.event_analyzer.rules.sample_ownership import check as sample_ownership_check
 from miles.utils.audit_utils.event_analyzer.rules.sample_ownership.models import SampleOwnershipViolation
@@ -51,11 +54,31 @@ def run_analysis_from_args(args: Namespace) -> None:
 
 
 def run_analysis(event_dir: Path) -> list[Any]:
-    events = _event_reader(event_dir, strict=False).read()
+    reader = _event_reader(event_dir, strict=False)
+    events = reader.read()
     if not events:
         return []
 
-    return [issue for model_events in _partition_by_model_id(events) for issue in _check_one_model_id(model_events)]
+    events_by_model = _partition_by_model_id(events)
+    issues = [issue for model_events in events_by_model for issue in _check_one_model_id(model_events)]
+    if not any(isinstance(issue, WeightUpdateCoverageIssue) for issue in issues):
+        return issues
+
+    settled_results_by_model = [
+        inference_engine_weight_checksum_coverage.settled_published_updates(model_events)
+        for model_events in events_by_model
+    ]
+    refreshed_events = reader.read()
+    return [
+        *(issue for issue in issues if not isinstance(issue, WeightUpdateCoverageIssue)),
+        *(
+            issue
+            for results in settled_results_by_model
+            for issue in inference_engine_weight_checksum_coverage.check_published_updates(
+                results=results, events=refreshed_events
+            )
+        ),
+    ]
 
 
 def run_sample_ownership_analysis(*, args: Namespace, event_dir: Path | None = None) -> None:
