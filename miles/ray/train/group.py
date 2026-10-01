@@ -21,6 +21,7 @@ from miles.utils.audit_utils.event_analyzer import analyzer as event_analyzer
 from miles.utils.audit_utils.event_logger.logger import get_event_logger, is_event_logger_initialized
 from miles.utils.audit_utils.event_logger.models import (
     CellReconfigureEvent,
+    ExplicitlyDroppedSamplesEvent,
     TrainGroupStepEndEvent,
     WeightUpdateResultEvent,
     WitnessAllocateIdEvent,
@@ -237,10 +238,37 @@ class TrainerController:
             return worker_results
 
         worker_results = await retry(_fn, max_attempts=_RETRY_MAX_ATTEMPTS)
+        self._log_dp_schedule_trim(rollout_id=rollout_id, results=worker_results)
 
         await reach_fault_hook_async(FaultHookName.TRAINER_CONTROLLER_STEP_END, rollout_id=rollout_id)
 
         return worker_results
+
+    def _log_dp_schedule_trim(self, *, rollout_id: int, results: list[TrainStepOutput]) -> None:
+        if self._role != "actor" or not self.args.enable_sample_ownership_checker:
+            return
+
+        dropped_sets = [
+            frozenset(result.dp_schedule_dropped_source_sample_indices)
+            for result in results
+            if result.outcome == TrainStepOutcome.NORMAL
+        ]
+        if not dropped_sets:
+            return
+        dropped_sources = dropped_sets[0]
+        if any(indices != dropped_sources for indices in dropped_sets[1:]):
+            raise ValueError("Successful trainers disagree on DP schedule dropped source sample indices")
+        if dropped_sources and is_event_logger_initialized():
+            get_event_logger().log(
+                ExplicitlyDroppedSamplesEvent,
+                dict(
+                    rollout_id=rollout_id,
+                    source_sample_indices=sorted(dropped_sources),
+                    reason="dp_schedule_trim",
+                ),
+                include_context=False,
+                print_log=False,
+            )
 
     def _allocate_witness_info(self, *, rollout_id: int, attempt: int, sample_indices):
         if self._witness_allocator is None:

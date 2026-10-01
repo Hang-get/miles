@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Sequence
 from typing import Any
 
 import torch
@@ -419,19 +420,25 @@ def split_train_data_by_dp_scheduled_raw(
     return shards
 
 
-def _log_dp_schedule_trim(*, args, data: dict[str, Any], partitions: list[list[int]]) -> None:
+def _log_dp_schedule_trim(*, args: Any, data: dict[str, Any], partitions: list[list[int]]) -> None:
     if not args.enable_sample_ownership_checker:
         return
 
+    dropped_sources = _get_dp_schedule_dropped_sources(data=data, partitions=partitions)
+    SampleOwnershipRecorder.log_dropped_source_sample_indices(
+        args=args, source_sample_indices=list(dropped_sources), reason="dp_schedule_trim"
+    )
+
+
+def _get_dp_schedule_dropped_sources(*, data: dict[str, Any], partitions: Sequence[Sequence[int]]) -> tuple[int, ...]:
     retained_rows = {index for partition in partitions for index in partition}
     retained_sources = {data["lineage_source_sample_indices"][index] for index in retained_rows}
-    dropped_sources = [
-        source_index
-        for index, source_index in enumerate(data["lineage_source_sample_indices"])
-        if index not in retained_rows and source_index not in retained_sources
-    ]
-    SampleOwnershipRecorder.log_dropped_source_sample_indices(
-        args=args, source_sample_indices=dropped_sources, reason="dp_schedule_trim"
+    return tuple(
+        dict.fromkeys(
+            source_index
+            for index, source_index in enumerate(data["lineage_source_sample_indices"])
+            if index not in retained_rows and source_index not in retained_sources
+        )
     )
 
 

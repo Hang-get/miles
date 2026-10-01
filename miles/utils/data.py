@@ -9,8 +9,9 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from miles.ray.rollout.train_data_conversion import split_train_data_by_dp
+from miles.ray.rollout.train_data_conversion import _get_dp_schedule_dropped_sources, split_train_data_by_dp
 from miles.utils import object_store
+from miles.utils.audit_utils.sample_ownership.recorder import SampleOwnershipRecorder
 from miles.utils.dp_schedule import TrainParallelConfig
 from miles.utils.pydantic_utils import StrictBaseModel
 
@@ -308,10 +309,15 @@ def process_rollout_data(
         raw = get_result.value
         if (x := witness_info) is not None:
             raw = {**raw, "seq_witness_ids": x.witness_ids}
-        raw = split_train_data_by_dp(args, raw, train_parallel_config=train_parallel_config)
+        with SampleOwnershipRecorder.suppress_drop_logging():
+            shards = split_train_data_by_dp(args, raw, train_parallel_config=train_parallel_config)
         if witness_info is not None:
-            _assert_witness_rows(total_rows=len(get_result.value["tokens"]), shards=raw)
-        rollout_data = raw[dp_rank]
+            _assert_witness_rows(total_rows=len(get_result.value["tokens"]), shards=shards)
+        rollout_data = shards[dp_rank]
+        if args.enable_sample_ownership_checker:
+            rollout_data["dp_schedule_dropped_source_sample_indices"] = _get_dp_schedule_dropped_sources(
+                data=raw, partitions=[shard["partition"] for shard in shards]
+            )
     else:
         assert len(rollout_data_ref) == train_parallel_config.dp_size
         assert witness_info is None
