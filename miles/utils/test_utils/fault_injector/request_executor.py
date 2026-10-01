@@ -55,6 +55,7 @@ class FaultHookRequestExecutor:
 
     async def execute(self, *, resources: FaultHookResources) -> None:
         assert self._record.context is not None
+        self.mark_fired()
         try:
             await self._record.request.action(context=self._record.context, resources=resources)
         except Exception:
