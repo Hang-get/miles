@@ -46,6 +46,7 @@ class TestTrainerOwnership:
         """Shared consumers read their trainer's backend values rather than stale flat copies."""
         backend = MegatronArgsNamespace(
             global_batch_size=16,
+            micro_batch_size=3,
             wandb_project="project",
             tensor_model_parallel_size=2,
             pipeline_model_parallel_size=4,
@@ -54,6 +55,7 @@ class TestTrainerOwnership:
         trainer = TrainerConfig.model_construct(backend=backend)
 
         assert trainer.global_batch_size == 16
+        assert trainer.micro_batch_size == 3
         assert trainer.wandb_project == "project"
         assert trainer.tensor_model_parallel_size == 2
         assert trainer.pipeline_model_parallel_size == 4
