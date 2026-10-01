@@ -18,6 +18,7 @@ def compute_recovered_at(*, action: SoakActionRecord, events: list[SoakEvent]) -
     for observation in events:
         if not isinstance(observation, SoakObservationEvent) or observation.timestamp < action.applied.timestamp:
             continue
+        completed_at = observation.completed_at or observation.timestamp
         for target in observation.targets or []:
             if (
                 target.identity == request.target.identity
@@ -27,12 +28,12 @@ def compute_recovered_at(*, action: SoakActionRecord, events: list[SoakEvent]) -
                 and target.ready
                 and _healed_into(
                     target,
-                    observed_at=observation.timestamp,
+                    observed_at=completed_at,
                     requested_at=action.requested.timestamp,
                     reconfigurations=reconfigurations,
                 )
             ):
-                return observation.timestamp
+                return completed_at
     return None
 
 
