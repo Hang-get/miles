@@ -60,11 +60,25 @@ class SoakRunner:
             assert form.is_recovered(action=action, events=events), f"Action did not recover: {request_id}"
 
     async def _run(self, *, sut_run: Awaitable[object]) -> None:
-        async with asyncio.TaskGroup() as tasks:
-            observing = tasks.create_task(self._observe_and_choose())
-            async with asyncio.timeout(self.config.timeouts.run_seconds):
-                await sut_run
-            observing.cancel()
+        running = asyncio.ensure_future(sut_run)
+        failed = False
+        try:
+            async with asyncio.TaskGroup() as tasks:
+                observing = tasks.create_task(self._observe_and_choose())
+                async with asyncio.timeout(self.config.timeouts.run_seconds):
+                    await asyncio.shield(running)
+                observing.cancel()
+        except BaseException:
+            failed = True
+            raise
+        finally:
+            self._close_admission()
+            try:
+                await asyncio.shield(running)
+            except BaseException:
+                if not failed:
+                    raise
+                logger.error("Soak launch failed while draining before teardown", exc_info=True)
 
     async def _observe_and_choose(self) -> None:
         async with asyncio.TaskGroup() as actions:
