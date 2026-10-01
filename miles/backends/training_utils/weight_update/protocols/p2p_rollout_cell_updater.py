@@ -19,8 +19,10 @@ class _P2PRolloutCellUpdater(_RolloutCellUpdater):
         args: Namespace,
         cell_id: str,
         api_client: SGLangApiClient,
+        selector: str,
     ) -> None:
         super().__init__(args=args, cell_id=cell_id, api_client=api_client)
+        self.selector = selector
         self._executor = ThreadPoolExecutor(max_workers=1)
         self.targets_by_rollout_engine_rank: dict[int, RemoteWeightInfo] = {}
         self._pending_writes: list[Future[None]] = []
@@ -86,7 +88,9 @@ def _verify_transfer_checksums(
     names: list[str],
     sent_checksums: dict[str, str],
 ) -> None:
-    engine_body = cell_updater.submit_client_call("check_weights", action="raw_checksum", names=names).result()
+    engine_body = cell_updater.submit_client_call(
+        "check_weights", action="raw_checksum", names=names, selector=cell_updater.selector
+    ).result()
     if engine_body is None:
         return
     checksum_utils.verify_transfer_checksums(
