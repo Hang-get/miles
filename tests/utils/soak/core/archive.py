@@ -15,20 +15,22 @@ _COLLECTION_TIMEOUT_SECONDS = 180.0
 
 
 async def archive_evidence(event_log: EventLog) -> None:
+    path = event_log.path
+    archived = None
     try:
         async with asyncio.timeout(_COLLECTION_TIMEOUT_SECONDS):
-            await asyncio.to_thread(_collect, event_log)
+            if contexts := [event for event in event_log.events if isinstance(event, SoakRunContextEvent)]:
+                archived = await asyncio.to_thread(
+                    _archive_sources, sources=contexts[-1].sources, destination=path.parent / "sources"
+                )
     except TimeoutError as error:
         raise TimeoutError(f"Soak evidence collection exceeded {_COLLECTION_TIMEOUT_SECONDS}s") from error
 
-
-def _collect(event_log: EventLog) -> None:
-    path = event_log.path
-    if contexts := [event for event in event_log.events if isinstance(event, SoakRunContextEvent)]:
-        event_log.append(_archive_sources(sources=contexts[-1].sources, destination=path.parent / "sources"))
     assert (
         read_events(path, require_closed=False) == event_log.events
     ), f"Persisted soak evidence differs from memory: {path}"
+    if archived is not None:
+        event_log.append(archived)
     event_log.append(SoakCollectionClosedEvent())
 
 
