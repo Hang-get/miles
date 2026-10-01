@@ -128,3 +128,37 @@ class TestCreate:
 
         await controller.dispose()
         await controller.dispose()
+
+
+async def test_initial_membership_uses_sparse_observed_cell_indices(
+    provider: _RecordingWorkerProvider, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Initial independent-DP ranks follow observed cell identities even when allocation indices have gaps."""
+    train_conftest.fake_worker_manager.num_cells = 5
+    list_cells = provider._list_alive_cells
+
+    async def list_sparse_cells(*, pool_ids: list[str]) -> dict[str, CellInfo]:
+        cells = await list_cells(pool_ids=pool_ids)
+        return {cell_id: cell for cell_id, cell in reversed(cells.items()) if cell.meta["cell_index"] in (1, 4)}
+
+    monkeypatch.setattr(provider, "_list_alive_cells", list_sparse_cells)
+    controller = TrainerController(
+        args=_make_args(num_cells=2),
+        deployment_identity=make_deployment_identity(),
+        cell_provider=provider,
+        cell_operations=MagicMock(),
+    )
+    try:
+        await asyncio.wait_for(
+            controller.init(TrainerControllerInitRequest(num_rollout=None, wandb_run_id=None, mlflow_run_id=None)),
+            timeout=10,
+        )
+
+        assert [cell.cell_index for cell in controller._cells] == [1, 4]
+        for rank, cell in enumerate(controller._cells):
+            assert cell.is_alive
+            assert cell.indep_dp_info.alive_cell_indices == [1, 4]
+            assert cell.indep_dp_info.alive_rank == rank
+            assert cell.indep_dp_info.alive_size == 2
+    finally:
+        await controller.dispose()
