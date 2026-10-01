@@ -1,13 +1,18 @@
 import logging
 from argparse import Namespace
 from concurrent.futures import Future, ThreadPoolExecutor
+from datetime import datetime, timezone
 from typing import Any
 
 from miles.backends.sglang_utils.sglang_api_client import SGLangApiClient
 from miles.backends.training_utils.weight_update import checksum_utils
+from miles.backends.training_utils.weight_update.protocols.p2p_transfer_utils import RemoteWeightInfo
 from miles.backends.training_utils.weight_update.rollout_cell_updater import _RolloutCellUpdater
+from miles.utils.audit_utils.event_logger.logger import get_event_logger, is_event_logger_initialized
+from miles.utils.audit_utils.event_logger.models import WeightTransferFailedEvent
+from miles.utils.test_utils.fault_injector.controller import fault_hook_controller, reach_fault_hook
+from miles.utils.test_utils.fault_injector.models import FaultHookName
 
-from .p2p_transfer_utils import RemoteWeightInfo
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +79,13 @@ class _P2PRolloutCellUpdater(_RolloutCellUpdater):
         if self.is_errored:
             logger.warning(f"[P2P-Shared] skipping a queued write to rollout cell {self.cell_id}")
             return
-        _do_p2p_write_one_session(transfer_engine, target, names, weight_memory_registry)
+        _do_p2p_write_one_session(
+            transfer_engine=transfer_engine,
+            remote_session=target,
+            names=names,
+            weight_memory_registry=weight_memory_registry,
+            cell_id=self.cell_id,
+        )
         if sent_checksums is not None:
             _verify_transfer_checksums(
                 self, rollout_engine_rank=rollout_engine_rank, names=names, sent_checksums=sent_checksums

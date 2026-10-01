@@ -11,10 +11,21 @@ from tests.utils.soak.core.utils import compute_base_url
 
 from miles.ray.specs.inference import compute_engine_pool_id
 from miles.ray.specs.train import compute_trainer_pool_id
+from miles.utils.audit_utils.event_logger.logger import read_events
+from miles.utils.audit_utils.event_logger.models import (
+    FaultHookEvent,
+    WeightTransferFailedEvent,
+    WeightUpdateResultEvent,
+)
 from miles.utils.external_utils import command_utils
 from miles.utils.test_utils.fault_injector.actions.process import KillProcessAction
 from miles.utils.test_utils.fault_injector.actions.remote import ApiServerFaultAction
-from miles.utils.test_utils.fault_injector.models import DeclaredFaultHookTarget, FaultHookName, FaultHookRequest
+from miles.utils.test_utils.fault_injector.models import (
+    DeclaredFaultHookTarget,
+    FaultHookName,
+    FaultHookRequest,
+    FaultHookStatus,
+)
 from miles.utils.workers.naming import compute_cell_id
 from miles.utils.workers.types import ClusterBackend
 
@@ -59,6 +70,34 @@ def _assert_target_events(events_dir: Path, mode: FTTestMode) -> None:
         events_dir,
         failed_cell_ids_of_rollout_id={FAULT_ROLLOUT_ID: [_receiver_cell_id(command_utils.default_config())]},
     )
+
+    events = read_events(events_dir)
+    receiver_cell_id = _receiver_cell_id(command_utils.default_config())
+    results = [
+        event
+        for event in events
+        if isinstance(event, WeightUpdateResultEvent) and event.rollout_id == FAULT_ROLLOUT_ID
+    ]
+    fired = [
+        event
+        for event in events
+        if isinstance(event, FaultHookEvent)
+        and event.record.request.request_id == f"kill_receiver_before_send_at_{FAULT_ROLLOUT_ID}"
+        and event.record.status is FaultHookStatus.FIRED
+    ]
+    for result in results:
+        assert any(
+            failure.debug_weight_update_id == result.debug_weight_update_id
+            and failure.cell_id == receiver_cell_id
+            and failure.workers_hash == result.snapshot_cell_id_to_hashes[receiver_cell_id]
+            and hook.source == failure.source
+            and hook.record.context is not None
+            and hook.record.context.debug_weight_update_id == result.debug_weight_update_id
+            and failure.started_at <= hook.timestamp <= failure.timestamp
+            for failure in events
+            if isinstance(failure, WeightTransferFailedEvent)
+            for hook in fired
+        ), f"Rollout {FAULT_ROLLOUT_ID} has no receiver transport failure spanning its fault dispatch"
 
 
 app, run_ci = create_fault_hook_comparison_app(
