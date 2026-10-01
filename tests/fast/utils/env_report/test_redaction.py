@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from miles.utils.env_report.redaction import _redact, redact_arg, redact_argv, redact_env_vars, redact_server_info
@@ -171,13 +173,55 @@ class TestRedactServerInfo:
 
 
 class TestNormalizedRouterSecrets:
-
     def test_unprefixed_router_credentials_are_redacted_without_hiding_regular_fields(self) -> None:
         """Normalized router dictionaries cannot expose credentials after their CLI prefixes are removed."""
         from miles.utils.env_report.redaction import redact_config_values
-        original = {'router_args': {'oracle_password': 'oracle-secret', 'control_plane_api_keys': ['key-secret'], 'policy': 'random'}}
+
+        original = {
+            "router_args": {
+                "oracle_password": "oracle-secret",
+                "control_plane_api_keys": ["key-secret"],
+                "policy": "random",
+            }
+        }
+
         result = redact_config_values(original)
-        assert result['router_args']['oracle_password'] == _redact('oracle-secret')
-        assert result['router_args']['control_plane_api_keys'] == [_redact('key-secret')]
-        assert result['router_args']['policy'] == 'random'
-        assert original['router_args']['oracle_password'] == 'oracle-secret'
+
+        assert result["router_args"]["oracle_password"] == _redact("oracle-secret")
+        assert result["router_args"]["control_plane_api_keys"] == [_redact("key-secret")]
+        assert result["router_args"]["policy"] == "random"
+        assert original["router_args"]["oracle_password"] == "oracle-secret"
+
+
+class TestSerializedConfigSecrets:
+    @pytest.mark.parametrize("flag", ["--config", "--config-json", "--orchestrator-config"])
+    @pytest.mark.parametrize("inline", [False, True])
+    def test_every_config_entrypoint_redacts_nested_secrets_and_preserves_safe_values(
+        self, flag: str, inline: bool
+    ) -> None:
+        """Serialized payloads preserve audit settings while hiding nested credentials at every entry point."""
+        payload = json.dumps(
+            {
+                "backend": {"wandb_key": "wandb-secret"},
+                "workers": [{"env_vars": {"HF_TOKEN": "hf-secret", "RANK": "2"}}],
+                "lr": 0.25,
+            }
+        )
+        original = [f"{flag}={payload}"] if inline else [flag, payload]
+
+        result = redact_argv([*original, "--lr", "0.5"])
+        restored = json.loads(result[0].partition("=")[2] if inline else result[1])
+
+        assert restored["backend"]["wandb_key"] == _redact("wandb-secret")
+        assert restored["workers"][0]["env_vars"]["HF_TOKEN"] == _redact("hf-secret")
+        assert restored["workers"][0]["env_vars"]["RANK"] == "2"
+        assert restored["lr"] == 0.25
+        assert result[-2:] == ["--lr", "0.5"]
+        assert "wandb-secret" in payload
+
+    @pytest.mark.parametrize("payload", ['{"secret":', '["secret"]', '"secret"', "null"])
+    def test_uninspectable_config_payloads_are_redacted_wholesale(self, payload: str) -> None:
+        """Malformed or non-object configuration payloads cannot leak through the audit command line."""
+        result = redact_argv(["--config-json", payload])
+
+        assert result == ["--config-json", _redact(payload)]
