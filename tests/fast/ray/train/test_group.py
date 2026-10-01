@@ -2108,3 +2108,28 @@ class TestRuntimeCheckpointRequests:
             assert 'ckpt_load_config' not in vars(cell.args)
         assert vars(group.args) == original_args
         assert not {'ckpt_load_config', '_ckpt_load_config'} & vars(group).keys()
+
+
+class TestIndependentDpInitialization:
+
+    @pytest.mark.parametrize('indep_dp,num_cells', [(True, 1), (True, 3), (False, 1)])
+    async def test_real_initialization_owns_the_store_independently_of_startup_quorum(self, monkeypatch: pytest.MonkeyPatch, indep_dp: bool, num_cells: int) -> None:
+        """Real controller initialization creates independent-DP resources even with a single starting cell."""
+        train_conftest.fake_worker_manager.num_cells = num_cells
+        train_conftest.fake_worker_manager.actor_count_per_cell = 1
+        store = object()
+        create_store = MagicMock(return_value=(store, train_conftest.FAKE_STORE_ADDR))
+        monkeypatch.setattr(group_module, 'create_tcp_store', create_store)
+        group = TrainerController(args=_make_mock_args(indep_dp=indep_dp, num_cells=num_cells), deployment_identity=make_deployment_identity(), cell_provider=make_provider(), cell_operations=AsyncMock())
+        assert group._indep_dp_store is None
+        assert group._indep_dp_store_addr is None
+        try:
+            await group.init(TrainerControllerInitRequest(num_rollout=None, wandb_run_id=None, mlflow_run_id=None))
+            assert create_store.call_count == int(indep_dp)
+            assert group._indep_dp_store is (store if indep_dp else None)
+            assert group._indep_dp_store_addr == (train_conftest.FAKE_STORE_ADDR if indep_dp else None)
+            assert (group._health_checker_config is not None) is indep_dp
+            assert len(group._cells) == num_cells
+            assert all((cell.is_alive for cell in group._cells))
+        finally:
+            await group.dispose()
