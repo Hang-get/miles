@@ -56,6 +56,21 @@ class TestCustomFunctionResolution:
 
 class TestLegacyCustomArguments:
 
+    def test_positional_callbacks_and_required_fields_keep_their_contract(self) -> None:
+        """Legacy positional callbacks retain required fields and CLI value conversion."""
+
+        def register(parser: argparse.ArgumentParser, /) -> argparse.ArgumentParser:
+            parser.add_argument('--required-value', required=True, type=int)
+            parser.add_argument('--optional-value', default='fallback')
+            return parser
+        config_class = _adapt_legacy_custom_config(register)
+        parser = argparse.ArgumentParser()
+        config_class.add_arguments(parser=parser)
+        parsed = parser.parse_args(['--required-value', '9'])
+        assert config_class.model_validate(vars(parsed)).model_dump() == {'required_value': 9, 'optional_value': 'fallback'}
+        with pytest.raises(ValueError):
+            config_class.model_validate({})
+
     def test_suppressed_defaults_cannot_be_silently_synthesized(self) -> None:
         """A legacy suppressed argument remains required in the transport schema."""
 
