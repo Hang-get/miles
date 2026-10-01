@@ -143,7 +143,7 @@ class _FaultHookController:
             executor.schedule(on_due=self._on_due)
             return None
         del self._executors[executor.record.request.request_id]
-        return executor.mark_fired()
+        return executor
 
     def _current_context(self, context: dict[str, int | str | None]) -> FaultHookContext:
         return (self._context or FaultHookContext()).model_copy(update=context)
@@ -154,7 +154,6 @@ class _FaultHookController:
             if self._executors.get(executor.record.request.request_id) is not executor:
                 return
             del self._executors[executor.record.request.request_id]
-            executor.mark_fired()
 
         _run_blocking(executor.execute(resources=self._resources))
 
