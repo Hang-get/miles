@@ -11,10 +11,16 @@ def remove_release_and_wait(*, release: str, namespace: str) -> None:
     selector = Kubectl.release_selector(release)
     deadline = time.monotonic() + RELEASE_TIMEOUT_SECONDS
 
-    Helm.uninstall_if_present(release=release, namespace=namespace)
+    def remaining_timeout() -> float:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError(f"Timed out removing release {release!r} from namespace {namespace!r}")
+        return remaining
+
+    Helm.uninstall_if_present(release=release, namespace=namespace, timeout=remaining_timeout())
     while True:
-        manifest = Helm.get_manifest(release, namespace)
-        pods = selected_pods(namespace, selector)
+        manifest = Helm.get_manifest(release=release, namespace=namespace, timeout=remaining_timeout())
+        pods = selected_pods(namespace=namespace, selector=selector, timeout=remaining_timeout())
         if manifest is None and not pods:
             return
         if time.monotonic() >= deadline:
@@ -23,4 +29,4 @@ def remove_release_and_wait(*, release: str, namespace: str) -> None:
                 f"Timed out removing release {release!r} from namespace {namespace!r}; "
                 f"release_exists={manifest is not None}, pods={pod_names}"
             )
-        time.sleep(RELEASE_POLL_INTERVAL_SECONDS)
+        time.sleep(min(RELEASE_POLL_INTERVAL_SECONDS, remaining_timeout()))
