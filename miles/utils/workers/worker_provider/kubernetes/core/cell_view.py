@@ -40,6 +40,10 @@ class CellIncarnation(FrozenStrictBaseModel):
     pods: list[PodIdentity]
 
 
+class IncompleteCellWorkersError(RuntimeError):
+    pass
+
+
 def compute_cell_info(cell_id: str, *, pods: list[pod_view.ParsedPod], run: KubernetesRunInfo) -> CellInfo | None:
     if not pods:
         return None
@@ -69,11 +73,13 @@ def compute_debug_cell_incarnation(cell_id: str, *, pods: list[pod_view.ParsedPo
 
 
 def compute_worker_infos(cell_id: str, *, pods: list[pod_view.ParsedPod], run: KubernetesRunInfo) -> list[WorkerInfo]:
-    assert pods, f"cell {cell_id} has no observed worker pods, so it cannot be driven"
+    if not pods:
+        raise IncompleteCellWorkersError(f"cell {cell_id} has no observed worker pods, so it cannot be driven")
     indices = [pod.pod_in_cell_index for pod in pods]
-    assert indices == list(range(len(pods))) and _has_all_pods(
-        pods
-    ), f"cell {cell_id} is missing pods: observed {indices} of {max(pod.cell_size for pod in pods)}"
+    if indices != list(range(len(pods))) or not _has_all_pods(pods):
+        raise IncompleteCellWorkersError(
+            f"cell {cell_id} is missing pods: observed {indices} of {max(pod.cell_size for pod in pods)}"
+        )
 
     return [_compute_worker_info(worker, run=run) for worker in workers_of_pods(pods, run=run)]
 

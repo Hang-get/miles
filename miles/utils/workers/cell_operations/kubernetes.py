@@ -9,7 +9,9 @@ from miles.utils.workers.cell_operations.base import BaseCellOperations, StaleFa
 from miles.utils.workers.k8s_client import core_v1_api
 from miles.utils.workers.rpc.client.misc import RpcWorkerCallError, ServerRestartedError
 from miles.utils.workers.rpc.common.protocol import exception_type_name
+from miles.utils.workers.worker_info import WorkerInfo
 from miles.utils.workers.worker_provider.base import CellInfo, StopWatchFn
+from miles.utils.workers.worker_provider.kubernetes.core.cell_view import IncompleteCellWorkersError
 from miles.utils.workers.worker_provider.kubernetes.core.provider import KubernetesWorkerProvider
 from miles.utils.workers.worker_provider.utils import build_rpc_handle_of_worker_info
 
@@ -46,7 +48,7 @@ class KubernetesCellOperations(BaseCellOperations):
     async def observe_fault_target(self, *, cell_id: str, rank: int) -> ObservedFaultHookTarget:
         await self._ensure_watching()
 
-        (infos,) = self._provider.get_worker_infos(cell_ids=[cell_id])
+        infos = self._get_fault_worker_infos(cell_id=cell_id)
         if not 0 <= rank < len(infos):
             raise StaleFaultTargetError(f"Cell {cell_id} has no worker at index {rank}")
         info = infos[rank]
@@ -76,7 +78,7 @@ class KubernetesCellOperations(BaseCellOperations):
         assert isinstance(target, ObservedFaultHookTarget), "A fault hook sent to a cell names the worker it observed"
         if target != await self.observe_fault_target(cell_id=target.cell_id, rank=target.rank):
             raise StaleFaultTargetError(f"Cell {target.cell_id} no longer matches the observed fault target")
-        (infos,) = self._provider.get_worker_infos(cell_ids=[target.cell_id])
+        infos = self._get_fault_worker_infos(cell_id=target.cell_id)
         handle = build_rpc_handle_of_worker_info(infos[target.rank], expected_boot_uuid=target.boot_uuid)
         try:
             return await asyncio.wait_for(
@@ -88,6 +90,13 @@ class KubernetesCellOperations(BaseCellOperations):
             if error.error_type == exception_type_name(FaultHookConflictError):
                 raise FaultHookConflictError(str(error)) from error
             raise
+
+    def _get_fault_worker_infos(self, *, cell_id: str) -> list[WorkerInfo]:
+        try:
+            (infos,) = self._provider.get_worker_infos(cell_ids=[cell_id])
+        except IncompleteCellWorkersError as error:
+            raise StaleFaultTargetError(str(error)) from error
+        return infos
 
     async def _ensure_watching(self) -> None:
         if self._watching is None:
