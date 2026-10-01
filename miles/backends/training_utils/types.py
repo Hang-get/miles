@@ -18,3 +18,4 @@ class TrainStepOutcome(StrEnum):
 class TrainStepOutput:
     outcome: TrainStepOutcome
     values: StoreObjectRef | None = None
+    dp_schedule_dropped_source_sample_indices: tuple[int, ...] = ()

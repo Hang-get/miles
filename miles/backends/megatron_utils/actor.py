@@ -3,6 +3,7 @@ import logging
 import os
 import shutil
 from contextlib import ExitStack, nullcontext
+from dataclasses import replace
 from functools import partial
 
 import torch
@@ -601,9 +602,13 @@ class MegatronTrainRayActor(TrainRayActor):
                     ),
                 )
                 stack.enter_context(store_get_result)
+                dropped_sources = rollout_data.pop("dp_schedule_dropped_source_sample_indices", ())
                 if self.args.debug_rollout_only:
                     log_rollout_data(rollout_id, self.args, rollout_data)
-                    return TrainStepOutput(outcome=TrainStepOutcome.NORMAL)
+                    return TrainStepOutput(
+                        outcome=TrainStepOutcome.NORMAL,
+                        dp_schedule_dropped_source_sample_indices=dropped_sources,
+                    )
 
             if self.role == "critic":
                 with timer("critic_train"):
@@ -618,7 +623,7 @@ class MegatronTrainRayActor(TrainRayActor):
                 )
 
             self._publish_model_companion_info(rollout_id=rollout_id, attempt=attempt, result=result)
-            return result
+            return replace(result, dp_schedule_dropped_source_sample_indices=dropped_sources)
 
     @with_logs
     def _train_critic(self, rollout_id: int, rollout_data: RolloutBatch) -> TrainStepOutput:
