@@ -40,10 +40,12 @@ def verify_transfer_checksums(
 def _compute_received_checksums(engine_body: dict[str, Any], *, rank: int) -> dict[str, str]:
     assert engine_body.get("success", False), f"check_weights engine reported failure: {engine_body!r}"
     matching = [info for info in engine_body["ranks"] if _compute_gpu_rank(info) == rank]
-    assert (
-        len(matching) == 1
-    ), f"expected one checksum record for GPU rank {rank}, got {len(matching)}: {engine_body!r}"
-    return matching[0]["checksums"]
+    assert matching, f"expected checksum records for GPU rank {rank}, got none: {engine_body!r}"
+    checksums = matching[0]["checksums"]
+    assert all(
+        info["checksums"] == checksums for info in matching
+    ), f"conflicting checksum records for GPU rank {rank}: {engine_body!r}"
+    return checksums
 
 
 def _compute_gpu_rank(checksum_info: dict[str, Any]) -> int:
