@@ -1,7 +1,11 @@
 import asyncio
+import contextvars
+import logging
 import os
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 
 from tests.utils.cluster_backends import create_backend_for_run
@@ -24,6 +28,8 @@ from miles.utils.audit_utils.event_logger.logger import EVENTS_DIRNAME
 from miles.utils.external_utils import command_utils
 from miles.utils.external_utils.command_utils.base_backend import BaseCommandBackend, ExecuteTrainConfig, LaunchGuard
 from miles.utils.pydantic_utils import FrozenStrictBaseModel
+
+logger = logging.getLogger(__name__)
 
 FT_COMPONENTS: tuple[str, ...] = ("train", "rollout")
 DEFAULT_SEED: int = 42
@@ -143,15 +149,31 @@ async def execute_gsm8k_session(run: Gsm8kRun, *, accept_replaced: bool) -> Laun
 
 
 async def launch(spec: Gsm8kLaunchSpec, *, guard: LaunchGuard | None = None) -> None:
-    await asyncio.to_thread(
-        launch_training,
-        train_args=spec.train_args,
-        num_gpus_per_node=TRAIN_GPUS + ROLLOUT_GPUS,
-        megatron_model_type=MODEL_TYPE,
-        config=spec.config,
-        train_script=get_train_script(fully_async=spec.fully_async),
-        guard=guard,
-    )
+    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="soak-launch")
+    try:
+        running = asyncio.get_running_loop().run_in_executor(
+            executor,
+            partial(
+                contextvars.copy_context().run,
+                launch_training,
+                train_args=spec.train_args,
+                num_gpus_per_node=TRAIN_GPUS + ROLLOUT_GPUS,
+                megatron_model_type=MODEL_TYPE,
+                config=spec.config,
+                train_script=get_train_script(fully_async=spec.fully_async),
+                guard=guard,
+            ),
+        )
+        try:
+            await asyncio.shield(running)
+        except asyncio.CancelledError:
+            try:
+                await asyncio.shield(running)
+            except Exception:
+                logger.error("Soak launcher failed while draining cancellation", exc_info=True)
+            raise
+    finally:
+        executor.shutdown(wait=False)
 
 
 def prepare_gsm8k(U: BaseCommandBackend) -> None:
