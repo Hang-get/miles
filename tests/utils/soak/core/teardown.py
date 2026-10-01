@@ -42,6 +42,21 @@ async def teardown_run(*, config: ExecuteTrainConfig, event_log: EventLog, evide
 
 
 async def _stop_ray_job(*, submission_id: str, evidence_dir: Path) -> None:
+    env = os.environ.copy()
+    no_proxy = ",".join(
+        dict.fromkeys(
+            host.strip()
+            for host in [
+                *env.get("no_proxy", "").split(","),
+                *env.get("NO_PROXY", "").split(","),
+                "127.0.0.1",
+                "localhost",
+            ]
+            if host.strip()
+        )
+    )
+    env.update(no_proxy=no_proxy, NO_PROXY=no_proxy)
+
     result = await asyncio.to_thread(
         run_process,
         [
@@ -54,6 +69,7 @@ async def _stop_ray_job(*, submission_id: str, evidence_dir: Path) -> None:
         capture_output=True,
         check=True,
         timeout=_TEARDOWN_TIMEOUT_SECONDS,
+        env=env,
     )
     evidence_dir.mkdir(parents=True, exist_ok=True)
     (evidence_dir / "ray-job-stop.log").write_text(result.stdout)
