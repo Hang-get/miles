@@ -427,12 +427,16 @@ Assertions:
   3. The declared hook request ends FIRED (FaultHookEvent in the target's event log)
   4. WeightUpdateResultEvent: rollout 3 fails exactly the killed engine's cell, every other
      rollout fails none
+  5. WeightTransferFailedEvent: the same update and receiver incarnation have a real
+     transport write failure; the declared request's FIRED event comes from the same sender
+     and falls between that write's start and failure timestamps
 ```
 
 - **Why it exists**: `scenario_rollout_deterministic` kills engines at random wall-clock moments, so a run can pass without ever losing a receiver in the middle of a transfer; this pins the fault to that moment.
 - **Why the sender pulls the trigger**: only the sending rank knows when the transfer is about to start; going through the api server keeps the kill on the same route the soaks use, bound to the receiver's observed incarnation, so a stale target fails loudly instead of killing a replacement.
-- **Why 50 ms**: long enough for the first writes to be in flight, far shorter than the transfer, so the kill lands inside it on every run; the delay is fixed, not drawn, so both sides stay deterministic.
-- **Why the failed-cell witness**: the update has to record the receiver as failed in exactly that rollout, so a kill that landed after the transfer finished cannot pass as the fault under test.
+- **Why 50 ms**: a fixed delay intended to put dispatch inside an active write; the timing witness rejects runs where dispatch misses that window.
+- **Why the failure witnesses**: the failed-cell result and the transport failure must name the same update and receiver incarnation; a successful transfer followed only by a finalize RPC failure cannot pass.
+- **What the timing witness proves**: the sender dispatched the declared hook during a transport write that failed; `FIRED` records dispatch, not the remote receiver's actual kill time.
 - **Calibration**: the 50 ms delay and the CI estimate have not been calibrated by a run.
 
 ### `scenario_random_crash`
