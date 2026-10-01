@@ -415,6 +415,9 @@ class TrainerController:
     async def is_initialized(self) -> bool:
         return self._init_once.is_initialized()
 
+    async def get_initial_start_rollout_id(self) -> int | None:
+        return self.args.start_rollout_id
+
     async def load_state(self, request: TrainerControllerInitRequest) -> list[Any]:
         assert self._init_once.is_initialized()
 
