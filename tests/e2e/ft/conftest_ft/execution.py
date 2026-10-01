@@ -170,7 +170,7 @@ def get_ft_args(
     mode: FTTestMode, *, api_server_args: str = "--api-server-port 0 ", extra_ft_components: tuple[str, ...] = ()
 ) -> str:
     ft_components = [*mode.ft_components, *extra_ft_components]
-    return f"--use-fault-tolerance --ft-components {' '.join(ft_components)} {api_server_args}"
+    return f"--use-fault-tolerance --enable-event-analyzer --ft-components {' '.join(ft_components)} {api_server_args}"
 
 
 DETERMINISTIC_ROLLOUT_ARGS: str = (
