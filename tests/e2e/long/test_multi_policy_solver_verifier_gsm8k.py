@@ -8,7 +8,15 @@ from tests.e2e.conftest_multi_policy import EvalScoreBounds, execute
 from miles.utils.external_utils import command_utils
 
 register_cuda_ci(
-    est_time=21600, suite="stage-c-4-gpu-h200", labels=["long"], hardware=["hopper", "blackwell"], num_gpus=4
+    est_time=21600,
+    suite="stage-c-4-gpu-h200",
+    labels=["long"],
+    hardware=["hopper", "blackwell"],
+    num_gpus=4,
+    disabled=(
+        "FIXME @fzyzcjy (2026-10-10): exceeds the 6-hour job limit; "
+        "re-enable after #3911 is validated within the CI budget."
+    ),
 )
 register_rocm_ci(est_time=24000, suite="nightly-stage-c-4-gpu-mi350", labels=["long"])
 
