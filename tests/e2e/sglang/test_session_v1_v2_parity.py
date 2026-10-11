@@ -4,13 +4,14 @@ import pytest
 import torch
 from huggingface_hub import snapshot_download
 from tests.ci.ci_register import register_cuda_ci
+from tests.e2e.sglang.utils.session_truncation import run_truncated_session
 from tests.e2e.sglang.utils.sglang_server import start_sglang_server
 from tests.session_parity_utils import V1, V2, assert_agentic_retry_trajectory_parity, run_agentic_retry_trajectories
 
 from miles.utils.test_utils.session_verify_agent import build_initial_messages
 from miles.utils.types import Sample
 
-register_cuda_ci(est_time=190, suite="stage-c-2-gpu-h200", labels=["sglang"], hardware=["hopper"], num_gpus=2)
+register_cuda_ci(est_time=300, suite="stage-c-2-gpu-h200", labels=["sglang"], hardware=["hopper"], num_gpus=2)
 
 _MODEL_ID = "Qwen/Qwen3-8B"
 _MODEL_REVISION = "b968826d9c46dd6066d109eabc6255188de91218"
@@ -67,6 +68,11 @@ def test_qwen3_8b_h200_fa3_agentic_v2_same_prompt_retries_match_v1_training_payl
         assert v1.samples[0].index == v2.samples[0].index == index
         assert v1.samples[0].rollout_id == v2.samples[0].rollout_id == index
         assert_agentic_retry_trajectory_parity(v1, v2)
+
+
+def test_qwen3_8b_h200_fa3_truncated_turns_continue_closed(sglang_server):
+    for version in (V1, V2):
+        run_truncated_session(backend_url=sglang_server.base_url, model_path=_MODEL_PATH, version=version)
 
 
 def _build_input_samples() -> list[Sample]:
