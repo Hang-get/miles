@@ -29,7 +29,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from tests.ci.ci_register import register_cpu_ci
 
-register_cpu_ci(est_time=60, suite="stage-a-cpu", labels=[])
+register_cpu_ci(est_time=60, suite="stage-b-cpu", labels=["rollout"])
 
 from miles.utils.chat_template_utils import resolve_fixed_chat_template
 from miles.utils.chat_template_utils.tito_tokenizer import (
