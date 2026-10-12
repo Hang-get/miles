@@ -88,7 +88,6 @@ def execute(args: ScriptArgs):
         "--max-tokens-per-gpu 16384 "
         "--gradient-checkpointing "
         "--update-weight-buffer-size 2147483648 "
-        """--train-env-vars '{"PYTORCH_CUDA_ALLOC_CONF":"expandable_segments:True"}' """
     )
 
     misc_args = (
