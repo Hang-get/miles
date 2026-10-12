@@ -31,8 +31,11 @@ class ScriptArgs(U.ExecuteTrainConfig):
     fsdp_size: int = 0
     num_gpus_per_node: int = 4
     num_rollout: int = 20
-    rollout_batch_size: int = 8
-    n_samples_per_prompt: int = 4
+    rollout_batch_size: int = 16
+    n_samples_per_prompt: int = 8
+    # "rollout": generate and save rollouts only; "train": replay saved rollouts, no engines
+    debug_mode: Literal["none", "rollout", "train"] = "none"
+    debug_data: str = "/root/shared_data/debug_rollout/qwen3.8-27b_{rollout_id}.pt"
     rollout_max_response_len: int = 8192
     data_dir: str = "/root/datasets"
     model_dir: str = "/root/models"
@@ -125,6 +128,12 @@ def execute(args: ScriptArgs):
             "--update-weight-buffer-size 2147483648 "
         )
 
+    debug_args = {
+        "none": "",
+        "rollout": f"--debug-rollout-only --save-debug-rollout-data {args.debug_data} ",
+        "train": f"--debug-train-only --load-debug-rollout-data {args.debug_data} ",
+    }[args.debug_mode]
+
     misc_args = (
         f"--actor-num-nodes {args.num_nodes} "
         f"--actor-num-gpus-per-node {args.num_gpus_per_node} "
@@ -135,7 +144,7 @@ def execute(args: ScriptArgs):
     U.execute_train(
         train_args=(
             f"{rollout_args} {grpo_args} {optimizer_args} {wandb_args} "
-            f"{sglang_args} {train_backend_args} {misc_args} {args.extra_args} "
+            f"{sglang_args} {train_backend_args} {debug_args} {misc_args} {args.extra_args} "
         ),
         config=args,
         num_gpus_per_node=args.num_gpus_per_node,
