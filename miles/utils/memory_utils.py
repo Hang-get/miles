@@ -42,3 +42,13 @@ def print_memory(msg, clear_before_print: bool = False):
         f"[Rank {dist.get_rank()}] Memory-Usage {msg}{' (cleared before print)' if clear_before_print else ''}: {memory_info}"
     )
     return memory_info
+
+
+def log_peak_memory(tag: str) -> None:
+    """Peak allocated/reserved GB since the last call (true peaks, not end-of-phase snapshots)."""
+    gib = 2**30
+    logger.info(
+        f"peak memory {tag}: allocated={torch.cuda.max_memory_allocated() / gib:.1f}GB "
+        f"reserved={torch.cuda.max_memory_reserved() / gib:.1f}GB"
+    )
+    torch.cuda.reset_peak_memory_stats()

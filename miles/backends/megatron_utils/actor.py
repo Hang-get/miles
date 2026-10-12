@@ -45,7 +45,7 @@ from miles.utils.context_utils import with_defer
 from miles.utils.distributed_utils import get_gloo_group
 from miles.utils.ft_utils.indep_dp import IndepDPInfo
 from miles.utils.lora.utils import build_lora_config, is_multi_lora_enabled
-from miles.utils.memory_utils import clear_memory, print_memory
+from miles.utils.memory_utils import clear_memory, log_peak_memory, print_memory
 from miles.utils.object_store import StoreObjectRef, ValueSpec
 from miles.utils.reloadable_process_group import destroy_process_groups, monkey_patch_torch_dist, reload_process_groups
 from miles.utils.replay_base import all_replay_managers, routing_replay_manager
@@ -607,6 +607,7 @@ class MegatronTrainRayActor(TrainRayActor):
                     witness_info=witness_info,
                     attempt=attempt,
                 )
+            log_peak_memory(f"train rollout {rollout_id}")
 
             return result
 

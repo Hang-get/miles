@@ -36,7 +36,7 @@ from miles.ray.train_actor import TrainRayActor
 from miles.utils.audit_utils.witness.allocator import WitnessInfo
 from miles.utils.distributed_utils import get_gloo_group
 from miles.utils.flops_utils import flops_args_from_hf_config, fwd_tflops_per_gpu
-from miles.utils.memory_utils import clear_memory, print_memory
+from miles.utils.memory_utils import clear_memory, log_peak_memory, print_memory
 from miles.utils.object_store import StoreObjectRef
 from miles.utils.profile_utils import TrainProfiler
 from miles.utils.timer import inverse_timer, timer
@@ -160,6 +160,7 @@ class TorchNativeTrainRayActor(TrainRayActor):
                 if self.args.debug_rollout_only:
                     return TrainStepOutput(outcome=TrainStepOutcome.NORMAL)
                 self._train_core(rollout_id=rollout_id, rollout_data=rollout_data)
+                log_peak_memory(f"train rollout {rollout_id}")
 
         perf.log_perf_data_raw(
             rollout_id=rollout_id,
