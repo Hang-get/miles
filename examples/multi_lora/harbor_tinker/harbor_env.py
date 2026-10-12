@@ -23,8 +23,10 @@ STOP_REASONS = {
 }
 
 
-# What Harbor records when the harness's HTTP request to the adapter failed (litellm in harbor-miles-v0.20.0).
-HARNESS_REQUEST_ERRORS = {"BadRequestError"}
+# What Harbor records when the harness's request to the adapter failed: litellm's error from a host-process harness
+# (terminus-2), or the installed-agent wrapper whose detail quotes the agent's output (mini-swe-agent). A wrapper
+# subclass means Harbor classified that output as another kind of failure, so it stays an infrastructure fault.
+HARNESS_REQUEST_ERRORS = {"BadRequestError", "NonZeroAgentExitCodeError"}
 
 
 @dataclass

@@ -77,7 +77,10 @@ async def test_the_harbor_verdict_names_why_the_episode_ended(monkeypatch, exit_
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("recorded", ["request-failed-on-it", "unrelated-message", "token-in-another-error-type"])
+@pytest.mark.parametrize(
+    "recorded",
+    ["request-failed-on-it", "unrelated-message", "token-in-another-error-type", "installed-agent-wrapped", "installed-agent-unrelated"],
+)
 async def test_an_agent_error_is_scored_only_when_harbor_blames_the_sessions_refusal(monkeypatch, recorded):
     policy = make_session().policy
     policy.sampling_client.get_tokenizer = lambda: make_session().renderer.tokenizer
@@ -92,17 +95,21 @@ async def test_an_agent_error_is_scored_only_when_harbor_blames_the_sessions_ref
             assert response.status_code == 400 and "budget" in response.text
         # Harbor keeps the harness's final exception; litellm's message quotes the 400 body (observed shape).
         quoted = f"litellm.BadRequestError: OpenAIException - Error code: 400 - {response.text}"
+        # An installed agent (mini-swe-agent) exits non-zero; Harbor wraps the command output into the detail.
+        wrapped = "Command failed (exit 1): mini ... 2>&1 | tee /logs/agent/mini-swe-agent.txt\nstdout: {}\nstderr: None"
         exception = {
             "request-failed-on-it": {"type": "BadRequestError", "message": quoted},
             "unrelated-message": {"type": "BadRequestError", "message": "sandbox command failed"},
             "token-in-another-error-type": {"type": "RuntimeError", "message": quoted},
+            "installed-agent-wrapped": {"type": "NonZeroAgentExitCodeError", "message": wrapped.format(quoted)},
+            "installed-agent-unrelated": {"type": "NonZeroAgentExitCodeError", "message": wrapped.format("step failed")},
         }[recorded]
         return {"reward": 0.0, "exit_status": "AgentError", "exception": exception}
 
     monkeypatch.setattr(harbor_env, "run", trial)
     strategy = harbor_env.SessionRolloutStrategy(renderer_name="role_colon", max_datum_tokens=1024)
     group = harbor_env.HarborGroup("task", 1, "terminus-2")
-    if recorded != "request-failed-on-it":
+    if recorded not in {"request-failed-on-it", "installed-agent-wrapped"}:
         with pytest.raises(builtins.ExceptionGroup):
             await strategy.execute(group, policy)
         return
