@@ -141,6 +141,7 @@ class RadixscaleTrainRayActor(TorchNativeTrainRayActor):
             Path(args.hf_checkpoint),
             self.mesh,
             recompute="selective" if args.gradient_checkpointing and args.radixscale_selective_recompute else args.gradient_checkpointing,
+            recompute_skip_last_layers=args.radixscale_recompute_skip_layers,
             compile=args.radixscale_compile,
         )
         self.model = built.model

@@ -12,6 +12,8 @@ class RadixscaleArgs(FSDPArgs):
     radixscale_selective_recompute: bool = False
     # compute per-token log-probs/entropy chunk by chunk inside the model instead of returning [T, vocab] logits
     radixscale_fused_logprobs: bool = True
+    # with --gradient-checkpointing: the last N layers keep their activations (no recompute)
+    radixscale_recompute_skip_layers: int = 0
     # dense FSDP shard group size; 0 = one NVLink domain (replicas across domains)
     radixscale_fsdp_size: int = 0
     # expert replicas across NVLink domains (expert HSDP); 0 shards experts over the whole world

@@ -31,6 +31,7 @@ class ScriptArgs(U.ExecuteTrainConfig):
     recompute: bool = True
     compile: bool = False
     selective_recompute: bool = False
+    recompute_skip_layers: int = 0
     max_tokens_per_gpu: int = 16384
     fsdp_size: int = 0
     # trainer allocator; conflicts with the cuda_ipc weight-sync protocol, so train-only runs
@@ -117,6 +118,7 @@ def execute(args: ScriptArgs):
             f"{'--gradient-checkpointing ' if args.recompute else ''}"
             f"{'--radixscale-compile ' if args.compile else ''}"
             f"{'--radixscale-selective-recompute ' if args.selective_recompute else ''}"
+            f"--radixscale-recompute-skip-layers {args.recompute_skip_layers} "
             f"--radixscale-fsdp-size {args.fsdp_size} "
             "--log-probs-chunk-size 4096 "
             f"--expert-model-parallel-size {args.ep_size} "
