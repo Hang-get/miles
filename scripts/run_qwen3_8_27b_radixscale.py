@@ -25,6 +25,7 @@ class ScriptArgs(U.ExecuteTrainConfig):
     train_backend: Literal["radixscale", "megatron"] = "radixscale"
     model_name: str = "Qwen3.8-27B"
     ep_size: int = 1
+    expert_rep: int = 0
     # parallel/perf knobs, tuned per backend for the A/B
     tp_size: int = 4
     recompute: bool = True
@@ -117,6 +118,7 @@ def execute(args: ScriptArgs):
             f"--radixscale-fsdp-size {args.fsdp_size} "
             "--log-probs-chunk-size 4096 "
             f"--expert-model-parallel-size {args.ep_size} "
+            f"--radixscale-expert-rep {args.expert_rep} "
             "--update-weight-buffer-size 2147483648 "
         )
     else:

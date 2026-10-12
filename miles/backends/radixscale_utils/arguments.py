@@ -10,6 +10,8 @@ class RadixscaleArgs(FSDPArgs):
     radixscale_compile: bool = False
     # dense FSDP shard group size; 0 = one NVLink domain (replicas across domains)
     radixscale_fsdp_size: int = 0
+    # expert replicas across NVLink domains (expert HSDP); 0 shards experts over the whole world
+    radixscale_expert_rep: int = 0
     expert_model_parallel_size: int = 1
 
 

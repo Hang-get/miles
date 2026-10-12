@@ -105,6 +105,7 @@ class RadixscaleTrainRayActor(TorchNativeTrainRayActor):
             nvlink_size=max(nvlink, fsdp),
             ep=args.expert_model_parallel_size,
             d_rep=max(world // fsdp, 1),
+            e_rep=args.radixscale_expert_rep or 1,
         )
         self.mesh = build_mesh(spec, "cuda")
         set_parallel_state(create_radixscale_parallel_state(self.mesh))
