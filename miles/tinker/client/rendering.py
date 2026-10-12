@@ -41,7 +41,8 @@ def render_prompt(renderer: Renderer, request: ChatRequest) -> list[int]:
         unknown = message.keys() - {"role", "content", "name", "tool_call_id", "tool_calls", "reasoning_content"}
         if unknown:
             raise ChatRequestError(f"unsupported message fields: {sorted(unknown)}")
-        if message.get("role") not in {"system", "developer", "user", "assistant", "tool"}:
+        role = message.get("role")
+        if not isinstance(role, str) or role not in {"system", "developer", "user", "assistant", "tool"}:
             raise ChatRequestError("messages must use the system, developer, user, assistant or tool role")
         content = message.get("content")
         if content is not None and not isinstance(content, (str, list)):

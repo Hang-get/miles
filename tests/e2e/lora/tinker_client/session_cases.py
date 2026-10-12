@@ -137,9 +137,12 @@ async def test_real_http_lifecycle_isolated_policies_and_validation():
                 {"max_tokens": 0},
                 {"chat_template_kwargs": {}},
                 {"store": True},
+                {"messages": [{"role": [], "content": "hi"}]},
+                {"messages": [{"role": {}, "content": "hi"}]},
             ]:
                 result = await http.post(f"{path}/v1/chat/completions", json={**body, **extra})
                 assert result.status_code == 400, result.text
+            assert first.policy.sampling_client.sample_async.await_count == 0
             informational = {"user": "harbor", "metadata": {"trial": "1"}, "store": False}
             result = await http.post(f"{path}/v1/chat/completions", json={**body, **informational})
             assert result.status_code == 200, result.text
