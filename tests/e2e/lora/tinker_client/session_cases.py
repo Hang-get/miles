@@ -170,6 +170,9 @@ async def test_only_what_is_refused_before_sampling_is_a_400(monkeypatch):
         session.max_datum_tokens = 1
         result = await http.post(f"{path}/v1/chat/completions", json=body)
         assert result.status_code == 400 and "budget" in result.text
+        detail = result.json()["detail"]
+        assert detail["code"] == "session_limit" and detail["limit"] == "context_overflow"
+        assert session.refusal.limit == "context_overflow" and session.refusal.token == detail["token"]
         assert session.policy.sampling_client.sample_async.await_count == 0
         session.max_datum_tokens = 1024
 

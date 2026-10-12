@@ -308,11 +308,14 @@ def test_verdict_maps_reward_metrics_and_timings():
 )
 def test_harbor_exceptions_map_to_the_exit_status_vocabulary(exc_type, exit_status):
     result = SimpleNamespace(
-        exception_info=SimpleNamespace(exception_type=exc_type), verifier_result=None, agent_result=None
+        exception_info=SimpleNamespace(exception_type=exc_type, exception_message="boom"),
+        verifier_result=None,
+        agent_result=None,
     )
     out = haf.trial_result_to_metadata(result)
     assert out["reward"] == 0.0
     assert out["exit_status"] == exit_status
+    assert out["exception"] == {"type": exc_type, "message": "boom"}
 
 
 # --- entry -----------------------------------------------------------------

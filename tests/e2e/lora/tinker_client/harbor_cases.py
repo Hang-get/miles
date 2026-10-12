@@ -77,6 +77,41 @@ async def test_the_harbor_verdict_names_why_the_episode_ended(monkeypatch, exit_
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("recorded", ["request-failed-on-it", "unrelated-message", "token-in-another-error-type"])
+async def test_an_agent_error_is_scored_only_when_harbor_blames_the_sessions_refusal(monkeypatch, recorded):
+    policy = make_session().policy
+    policy.sampling_client.get_tokenizer = lambda: make_session().renderer.tokenizer
+
+    async def trial(base_url, prompt, request_kwargs, metadata):
+        async with httpx.AsyncClient() as http:
+            for text in ["hi", "x" * 2000]:
+                response = await http.post(
+                    f"{base_url}/v1/chat/completions",
+                    json={"messages": [{"role": "user", "content": text}], **request_kwargs},
+                )
+            assert response.status_code == 400 and "budget" in response.text
+        # Harbor keeps the harness's final exception; litellm's message quotes the 400 body (observed shape).
+        quoted = f"litellm.BadRequestError: OpenAIException - Error code: 400 - {response.text}"
+        exception = {
+            "request-failed-on-it": {"type": "BadRequestError", "message": quoted},
+            "unrelated-message": {"type": "BadRequestError", "message": "sandbox command failed"},
+            "token-in-another-error-type": {"type": "RuntimeError", "message": quoted},
+        }[recorded]
+        return {"reward": 0.0, "exit_status": "AgentError", "exception": exception}
+
+    monkeypatch.setattr(harbor_env, "run", trial)
+    strategy = harbor_env.SessionRolloutStrategy(renderer_name="role_colon", max_datum_tokens=1024)
+    group = harbor_env.HarborGroup("task", 1, "terminus-2")
+    if recorded != "request-failed-on-it":
+        with pytest.raises(builtins.ExceptionGroup):
+            await strategy.execute(group, policy)
+        return
+    [trajectory] = (await strategy.execute(group, policy)).trajectories
+    assert len(trajectory.transitions) == 1
+    assert trajectory.stop_reason == "context_overflow"
+
+
+@pytest.mark.asyncio
 async def test_infrastructure_failure_cannot_become_a_zero_reward(monkeypatch):
     policy = make_session().policy
     policy.sampling_client.get_tokenizer = lambda: make_session().renderer.tokenizer
