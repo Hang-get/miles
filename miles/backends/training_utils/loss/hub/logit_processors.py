@@ -1,5 +1,6 @@
 from argparse import Namespace
 from collections.abc import Iterator, Sequence
+from dataclasses import dataclass
 
 import torch
 
@@ -12,6 +13,50 @@ from miles.backends.training_utils.loss.hub.math_utils import calculate_log_prob
 from miles.backends.training_utils.loss.hub.score_centering import selected_log_probs_and_entropy
 from miles.backends.training_utils.parallel import get_parallel_state
 from miles.utils.sampling_mask import RolloutSamplingMask
+
+
+@dataclass
+class TokenLogProbs:
+    """Per-token log-probs (and entropies) a backend computed itself, standing in
+    for the [1, T, V] logits so the full-vocabulary logits are never built.
+
+    log_probs[0, p] is the log-prob of the token at p + 1 under the logits at p,
+    exactly what `_iter_response_chunks` would slice out of real logits.
+    """
+
+    log_probs: torch.Tensor
+    entropy: torch.Tensor | None = None
+
+    @property
+    def device(self) -> torch.device:
+        return self.log_probs.device
+
+    def sum(self, dtype: torch.dtype | None = None) -> torch.Tensor:
+        total = self.log_probs.sum(dtype=dtype)
+        return total if self.entropy is None else total + self.entropy.sum(dtype=dtype)
+
+    def response_slices(
+        self,
+        *,
+        args: Namespace,
+        total_lengths: list[int],
+        response_lengths: list[int],
+        with_entropy: bool,
+        entropy_requires_grad: bool,
+    ) -> dict[str, list[torch.Tensor]]:
+        if args.qkv_format != "thd" or get_parallel_state().cp.size != 1 or args.true_on_policy_mode:
+            raise ValueError("TokenLogProbs supports thd packing without context parallelism only")
+        if with_entropy and self.entropy is None:
+            raise ValueError("entropy was requested but the backend did not compute it")
+        log_probs, entropy, end = [], [], 0
+        for total_length, response_length in zip(total_lengths, response_lengths, strict=True):
+            end += total_length
+            start = end - response_length
+            log_probs.append(self.log_probs[0, start - 1 : end - 1])
+            if with_entropy:
+                chunk = self.entropy[0, start - 1 : end - 1]
+                entropy.append(chunk if entropy_requires_grad else chunk.detach())
+        return {"log_probs": log_probs, **({"entropy": entropy} if with_entropy else {})}
 
 
 def _iter_response_chunks(
@@ -231,6 +276,16 @@ def get_log_probs_and_entropy(
         a list of `[R]` tensors.
     """
     assert non_loss_data
+    if isinstance(logits, TokenLogProbs):
+        if rollout_sampling_mask is not None or getattr(args, "loss_type", None) == "score_centering":
+            raise ValueError("TokenLogProbs supports neither sampling-mask replay nor score centering")
+        return logits.response_slices(
+            args=args,
+            total_lengths=total_lengths,
+            response_lengths=response_lengths,
+            with_entropy=with_entropy,
+            entropy_requires_grad=entropy_requires_grad,
+        )
     if rollout_sampling_mask is not None:
         for sample_index, (sampling_mask, response_length) in enumerate(
             zip(rollout_sampling_mask, response_lengths, strict=True)

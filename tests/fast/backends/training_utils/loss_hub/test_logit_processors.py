@@ -39,3 +39,43 @@ class TestGetLogProbsAndEntropy:
 
         assert fused_cross_entropy_calls == [(True, True)]
         assert not result["log_probs"][0].requires_grad
+
+
+class TestTokenLogProbs:
+    def test_response_slices_match_the_logit_slicing_of_real_logits(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A backend's per-token log-probs, sliced by TokenLogProbs, equal what miles derives from full logits."""
+        parallel_state = SimpleNamespace(tp=SimpleNamespace(rank=0, group=None), cp=SimpleNamespace(rank=0, size=1))
+        monkeypatch.setattr(logit_processors, "get_parallel_state", lambda: parallel_state)
+        args = Namespace(qkv_format="thd", rollout_temperature=1.0, true_on_policy_mode=False, allgather_cp=False)
+        torch.manual_seed(0)
+        samples = [torch.randint(0, 11, (n,)) for n in (5, 7, 4)]
+        response_lengths = [3, 6, 2]
+        tokens = torch.cat(samples)
+        logits = torch.randn(1, tokens.numel(), 11)
+        full = torch.log_softmax(logits[0], dim=-1)
+        next_tokens = torch.roll(tokens, -1)
+        per_token = full.gather(1, next_tokens[:, None]).squeeze(1)
+        entropy = -(full.exp() * full).sum(-1)
+
+        result = logit_processors.TokenLogProbs(per_token[None], entropy[None]).response_slices(
+            args=args,
+            total_lengths=[len(s) for s in samples],
+            response_lengths=response_lengths,
+            with_entropy=True,
+            entropy_requires_grad=False,
+        )
+
+        chunks = logit_processors._iter_response_chunks(
+            logits,
+            args=args,
+            unconcat_tokens=samples,
+            total_lengths=[len(s) for s in samples],
+            response_lengths=response_lengths,
+            include_response_indices=False,
+        )
+        for got_lp, got_ent, (logits_chunk, tokens_chunk, _) in zip(
+            result["log_probs"], result["entropy"], chunks, strict=True
+        ):
+            want = torch.log_softmax(logits_chunk, dim=-1)
+            torch.testing.assert_close(got_lp, want.gather(1, tokens_chunk[:, None]).squeeze(1))
+            torch.testing.assert_close(got_ent, -(want.exp() * want).sum(-1))

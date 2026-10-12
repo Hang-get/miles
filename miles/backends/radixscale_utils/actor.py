@@ -15,6 +15,7 @@ from radixscale.train.trainer import clip_grad_norm
 from miles.backends.fsdp_utils.lr_scheduler import get_lr_scheduler
 from miles.backends.radixscale_utils.hf_weight_iterator import RadixscaleHfWeightIterator
 from miles.backends.radixscale_utils.parallel import create_radixscale_parallel_state
+from miles.backends.training_utils.loss.hub.logit_processors import TokenLogProbs
 from miles.backends.training_utils.parallel import get_parallel_state, set_parallel_state
 from miles.backends.training_utils.torch_native.actor import TorchNativeTrainRayActor
 from miles.backends.training_utils.torch_native.step_runner import LinearStepRunner, StepMetrics
@@ -73,6 +74,26 @@ def _cp1_shard(batch: dict) -> CpShard:
     )
 
 
+def _next_token_labels(batch: dict) -> torch.Tensor:
+    """labels[p] = tokens[p + 1] inside each packed sample, ignored at sample ends."""
+    tokens = batch["tokens"][0]
+    sample_ends = torch.tensor(batch["cu_seqlens_host"][1:], dtype=torch.long) - 1
+    labels = torch.roll(tokens, -1)
+    sample_ends = sample_ends.clamp(min=0).pin_memory() if tokens.is_cuda else sample_ends.clamp(min=0)
+    return labels.index_fill_(0, sample_ends.to(tokens.device, non_blocking=True), IGNORE_LABEL)
+
+
+def _fused_logprobs_supported(args) -> bool:
+    return (
+        args.radixscale_fused_logprobs
+        and not args.true_on_policy_mode
+        and not args.use_sampling_support_replay
+        and getattr(args, "loss_type", "policy_loss") == "policy_loss"
+        and args.context_parallel_size == 1
+        and args.qkv_format == "thd"
+    )
+
+
 class RadixscaleTrainRayActor(TorchNativeTrainRayActor):
     backend_name = "radixscale"
 
@@ -112,6 +133,7 @@ class RadixscaleTrainRayActor(TorchNativeTrainRayActor):
         if args.debug_rollout_only:
             return 0
 
+        self._fused_logprobs = _fused_logprobs_supported(args)
         self.prof = TrainProfiler(args)
         self.load_hf_assets()
         built = build_model(
@@ -156,8 +178,21 @@ class RadixscaleTrainRayActor(TorchNativeTrainRayActor):
     def _step_runner(self) -> LinearStepRunner:
         return LinearStepRunner(self._forward, self._zero_grad, self._apply_step)
 
-    def _forward(self, batch: dict) -> torch.Tensor:
-        return self.model(_cp1_shard(batch)).unsqueeze(0)
+    def _forward(self, batch: dict) -> torch.Tensor | TokenLogProbs:
+        shard = _cp1_shard(batch)
+        if not self._fused_logprobs:
+            return self.model(shard).unsqueeze(0)
+        args = self.args
+        # the log-prob pass (no grad) records entropy; training needs it only for the loss or its metric
+        with_entropy = not torch.is_grad_enabled() or args.entropy_coef != 0 or args.observe_training_entropy
+        out = self.model(
+            shard,
+            logprob_labels=_next_token_labels(batch),
+            temperature=args.rollout_temperature if args.rollout_temperature > 0 else 1.0,
+            with_entropy=with_entropy,
+        )
+        log_probs, entropy = out if with_entropy else (out, None)
+        return TokenLogProbs(log_probs.unsqueeze(0), None if entropy is None else entropy.unsqueeze(0))
 
     def _zero_grad(self) -> None:
         self.optimizer.zero_grad(set_to_none=True)
