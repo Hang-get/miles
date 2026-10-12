@@ -432,11 +432,7 @@ def trial_result_to_metadata(result) -> dict[str, Any]:
         if timing is not None and (duration := _timing_duration_sec(timing)) is not None:
             metrics[key] = duration
 
-    out = {"reward": reward, "exit_status": exit_status, "eval_report": rewards, "agent_metrics": metrics}
-    if exc is not None:
-        # Harbor's own account of why the trial ended, for a rollout to match against what it refused.
-        out["exception"] = {"type": exc_type, "message": exc.exception_message}
-    return out
+    return {"reward": reward, "exit_status": exit_status, "eval_report": rewards, "agent_metrics": metrics}
 
 
 def _failed(exit_status: str) -> dict[str, Any]:

@@ -1,58 +1,79 @@
 ---
-title: "Harbor agents through Tinker"
+title: "Harbor agent training through the official Tinker proxy"
 description: "Train Harbor agents using cookbook renderers and exact Tinker sample tokens."
 # Generated from examples/multi_lora/harbor_tinker/README.md by scripts/tools/sync_example_docs.py. Edit that README, not this file.
 ---
-Run the normal Miles Tinker gateway, then run this recipe in a separate client
-virtualenv from the Miles checkout. The cookbook renderer owns message rendering;
-`miles/tinker/client` records actual sample tokens and logprobs for training.
+Install the independent client package; running it does not import or require
+Miles. The Harbor version is pinned to the same fork used by the Miles Harbor
+example. Request/render/stop/tool/SSE behavior comes unchanged from the pinned
+official `tinker_cookbook.capture.proxy`.
 
 ```bash
-uv venv --python 3.12 .venv-tinker
-uv pip install --python .venv-tinker/bin/python -r examples/multi_lora/requirements.txt
-uv pip install --python .venv-tinker/bin/python \
-  "harbor[e2b] @ git+https://github.com/harbor-framework/harbor@harbor-miles-v0.20.0"
-
-export TINKER_API_KEY=tml-my-tenant
-export HARBOR_ENV_TYPE=e2b
-# Configure the provider credential and endpoint as in examples/experimental/harbor.
-.venv-tinker/bin/python -m examples.multi_lora.harbor_tinker.run_harbor_tinker \
-  gateway=http://gateway:10613 model_name=Qwen/Qwen3-4B-Instruct-2507 \
-  renderer_name=qwen3_instruct tasks_dir=/data/tasks \
-  group_size=4 groups_per_batch=4 max_tokens=4096 max_datum_tokens=32768
+uv pip install 'tinker-agent-rollouts[harbor] @ git+https://github.com/radixark/miles@<commit>#subdirectory=examples/multi_lora/tinker_agent'
 ```
 
-Each cookbook rollout group starts an adapter on an available port; each trial
-gets a separate session bound to that iteration's policy. The default listener
-is loopback, suitable for agents making model calls in the client process.
-For agents calling from a sandbox, set `listen_host=0.0.0.0` and
-`advertised_host=<address-reachable-from-sandbox>`. Permit the adapter's dynamic
-ports on that trusted network. Session URLs grant sampling access; keep them
-private. The gateway tenant key stays in the cookbook process.
+Create `trial.json` with Harbor `TrialConfig` fields, omitting `task` (the
+recipe supplies each dataset task). For example, Terminus 2 with Docker:
 
-`max_parallel_trials_per_group` bounds sandbox trials within each group. With
-`groups_per_batch=4` and `max_parallel_trials_per_group=4`, up to 16 trials can
-run concurrently in the synchronous recipe. `max_turns` bounds each trace;
-`max_datum_tokens` must not exceed the gateway's per-Datum token cap. The adapter
-rejects an oversized request before sampling; it does not discard samples or
-truncate a finished trace to fit training.
+```json
+{
+  "trials_dir": "/tmp/harbor-trials",
+  "environment": {"type": "docker"},
+  "agent": {
+    "name": "terminus-2",
+    "model_name": "openai/policy",
+    "kwargs": {
+      "api_base": "{proxy_url}/v1",
+      "llm_kwargs": {"api_key": "{proxy_api_key}"},
+      "temperature": 1.0
+    }
+  }
+}
+```
 
-The supported agents speak non-streaming OpenAI chat completions, for example
-`terminus-2` and `mini-swe-agent`. Claude Code's Anthropic API and multimodal
-messages are outside this adapter's scope. Function tools use the selected
-cookbook renderer's tool convention. Harbor configuration and sandbox lifecycle
-reuse `examples/experimental/harbor/harbor_agent_function.py`.
+Use Harbor's normal schema for agent kwargs, sandbox/provider credentials,
+timeouts and verifier settings. The recipe substitutes only `{proxy_url}`
+and `{proxy_api_key}` in this JSON. The URL includes a trajectory-specific
+`/r/traj/<id>` prefix. For `mini-swe-agent`, put `{proxy_url}/v1` in
+`agent.env.OPENAI_BASE_URL` and `{proxy_api_key}` in `agent.env.OPENAI_API_KEY`.
+For `claude-code`, use `{proxy_url}` in `agent.env.ANTHROPIC_BASE_URL` and
+`{proxy_api_key}` in `agent.env.ANTHROPIC_API_KEY`. Choose a model/renderer
+that supports the agent's requested tools and message format.
 
-The trial verdict supplies the trajectory reward; cookbook computes group
-advantages and training Datums. An `AgentError` aborts the group so infrastructure
-failures cannot become zero-reward policy samples; a trial the adapter stopped for
-its own token budget or turn limit is instead a scored episode end (`context_overflow`
-or `max_turns`), and one stopped before its first sample carries no training tokens.
-Repeated prompts and samples
-after length stops remain in the token trace. Edited, compacted, or re-tokenized
-histories become separate Datums unless the actual token prefix still matches.
-Checkpoint TTL is disabled because the Miles gateway owns checkpoint retention.
+```bash
+export TINKER_API_KEY=tml-your-key
+python -m tinker_agent.train \
+  model_name=Qwen/Qwen3-8B renderer_name=qwen3_instruct \
+  tasks_dir=/data/harbor-tasks trial_config=trial.json \
+  base_url=http://miles-gateway:8000 \
+  listen_host=0.0.0.0 advertised_host=host.docker.internal \
+  groups_per_batch=4 group_size=4 max_tokens=8192
+```
 
-CPU regression coverage runs in the cookbook environment through
-`python tests/e2e/lora/test_tinker_client.py`. It checks actual renderer output,
-HTTP session isolation, trace fidelity, and cookbook's Datum masks/logprobs.
+Omit `base_url` to use the official Tinker service. For remote sandboxes,
+`advertised_host` must resolve to this client machine from the sandbox; use
+your provider's reachable host address. Each group gets a random proxy auth
+token. Rendering and trace bookkeeping run on the client machine. Agent
+sampling parameters come from the agent; `max_tokens` supplies the proxy's
+default only when the request omits it.
+
+One rollout group fixes one sampling client. Every trial closes admission,
+drains accepted samples, then converts immutable input/output tokens and
+logprobs into cookbook transitions. All sampled calls, including compaction
+and repeated prompts, are retained. Cookbook computes group advantages and
+merges only exact token-prefix continuations into training Datums.
+
+A completed trial or an agent timeout with a verifier reward is scored using
+`reward_key` (default `reward`). Missing/non-finite rewards, other Harbor
+exceptions, cancelled/failed sampling or incomplete records abort the group.
+There is no synthetic zero reward for infrastructure errors. Task and agent
+limits belong to Harbor; the proxy adds no turn/token budgets, refusal
+matching, stop overrides or `reasoning_content` reconstruction. Capture's
+export queue is not used for training storage. Crashed groups are discarded;
+there is no partial-episode recovery.
+
+The isolated CPU tests compare the wrapped and bare official proxy and test
+Harbor configuration, trial outcomes and token-to-Datum conversion with a
+scripted trial. The registered H100 gateway test exercises real sampling and
+PPO training. Scripted trials do not validate live sandbox provisioning or
+agent binaries; those require an actual Harbor environment.

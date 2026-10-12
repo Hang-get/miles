@@ -57,8 +57,15 @@ async def execute(base_url, base_model):
     step = await training.optim_step_async(tinker.types.AdamParams(learning_rate=1e-5))
     await backward
     await step
-    await (await training.save_weights_for_sampler_async(name="session-trained"))
-    print("session acceptance passed: 6 sampled turns, 6 Datums, PPO backward + optimizer step")
+    trained = await (await training.save_weights_for_sampler_async(name="session-trained"))
+    updated_sampler = await service.create_sampling_client_async(model_path=trained.path)
+    response = await updated_sampler.sample_async(
+        prompt=sent[0].model_input, num_samples=1,
+        sampling_params=tinker.SamplingParams(max_tokens=4),
+    )
+    assert response.sequences[0].tokens
+    assert len(response.sequences[0].tokens) == len(response.sequences[0].logprobs)
+    print("proxy acceptance passed: 6 sampled turns, 6 Datums, PPO step, updated-policy sampling")
 
 
 if __name__ == "__main__":

@@ -25,7 +25,7 @@ def test_cookbook_client():
             "--with",
             "pytest-asyncio",
             "--with",
-            "./examples/multi_lora/tinker_agent",
+            "./examples/multi_lora/tinker_agent[harbor]",
             "python",
             "-I",
             "-m",

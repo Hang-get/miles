@@ -1,6 +1,5 @@
 import importlib.util
 import json
-from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -8,28 +7,6 @@ from aiohttp.test_utils import TestServer
 from tinker_agent.proxy import serve_proxy
 from tinker_agent.recording import RecordingSampler
 from tinker_cookbook.capture.proxy.app import ProxyDeps, make_app
-from tinker_cookbook.renderers.role_colon import RoleColonRenderer
-
-
-class Tokenizer:
-    name_or_path = "fake-tokenizer"
-    bos_token = None
-    eos_token_id = None
-
-    def encode(self, text, **kwargs):
-        return [ord(char) for char in text]
-
-    def decode(self, tokens, **kwargs):
-        return "".join(" hello\n\nUser:" if token == 1000 else chr(token) for token in tokens)
-
-
-class Sampler:
-    def __init__(self):
-        self.calls = []
-
-    async def sample_async(self, prompt, num_samples, sampling_params):
-        self.calls.append((prompt.to_ints(), num_samples, sampling_params.model_dump()))
-        return SimpleNamespace(sequences=[SimpleNamespace(tokens=[1000], logprobs=[-0.25], stop_reason="stop")])
 
 
 def normalized(payload):
@@ -67,9 +44,8 @@ def test_client_install_has_no_miles_dependency():
         ("messages", {"stream": True, "thinking": {"type": "enabled", "budget_tokens": 16}}),
     ],
 )
-async def test_recording_preserves_official_proxy_behavior(endpoint, extra):
-    renderer = RoleColonRenderer(Tokenizer())
-    bare, backend = Sampler(), Sampler()
+async def test_recording_preserves_official_proxy_behavior(endpoint, extra, renderer, sampler_factory):
+    bare, backend = sampler_factory(), sampler_factory()
     recorder = RecordingSampler(backend)
     official = TestServer(make_app(ProxyDeps(renderer, bare, "policy", default_max_tokens=32)))
     await official.start_server()
@@ -97,9 +73,8 @@ async def test_recording_preserves_official_proxy_behavior(endpoint, extra):
 
 
 @pytest.mark.asyncio
-async def test_parse_failure_keeps_sample_and_closed_trajectory_cannot_sample(monkeypatch):
-    renderer = RoleColonRenderer(Tokenizer())
-    backend = Sampler()
+async def test_parse_failure_keeps_sample_and_closed_trajectory_cannot_sample(monkeypatch, renderer, sampler_factory):
+    backend = sampler_factory()
     recorder = RecordingSampler(backend)
 
     def fail_parse(tokens):

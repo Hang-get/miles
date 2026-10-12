@@ -1,170 +1,97 @@
-import builtins
-import os
+import json
 import pickle
+from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
-from examples.multi_lora.harbor_tinker import harbor_env, run_harbor_tinker
-from tests.e2e.lora.tinker_client.session_cases import make_session
+from tinker_agent import harbor
+from tinker_agent.train import HarborTinkerConfig, build_config
+from tinker_cookbook.completers import TinkerTokenCompleter
 from tinker_cookbook.rl.data_processing import trajectory_to_data
 
+TEMPLATE = json.dumps({
+    "environment": {"type": "docker"},
+    "agent": {"name": "terminus-2", "model_name": "openai/policy", "kwargs": {
+        "api_base": "{proxy_url}/v1", "llm_kwargs": {"api_key": "{proxy_api_key}"},
+    }},
+})
+
 
 @pytest.mark.asyncio
-async def test_harbor_http_turns_become_unmodified_training_data(monkeypatch):
-    policy = make_session().policy
-    policy.sampling_client.get_tokenizer = lambda: make_session().renderer.tokenizer
-    calls = []
+async def test_harbor_http_calls_become_unmodified_training_data(monkeypatch, renderer, sampler_factory):
+    sampler = sampler_factory()
+    sampler.get_tokenizer = lambda: renderer.tokenizer
+    policy = TinkerTokenCompleter(sampler, max_tokens=32)
+    configs = []
 
-    async def trial(base_url, prompt, request_kwargs, metadata):
-        calls.append(base_url)
-        async with httpx.AsyncClient() as http:
-            for text in ["original", "compacted", "compacted"]:
-                response = await http.post(
-                    f"{base_url}/v1/chat/completions",
-                    json={
-                        "messages": [{"role": "user", "content": text}],
-                        **request_kwargs,
-                    },
-                )
-                response.raise_for_status()
-        return {"reward": float(len(calls) % 2), "exit_status": "Submitted"}
+    async def create(config):
+        configs.append(config)
+        reward = float(len(configs) % 2)
 
-    monkeypatch.setattr(harbor_env, "run", trial)
-    strategy = harbor_env.SessionRolloutStrategy(renderer_name="role_colon", max_parallel_trials_per_group=1)
+        async def run():
+            async with httpx.AsyncClient() as http:
+                for text in ["original", "compacted", "compacted"]:
+                    response = await http.post(
+                        f"{config.agent.kwargs['api_base']}/chat/completions",
+                        headers={"Authorization": f"Bearer {config.agent.kwargs['llm_kwargs']['api_key']}"},
+                        json={"messages": [{"role": "user", "content": text}]},
+                    )
+                    response.raise_for_status()
+            return SimpleNamespace(exception_info=None, verifier_result=SimpleNamespace(rewards={"reward": reward}))
+        return SimpleNamespace(run=run)
+
+    monkeypatch.setattr(harbor.Trial, "create", create)
+    strategy = harbor.HarborRolloutStrategy("role_colon", TEMPLATE, max_parallel_trials_per_group=1)
     strategy = pickle.loads(pickle.dumps(strategy))
-    group = harbor_env.HarborGroup("task", 2, "terminus-2")
-    outcome = await strategy.execute(group, policy)
-    assert len(set(calls)) == 2
-    rewards = await group.compute_group_rewards(outcome.trajectories, outcome.envs)
-    assert [reward for reward, _ in rewards] == [1, 0]
-    for trajectory in outcome.trajectories:
+    group = harbor.HarborGroup(Path("/tasks/task"), 2)
+    result = await strategy.execute(group, policy)
+    assert len({c.agent.kwargs["api_base"] for c in configs}) == 2
+    assert all(c.task.path == Path("/tasks/task") for c in configs)
+    assert [reward for reward, _ in await group.compute_group_rewards(result.trajectories, result.envs)] == [1, 0]
+    for trajectory in result.trajectories:
         datums = trajectory_to_data(trajectory, traj_advantage=1.0)
         assert len(datums) == 3
-        assert [transition.ac.tokens for transition in trajectory.transitions] == [[1000]] * 3
         assert [datum.loss_fn_inputs["target_tokens"].data[-1] for datum in datums] == [1000] * 3
+        assert [datum.loss_fn_inputs["logprobs"].data[-1] for datum in datums] == [-0.25] * 3
     async with httpx.AsyncClient() as http:
         with pytest.raises(httpx.ConnectError):
-            await http.post(f"{calls[0]}/v1/chat/completions", json={})
+            await http.get(configs[0].agent.kwargs["api_base"])
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "exit_status,stop_reason",
-    [
-        ("Submitted", "completed"),
-        ("TimeLimitExceeded", "rollout_timeout"),
-        ("SequenceLengthLimitExceeded", "context_overflow"),
-    ],
-)
-async def test_the_harbor_verdict_names_why_the_episode_ended(monkeypatch, exit_status, stop_reason):
-    policy = make_session().policy
-    policy.sampling_client.get_tokenizer = lambda: make_session().renderer.tokenizer
-
-    async def trial(base_url, prompt, request_kwargs, metadata):
-        async with httpx.AsyncClient() as http:
-            response = await http.post(
-                f"{base_url}/v1/chat/completions", json={"messages": [{"role": "user", "content": "hi"}]}
-            )
-            response.raise_for_status()
-        return {"reward": 0.0, "exit_status": exit_status}
-
-    monkeypatch.setattr(harbor_env, "run", trial)
-    strategy = harbor_env.SessionRolloutStrategy(renderer_name="role_colon")
-    outcome = await strategy.execute(harbor_env.HarborGroup("task", 1, "terminus-2"), policy)
-    [trajectory] = outcome.trajectories
-    assert trajectory.transitions[-1].ac.stop_reason == "stop"  # the sample finished; the episode may not have
-    assert trajectory.stop_reason == stop_reason
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "recorded",
-    [
-        "request-failed-on-it",
-        "unrelated-message",
-        "token-in-another-error-type",
-        "installed-agent-wrapped",
-        "installed-agent-unrelated",
-    ],
-)
-async def test_an_agent_error_is_scored_only_when_harbor_blames_the_sessions_refusal(monkeypatch, recorded):
-    policy = make_session().policy
-    policy.sampling_client.get_tokenizer = lambda: make_session().renderer.tokenizer
-
-    async def trial(base_url, prompt, request_kwargs, metadata):
-        async with httpx.AsyncClient() as http:
-            for text in ["hi", "x" * 2000]:
-                response = await http.post(
-                    f"{base_url}/v1/chat/completions",
-                    json={"messages": [{"role": "user", "content": text}], **request_kwargs},
-                )
-            assert response.status_code == 400 and "budget" in response.text
-        # Harbor keeps the harness's final exception; litellm's message quotes the 400 body (observed shape).
-        quoted = f"litellm.BadRequestError: OpenAIException - Error code: 400 - {response.text}"
-        # An installed agent (mini-swe-agent) exits non-zero; Harbor wraps the command output into the detail.
-        wrapped = (
-            "Command failed (exit 1): mini ... 2>&1 | tee /logs/agent/mini-swe-agent.txt\nstdout: {}\nstderr: None"
-        )
-        exception = {
-            "request-failed-on-it": {"type": "BadRequestError", "message": quoted},
-            "unrelated-message": {"type": "BadRequestError", "message": "sandbox command failed"},
-            "token-in-another-error-type": {"type": "RuntimeError", "message": quoted},
-            "installed-agent-wrapped": {"type": "NonZeroAgentExitCodeError", "message": wrapped.format(quoted)},
-            "installed-agent-unrelated": {
-                "type": "NonZeroAgentExitCodeError",
-                "message": wrapped.format("step failed"),
-            },
-        }[recorded]
-        return {"reward": 0.0, "exit_status": "AgentError", "exception": exception}
-
-    monkeypatch.setattr(harbor_env, "run", trial)
-    strategy = harbor_env.SessionRolloutStrategy(renderer_name="role_colon", max_datum_tokens=1024)
-    group = harbor_env.HarborGroup("task", 1, "terminus-2")
-    if recorded not in {"request-failed-on-it", "installed-agent-wrapped"}:
-        with pytest.raises(builtins.ExceptionGroup):
-            await strategy.execute(group, policy)
-        return
-    [trajectory] = (await strategy.execute(group, policy)).trajectories
-    assert len(trajectory.transitions) == 1
-    assert trajectory.stop_reason == "context_overflow"
-
-
-@pytest.mark.asyncio
-async def test_infrastructure_failure_cannot_become_a_zero_reward(monkeypatch):
-    policy = make_session().policy
-    policy.sampling_client.get_tokenizer = lambda: make_session().renderer.tokenizer
-
-    async def trial(**kwargs):
-        return {"reward": 0, "exit_status": "AgentError"}
-
-    monkeypatch.setattr(harbor_env, "run", trial)
-    strategy = harbor_env.SessionRolloutStrategy(renderer_name="role_colon")
-    with pytest.raises(builtins.ExceptionGroup, match="TaskGroup") as caught:
-        await strategy.execute(harbor_env.HarborGroup("task", 1, "terminus-2"), policy)
-    assert "Harbor trial task failed" in str(caught.value.exceptions[0])
-
-
-def test_explicit_recipe_config_controls_sdk_and_trial_environment(monkeypatch, tmp_path):
-    monkeypatch.setenv("TINKER_API_KEY", "tml-ambient")
-    monkeypatch.setenv("HARBOR_TASKS_DIR", "/wrong/tasks")
-    monkeypatch.setenv("HARBOR_ENV_TYPE", "e2b")
-    observed = []
-
-    async def train(config):
-        observed.append((os.environ["TINKER_API_KEY"], os.environ["HARBOR_TASKS_DIR"], config))
-
-    monkeypatch.setattr(run_harbor_tinker.train, "main", train)
-    run_harbor_tinker.main(
-        run_harbor_tinker.HarborTinkerConfig(
-            gateway="http://gateway",
-            model_name="model",
-            renderer_name="role_colon",
-            tasks_dir=str(tmp_path),
-            api_key="tml-explicit",
-        )
+@pytest.mark.parametrize("failure,reason", [(None, "completed"), ("AgentTimeoutError", "rollout_timeout")])
+def test_only_scored_trial_outcomes_are_accepted(failure, reason):
+    result = SimpleNamespace(
+        exception_info=None if failure is None else SimpleNamespace(exception_type=failure),
+        verifier_result=SimpleNamespace(rewards={"reward": 0.5}),
     )
-    key, tasks, config = observed[0]
-    assert key == "tml-explicit"
-    assert tasks == str(tmp_path)
-    assert config.base_url == "http://gateway"
+    assert harbor.trial_outcome(result, "reward") == (0.5, reason)
+
+
+@pytest.mark.parametrize("failure,rewards", [
+    ("VerifierTimeoutError", {"reward": 0}),
+    ("NonZeroAgentExitCodeError", {"reward": 0}),
+    (None, None), ("AgentTimeoutError", None), (None, {"reward": float("nan")}),
+])
+def test_failed_or_unscored_trials_cannot_turn_into_zero_rewards(failure, rewards):
+    result = SimpleNamespace(
+        exception_info=None if failure is None else SimpleNamespace(exception_type=failure, exception_message="failed"),
+        verifier_result=SimpleNamespace(rewards=rewards),
+    )
+    with pytest.raises((RuntimeError, ValueError)):
+        harbor.trial_outcome(result, "reward")
+
+
+def test_recipe_uses_public_sdk_configuration_and_harbor_defaults(tmp_path):
+    config_path = tmp_path / "trial.json"
+    config_path.write_text(TEMPLATE)
+    config = build_config(HarborTinkerConfig(
+        model_name="model", renderer_name="role_colon", tasks_dir=str(tmp_path), trial_config=str(config_path),
+    ))
+    assert config.base_url is None
     assert config.ttl_seconds is None
+    trial = harbor.trial_config(TEMPLATE, tmp_path, "http://proxy/r/traj/7", 'key"quoted')
+    assert trial.agent.kwargs["api_base"] == "http://proxy/r/traj/7/v1"
+    assert trial.agent.kwargs["llm_kwargs"]["api_key"] == 'key"quoted'
+    assert "response_length_exceeded_policy" not in trial.agent.kwargs
+    assert "max_turns" not in trial.agent.kwargs
