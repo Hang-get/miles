@@ -33,7 +33,8 @@ class ChatSession:
                 raise ChatRequestError("session is closed")
             if len(self.trace.turns) >= self.max_turns:
                 raise ChatRequestError("session turn limit reached")
-            input_ids = await asyncio.to_thread(render_prompt, self.renderer, request)
+            # HF fast tokenizers are mutated on every encode, so every tokenizer call stays on this thread.
+            input_ids = render_prompt(self.renderer, request)
             params = sampling_params(self.renderer, request)
             params["max_tokens"] = min(params.get("max_tokens", self.policy.max_tokens), self.policy.max_tokens)
             params.setdefault("temperature", self.policy.temperature)
