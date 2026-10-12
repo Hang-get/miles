@@ -1,4 +1,5 @@
 import asyncio
+import threading
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -10,6 +11,7 @@ from tinker_cookbook.completers import TinkerTokenCompleter
 from tinker_cookbook.renderers.role_colon import RoleColonRenderer
 
 import tinker
+from miles.tinker.client import session as session_module
 from miles.tinker.client.rendering import ChatRequest, render_prompt
 from miles.tinker.client.server import SessionServer
 from miles.tinker.client.session import ChatSession
@@ -81,6 +83,18 @@ async def test_parser_failure_does_not_erase_sample(monkeypatch):
     with pytest.raises(ValueError, match="cannot parse"):
         await session.complete(ChatRequest(messages=[{"role": "user", "content": "hi"}]))
     assert session.trace.turns[0].output_ids == (1000,)
+
+
+@pytest.mark.asyncio
+async def test_rendering_runs_on_the_thread_that_parses(monkeypatch):
+    session = make_session()
+    seen = []
+    original = session_module.render_prompt
+    monkeypatch.setattr(
+        session_module, "render_prompt", lambda renderer, request: seen.append(threading.get_ident()) or original(renderer, request)
+    )
+    await session.complete(ChatRequest(messages=[{"role": "user", "content": "hi"}]))
+    assert seen == [threading.get_ident()]  # a shared HF fast tokenizer is mutated per encode; one thread owns it
 
 
 @pytest.mark.asyncio
@@ -157,6 +171,9 @@ async def test_only_what_is_refused_before_sampling_is_a_400(monkeypatch):
         session.max_datum_tokens = 1
         result = await http.post(f"{path}/v1/chat/completions", json=body)
         assert result.status_code == 400 and "budget" in result.text
+        detail = result.json()["detail"]
+        assert detail["code"] == "session_limit" and detail["limit"] == "context_overflow"
+        assert session.refusal.limit == "context_overflow" and session.refusal.token == detail["token"]
         assert session.policy.sampling_client.sample_async.await_count == 0
         session.max_datum_tokens = 1024
 
