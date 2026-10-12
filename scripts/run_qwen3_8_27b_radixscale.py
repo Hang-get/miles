@@ -23,6 +23,11 @@ MODEL_NAME = "Qwen3.8-27B"
 @dataclass
 class ScriptArgs(U.ExecuteTrainConfig):
     train_backend: Literal["radixscale", "megatron"] = "radixscale"
+    # parallel/perf knobs, tuned per backend for the A/B
+    tp_size: int = 4
+    recompute: bool = True
+    compile: bool = False
+    max_tokens_per_gpu: int = 16384
     num_gpus_per_node: int = 4
     num_rollout: int = 20
     rollout_batch_size: int = 8
@@ -91,24 +96,24 @@ def execute(args: ScriptArgs):
             "--train-backend radixscale "
             "--micro-batch-size 1 "
             "--use-dynamic-batch-size "
-            "--max-tokens-per-gpu 16384 "
-            "--gradient-checkpointing "
+            f"--max-tokens-per-gpu {args.max_tokens_per_gpu} "
+            f"{'--gradient-checkpointing ' if args.recompute else ''}"
+            f"{'--radixscale-compile ' if args.compile else ''}"
             "--update-weight-buffer-size 2147483648 "
         )
     else:
         train_backend_args = (
             "--train-backend megatron "
             f"--ref-load {model_path} "
-            f"--tensor-model-parallel-size {args.num_gpus_per_node} "
-            "--sequence-parallel "
+            f"--tensor-model-parallel-size {args.tp_size} "
+            f"{'--sequence-parallel ' if args.tp_size > 1 else ''}"
             "--pipeline-model-parallel-size 1 "
             "--context-parallel-size 1 "
-            "--recompute-granularity full "
-            "--recompute-method uniform "
-            "--recompute-num-layers 1 "
+            f"{'--recompute-granularity full --recompute-method uniform --recompute-num-layers 1 ' if args.recompute else ''}"
             "--micro-batch-size 1 "
             "--use-dynamic-batch-size "
-            "--max-tokens-per-gpu 16384 "
+            f"--max-tokens-per-gpu {args.max_tokens_per_gpu} "
+            "--use-distributed-optimizer "
             "--log-probs-chunk-size 4096 "
             "--attention-dropout 0.0 "
             "--hidden-dropout 0.0 "
