@@ -104,6 +104,7 @@ def execute(args: ScriptArgs):
             f"{'--gradient-checkpointing ' if args.recompute else ''}"
             f"{'--radixscale-compile ' if args.compile else ''}"
             f"--radixscale-fsdp-size {args.fsdp_size} "
+            "--log-probs-chunk-size 4096 "
             "--update-weight-buffer-size 2147483648 "
         )
     else:
