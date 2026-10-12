@@ -8,6 +8,8 @@ class RadixscaleArgs(FSDPArgs):
     # radixscale.models.registry family; "auto" picks it from the HF config's model_type
     radixscale_family: str = "auto"
     radixscale_compile: bool = False
+    # dense FSDP shard group size; 0 = one NVLink domain (replicas across domains)
+    radixscale_fsdp_size: int = 0
     expert_model_parallel_size: int = 1
 
 

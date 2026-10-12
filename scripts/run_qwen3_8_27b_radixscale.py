@@ -28,6 +28,7 @@ class ScriptArgs(U.ExecuteTrainConfig):
     recompute: bool = True
     compile: bool = False
     max_tokens_per_gpu: int = 16384
+    fsdp_size: int = 0
     num_gpus_per_node: int = 4
     num_rollout: int = 20
     rollout_batch_size: int = 8
@@ -99,6 +100,7 @@ def execute(args: ScriptArgs):
             f"--max-tokens-per-gpu {args.max_tokens_per_gpu} "
             f"{'--gradient-checkpointing ' if args.recompute else ''}"
             f"{'--radixscale-compile ' if args.compile else ''}"
+            f"--radixscale-fsdp-size {args.fsdp_size} "
             "--update-weight-buffer-size 2147483648 "
         )
     else:

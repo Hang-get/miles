@@ -64,12 +64,14 @@ class RadixscaleTrainRayActor(TorchNativeTrainRayActor):
 
         world = dist.get_world_size()
         nvlink = int(os.environ.get("LOCAL_WORLD_SIZE", args.actor_num_gpus_per_node))
+        # FSDP shards inside one NVLink domain and replicates across them (DESIGN.md D4)
+        # unless a wider shard group is asked for explicitly
+        fsdp = args.radixscale_fsdp_size or nvlink
         spec = ParallelSpec.create(
             world_size=world,
-            nvlink_size=nvlink,
+            nvlink_size=max(nvlink, fsdp),
             ep=args.expert_model_parallel_size,
-            # FSDP shards inside one NVLink domain and replicates across them (DESIGN.md D4)
-            d_rep=args.dp_replicate_size if args.dp_replicate_size > 1 else max(world // nvlink, 1),
+            d_rep=max(world // fsdp, 1),
         )
         self.mesh = build_mesh(spec, "cuda")
         set_parallel_state(create_radixscale_parallel_state(self.mesh))
