@@ -4,6 +4,7 @@ from pathlib import Path
 
 import torch
 import torch.distributed as dist
+from torch.distributed.tensor import DTensor
 from radixscale.mesh import build_mesh
 from radixscale.models.registry import build_model
 from radixscale.packing import IGNORE_LABEL, CpShard, PackedBatch
@@ -188,18 +189,34 @@ class RadixscaleTrainRayActor(TorchNativeTrainRayActor):
                 param.grad.div_(ep)
 
     def _move_to(self, device: str) -> None:
-        """Rebind parameter storage in place instead of module._apply: FSDP params are
-        DTensors, whose _apply path swaps tensor objects and refuses while anything
-        (the torch profiler, autograd graphs) holds a weakref to them."""
+        """Park parameter storage on the host by resizing it to zero, then refill it on
+        wake: tensor objects and devices never change, which module._apply (swaps the
+        DTensor params, refused while the profiler holds weakrefs) and param.data
+        (cross-device rebinding is disallowed) cannot guarantee."""
         print_memory(f"before moving the model to {device}")
         with torch.no_grad():
-            for param in self.model.parameters():
-                if device == "cpu":
-                    host = torch.empty_like(param.data, device="cpu", pin_memory=True)
-                    host.copy_(param.data, non_blocking=True)
-                    param.data = host
-                else:
-                    param.data = param.data.to("cuda", non_blocking=True)
+            if device == "cpu":
+                self.optimizer.zero_grad(set_to_none=True)
+                self._parked = []
+                seen = set()
+                for param in self.model.parameters():
+                    local = param._local_tensor if isinstance(param, DTensor) else param.data
+                    storage = local.untyped_storage()
+                    if storage.data_ptr() in seen or storage.nbytes() == 0:
+                        continue
+                    seen.add(storage.data_ptr())
+                    view = torch.empty(0, dtype=torch.uint8, device=local.device).set_(storage)
+                    host = torch.empty(storage.nbytes(), dtype=torch.uint8, pin_memory=True)
+                    host.copy_(view, non_blocking=True)
+                    self._parked.append((storage, host))
+                torch.cuda.synchronize()
+                for storage, _host in self._parked:
+                    storage.resize_(0)
+            else:
+                for storage, host in self._parked:
+                    storage.resize_(host.numel())
+                    torch.empty(0, dtype=torch.uint8, device="cuda").set_(storage).copy_(host, non_blocking=True)
+                self._parked = []
             for state in self.optimizer.state.values():
                 for key, value in state.items():
                     if isinstance(value, torch.Tensor):
