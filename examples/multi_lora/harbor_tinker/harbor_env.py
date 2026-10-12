@@ -141,7 +141,8 @@ class SessionRolloutStrategy(RolloutStrategy):
                         and failure.get("type") in HARNESS_REQUEST_ERRORS
                         and session.refusal.token in failure.get("message", "")
                     ):
-                        stop_reason = session.refusal.limit  # the harness failed on this session's own refusal: a scored end
+                        # The harness failed on this session's own refusal: a scored end, not an infrastructure fault.
+                        stop_reason = session.refusal.limit
                         if not session.trace.turns:
                             return limit_before_first_sample(str(stop_reason))
                     else:
