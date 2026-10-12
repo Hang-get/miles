@@ -35,6 +35,8 @@ class ScriptArgs(U.ExecuteTrainConfig):
     num_rollout: int = 20
     rollout_batch_size: int = 16
     n_samples_per_prompt: int = 8
+    # fully async: half the nodes train, half serve rollouts continuously (train_async.py)
+    fully_async: bool = False
     # "rollout": generate and save rollouts only; "train": replay saved rollouts, no engines
     debug_mode: Literal["none", "rollout", "train"] = "none"
     debug_data: str = "/root/shared_data/debug_rollout/qwen3.8-27b_{rollout_id}.pt"
@@ -93,9 +95,12 @@ def execute(args: ScriptArgs):
 
     sglang_args = (
         f"--rollout-num-gpus-per-engine {args.num_gpus_per_node} "
-        "--sglang-mem-fraction-static 0.35 "
+        f"--sglang-mem-fraction-static {0.7 if args.fully_async else 0.35} "
         "--sglang-decode-log-interval 200 "
     )
+    if args.fully_async:
+        rollout_args += "--fully-async --pause-generation-mode in_place "
+        grpo_args += "--use-tis "
 
     if args.train_backend == "radixscale":
         train_backend_args = (
@@ -140,12 +145,21 @@ def execute(args: ScriptArgs):
     if args.expandable_segments:
         train_backend_args += """--train-env-vars '{"PYTORCH_CUDA_ALLOC_CONF":"expandable_segments:True"}' """
 
-    misc_args = (
-        f"--actor-num-nodes {args.num_nodes} "
-        f"--actor-num-gpus-per-node {args.num_gpus_per_node} "
-        f"--num-gpus-per-node {args.num_gpus_per_node} "
-        "--colocate "
-    )
+    if args.fully_async:
+        actor_nodes = args.num_nodes // 2
+        misc_args = (
+            f"--actor-num-nodes {actor_nodes} "
+            f"--actor-num-gpus-per-node {args.num_gpus_per_node} "
+            f"--num-gpus-per-node {args.num_gpus_per_node} "
+            f"--rollout-num-gpus {(args.num_nodes - actor_nodes) * args.num_gpus_per_node} "
+        )
+    else:
+        misc_args = (
+            f"--actor-num-nodes {args.num_nodes} "
+            f"--actor-num-gpus-per-node {args.num_gpus_per_node} "
+            f"--num-gpus-per-node {args.num_gpus_per_node} "
+            "--colocate "
+        )
 
     U.execute_train(
         train_args=(
@@ -155,6 +169,7 @@ def execute(args: ScriptArgs):
         config=args,
         num_gpus_per_node=args.num_gpus_per_node,
         megatron_model_type="qwen3.8-27B" if args.train_backend == "megatron" else None,
+        train_script="train_async.py" if args.fully_async else "train.py",
     )
 
 
