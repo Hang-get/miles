@@ -19,7 +19,8 @@ from miles.backends.training_utils.torch_native.actor import TorchNativeTrainRay
 from miles.backends.training_utils.torch_native.step_runner import LinearStepRunner, StepMetrics
 from miles.utils.context_utils import with_defer
 from miles.utils.ft_utils.indep_dp import IndepDPInfo
-from miles.utils.memory_utils import clear_memory
+from miles.utils.distributed_utils import get_gloo_group
+from miles.utils.memory_utils import clear_memory, print_memory
 from miles.utils.profile_utils import TrainProfiler
 from miles.utils.timer import Timer
 from miles.utils.tracking_utils.tracking import init_tracking
@@ -164,6 +165,28 @@ class RadixscaleTrainRayActor(TorchNativeTrainRayActor):
                 param.grad.div_(world)
             elif ".experts." in name and ep > 1:
                 param.grad.div_(ep)
+
+    def _move_to(self, device: str) -> None:
+        """Rebind parameter storage in place instead of module._apply: FSDP params are
+        DTensors, whose _apply path swaps tensor objects and refuses while anything
+        (the torch profiler, autograd graphs) holds a weakref to them."""
+        print_memory(f"before moving the model to {device}")
+        with torch.no_grad():
+            for param in self.model.parameters():
+                if device == "cpu":
+                    host = torch.empty_like(param.data, device="cpu", pin_memory=True)
+                    host.copy_(param.data, non_blocking=True)
+                    param.data = host
+                else:
+                    param.data = param.data.to("cuda", non_blocking=True)
+            for state in self.optimizer.state.values():
+                for key, value in state.items():
+                    if isinstance(value, torch.Tensor):
+                        state[key] = value.to(device, non_blocking=True)
+        torch.cuda.synchronize()
+        clear_memory()
+        dist.barrier(group=get_gloo_group())
+        print_memory(f"after moving the model to {device}")
 
     def _save_checkpoint(self, rollout_id: int) -> None:
         checkpoint.save_step(Path(self.args.save), rollout_id + 1, self.model, self.optimizer)
