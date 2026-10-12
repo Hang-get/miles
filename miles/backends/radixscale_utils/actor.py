@@ -197,26 +197,9 @@ class RadixscaleTrainRayActor(TorchNativeTrainRayActor):
         with torch.no_grad():
             if device == "cpu":
                 self.optimizer.zero_grad(set_to_none=True)
-                self._parked = []
-                seen = set()
-                for param in self.model.parameters():
-                    local = param._local_tensor if isinstance(param, DTensor) else param.data
-                    storage = local.untyped_storage()
-                    if storage.data_ptr() in seen or storage.nbytes() == 0:
-                        continue
-                    seen.add(storage.data_ptr())
-                    view = torch.empty(0, dtype=torch.uint8, device=local.device).set_(storage)
-                    host = torch.empty(storage.nbytes(), dtype=torch.uint8, pin_memory=True)
-                    host.copy_(view, non_blocking=True)
-                    self._parked.append((storage, host))
-                torch.cuda.synchronize()
-                for storage, _host in self._parked:
-                    storage.resize_(0)
+                self._park_params()
             else:
-                for storage, host in self._parked:
-                    storage.resize_(host.numel())
-                    torch.empty(0, dtype=torch.uint8, device="cuda").set_(storage).copy_(host, non_blocking=True)
-                self._parked = []
+                self._unpark_params()
             for state in self.optimizer.state.values():
                 for key, value in state.items():
                     if isinstance(value, torch.Tensor):
@@ -225,6 +208,45 @@ class RadixscaleTrainRayActor(TorchNativeTrainRayActor):
         clear_memory()
         dist.barrier(group=get_gloo_group())
         print_memory(f"after moving the model to {device}")
+
+    def _park_params(self) -> None:
+        self._parked = []
+        seen = set()
+        for param in self.model.parameters():
+            local = param._local_tensor if isinstance(param, DTensor) else param.data
+            storage = local.untyped_storage()
+            if storage.data_ptr() in seen or storage.nbytes() == 0:
+                continue
+            seen.add(storage.data_ptr())
+            view = torch.empty(0, dtype=torch.uint8, device=local.device).set_(storage)
+            host = torch.empty(storage.nbytes(), dtype=torch.uint8, pin_memory=True)
+            host.copy_(view, non_blocking=True)
+            self._parked.append((storage, host))
+        torch.cuda.synchronize()
+        for storage, _host in self._parked:
+            storage.resize_(0)
+
+    def _unpark_params(self) -> None:
+        for storage, host in getattr(self, "_parked", []):
+            storage.resize_(host.numel())
+            torch.empty(0, dtype=torch.uint8, device="cuda").set_(storage).copy_(host, non_blocking=True)
+        torch.cuda.synchronize()
+        self._parked = []
+
+    def update_weights(self, info):  # type: ignore[override]
+        """Colocated syncs run while the trainer sleeps: bring the parameters (not the
+        optimizer state) back for the gathers, then park them again."""
+        parked = bool(getattr(self, "_parked", None))
+        if parked:
+            with torch.no_grad():
+                self._unpark_params()
+        try:
+            return super().update_weights(info)
+        finally:
+            if parked:
+                with torch.no_grad():
+                    self._park_params()
+                clear_memory()
 
     def _save_checkpoint(self, rollout_id: int) -> None:
         checkpoint.save_step(Path(self.args.save), rollout_id + 1, self.model, self.optimizer)

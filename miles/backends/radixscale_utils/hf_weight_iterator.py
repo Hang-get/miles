@@ -28,18 +28,10 @@ class RadixscaleHfWeightIterator(HfWeightIteratorBase):
 
     def _iter_hf_param_units(self, weights, *, materialize):
         assert weights is None, "the radixscale backend streams live parameters only"
-        # colocated runs sync while the trainer sleeps on the host; the gathers need NCCL
-        offloaded = next(self.model.parameters()).device.type == "cpu"
-        if offloaded:
-            self.model.cuda()
-        try:
-            for bucket in iter_full_weights(self.model, bucket_bytes=1):
-                if materialize:
-                    for name, tensor in bucket:
-                        yield list(to_sglang_named_tensors([(name, tensor)], vlm_prefixed=self._vlm_prefixed))
-        finally:
-            if offloaded:
-                self.model.cpu()
+        for bucket in iter_full_weights(self.model, bucket_bytes=1):
+            if materialize:
+                for name, tensor in bucket:
+                    yield list(to_sglang_named_tensors([(name, tensor)], vlm_prefixed=self._vlm_prefixed))
         yield from iter_checkpoint_tower_units(self.args.hf_checkpoint, materialize=materialize)
 
     def _hf_atomic_update_groups(self):
