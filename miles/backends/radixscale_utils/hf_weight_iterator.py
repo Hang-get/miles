@@ -1,6 +1,8 @@
 import json
 import os
 
+import torch
+
 from radixscale.bridge.sglang_adapter import to_sglang_named_tensors
 from radixscale.bridge.weight_sync import iter_full_weights
 
@@ -28,10 +30,19 @@ class RadixscaleHfWeightIterator(HfWeightIteratorBase):
 
     def _iter_hf_param_units(self, weights, *, materialize):
         assert weights is None, "the radixscale backend streams live parameters only"
-        for bucket in iter_full_weights(self.model, bucket_bytes=1):
-            if materialize:
-                for name, tensor in bucket:
-                    yield list(to_sglang_named_tensors([(name, tensor)], vlm_prefixed=self._vlm_prefixed))
+        # colocated runs sync while the trainer sleeps on the host; the gathers need NCCL
+        offloaded = next(self.model.parameters()).device.type == "cpu"
+        if offloaded:
+            self.model.cuda()
+        try:
+            for bucket in iter_full_weights(self.model, bucket_bytes=1):
+                if materialize:
+                    for name, tensor in bucket:
+                        yield list(to_sglang_named_tensors([(name, tensor)], vlm_prefixed=self._vlm_prefixed))
+        finally:
+            if offloaded:
+                self.model.cpu()
+                torch.cuda.empty_cache()
         yield from iter_checkpoint_tower_units(self.args.hf_checkpoint, materialize=materialize)
 
     def _hf_atomic_update_groups(self):
