@@ -26,7 +26,8 @@ def execute():
         U.exec_command_cpu(
             "uv run --no-project --isolated --index https://download.pytorch.org/whl/cpu "
             "--with-requirements examples/multi_lora/requirements.txt "
-            "python tests/e2e/lora/tinker_session_acceptance.py "
+            "--with ./examples/multi_lora/tinker_agent "
+            "python -I tests/e2e/lora/tinker_session_acceptance.py "
             f"--base-url {base_url} --base-model {BASE_MODEL}"
         )
 

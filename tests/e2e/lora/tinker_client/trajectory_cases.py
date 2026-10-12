@@ -1,8 +1,8 @@
 import pytest
 from tinker_cookbook.rl.data_processing import trajectory_to_data
 
-from miles.tinker.client.trajectory import limit_before_first_sample, turns_to_trajectory
-from miles.tinker.core.token_trace import TokenTrace
+from tinker_agent.trajectory import turns_to_trajectory
+from tinker_agent.recording import TokenTurn
 
 
 @pytest.mark.parametrize(
@@ -11,10 +11,9 @@ from miles.tinker.core.token_trace import TokenTrace
     ids=["extends", "retokenized", "compacted"],
 )
 def test_only_actual_token_prefixes_merge(next_prompt, expected_count):
-    trace = TokenTrace()
-    trace.record("first", [1, 2], [3, 4], [-0.3, -0.4], "stop")
-    trace.record("second", next_prompt, [6, 7], [-0.6, -0.7], "length")
-    datums = trajectory_to_data(turns_to_trajectory(trace.turns), traj_advantage=2.0)
+    turns = [TokenTurn((1, 2), (3, 4), (-0.3, -0.4), "stop"),
+             TokenTurn(tuple(next_prompt), (6, 7), (-0.6, -0.7), "length")]
+    datums = trajectory_to_data(turns_to_trajectory(turns, "completed"), traj_advantage=2.0)
     assert len(datums) == expected_count
     trained_tokens, logprobs = [], []
     for datum in datums:
@@ -32,20 +31,18 @@ def test_only_actual_token_prefixes_merge(next_prompt, expected_count):
 
 
 def test_a_limit_before_the_first_sample_is_the_cookbooks_empty_terminal_transition():
-    trajectory = limit_before_first_sample("context_overflow")
+    trajectory = turns_to_trajectory([], "context_overflow")
     assert trajectory.stop_reason == "context_overflow"
     assert [transition.ac.tokens for transition in trajectory.transitions] == [[]]
     assert trajectory_to_data(trajectory, traj_advantage=1.0) == []
-    with pytest.raises(ValueError, match="no samples"):
-        turns_to_trajectory([], "context_overflow")
 
 
 def test_repeated_prompts_and_continuations_after_length_are_retained():
-    trace = TokenTrace()
+    turns = []
     for index, stop_reason in enumerate(["length", "stop"]):
-        trace.record(str(index), [1, 2], [3 + index], [-0.5], stop_reason)
-    trajectory = turns_to_trajectory(trace.turns)
+        turns.append(TokenTurn((1, 2), (3 + index,), (-0.5,), stop_reason))
+    trajectory = turns_to_trajectory(turns, "completed")
     assert [transition.ac.stop_reason for transition in trajectory.transitions] == ["length", "stop"]
-    assert trajectory.stop_reason is None  # a sample's verdict is not the episode's
+    assert trajectory.stop_reason == "completed"
     assert len(trajectory.transitions) == 2
     assert len(trajectory_to_data(trajectory, traj_advantage=1.0)) == 2
