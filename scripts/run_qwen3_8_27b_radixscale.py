@@ -1,13 +1,17 @@
 """radixscale training backend under miles: Qwen3.8-27B GRPO on dapo-math-17k, colocated.
 
 miles owns rollout, reward, advantages and weight sync; radixscale (FSDP x EP, packed
-thd) owns the training step. One tp4 sglang engine per node.
+thd) owns the training step. One tp4 sglang engine per node. --train-backend megatron
+runs the identical recipe on Megatron (tp4 inside a node, HF weights loaded directly)
+for the A/B.
 
 Usage:
     python3 scripts/run_qwen3_8_27b_radixscale.py --num-nodes 4
+    python3 scripts/run_qwen3_8_27b_radixscale.py --num-nodes 4 --train-backend megatron
 """
 
 from dataclasses import dataclass
+from typing import Literal
 
 import typer
 
@@ -18,6 +22,7 @@ MODEL_NAME = "Qwen3.8-27B"
 
 @dataclass
 class ScriptArgs(U.ExecuteTrainConfig):
+    train_backend: Literal["radixscale", "megatron"] = "radixscale"
     num_gpus_per_node: int = 4
     num_rollout: int = 20
     rollout_batch_size: int = 8
@@ -27,7 +32,7 @@ class ScriptArgs(U.ExecuteTrainConfig):
     model_dir: str = "/root/models"
     wandb_project: str = ""
     wandb_team: str = ""
-    wandb_group: str = "qwen3.8-27b-radixscale"
+    wandb_group: str = ""
     extra_args: str = ""
 
 
@@ -70,7 +75,7 @@ def execute(args: ScriptArgs):
 
     wandb_args = (
         f"--use-wandb --wandb-project {args.wandb_project} --wandb-team {args.wandb_team} "
-        f"--wandb-group {args.wandb_group} "
+        f"--wandb-group {args.wandb_group or 'qwen3.8-27b-' + args.train_backend} "
         if args.wandb_project
         else ""
     )
@@ -81,14 +86,37 @@ def execute(args: ScriptArgs):
         "--sglang-decode-log-interval 200 "
     )
 
-    train_backend_args = (
-        "--train-backend radixscale "
-        "--micro-batch-size 1 "
-        "--use-dynamic-batch-size "
-        "--max-tokens-per-gpu 16384 "
-        "--gradient-checkpointing "
-        "--update-weight-buffer-size 2147483648 "
-    )
+    if args.train_backend == "radixscale":
+        train_backend_args = (
+            "--train-backend radixscale "
+            "--micro-batch-size 1 "
+            "--use-dynamic-batch-size "
+            "--max-tokens-per-gpu 16384 "
+            "--gradient-checkpointing "
+            "--update-weight-buffer-size 2147483648 "
+        )
+    else:
+        train_backend_args = (
+            "--train-backend megatron "
+            f"--ref-load {model_path} "
+            f"--tensor-model-parallel-size {args.num_gpus_per_node} "
+            "--sequence-parallel "
+            "--pipeline-model-parallel-size 1 "
+            "--context-parallel-size 1 "
+            "--recompute-granularity full "
+            "--recompute-method uniform "
+            "--recompute-num-layers 1 "
+            "--micro-batch-size 1 "
+            "--use-dynamic-batch-size "
+            "--max-tokens-per-gpu 16384 "
+            "--log-probs-chunk-size 4096 "
+            "--attention-dropout 0.0 "
+            "--hidden-dropout 0.0 "
+            "--accumulate-allreduce-grads-in-fp32 "
+            "--attention-softmax-in-fp32 "
+            "--attention-backend auto "
+            "--update-weight-buffer-size 2147483648 "
+        )
 
     misc_args = (
         f"--actor-num-nodes {args.num_nodes} "
@@ -104,7 +132,7 @@ def execute(args: ScriptArgs):
         ),
         config=args,
         num_gpus_per_node=args.num_gpus_per_node,
-        megatron_model_type=None,
+        megatron_model_type="qwen3.8-27B" if args.train_backend == "megatron" else None,
     )
 
 
