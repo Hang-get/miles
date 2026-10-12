@@ -1,4 +1,4 @@
-"""radixscale training backend under miles: Qwen3.8-27B GRPO on dapo-math-17k, colocated.
+"""radixscale training backend under miles: Qwen3.8-27B / Qwen3.6-35B-A3B GRPO on dapo-math-17k.
 
 miles owns rollout, reward, advantages and weight sync; radixscale (FSDP x EP, packed
 thd) owns the training step. One tp4 sglang engine per node. --train-backend megatron
@@ -17,12 +17,14 @@ import typer
 
 import miles.utils.external_utils.command_utils.legacy as U
 
-MODEL_NAME = "Qwen3.8-27B"
+MEGATRON_MODEL_TYPE = {"Qwen3.8-27B": "qwen3.8-27B", "Qwen3.6-35B-A3B": "qwen3.6-35B-A3B"}
 
 
 @dataclass
 class ScriptArgs(U.ExecuteTrainConfig):
     train_backend: Literal["radixscale", "megatron"] = "radixscale"
+    model_name: str = "Qwen3.8-27B"
+    ep_size: int = 1
     # parallel/perf knobs, tuned per backend for the A/B
     tp_size: int = 4
     recompute: bool = True
@@ -52,7 +54,7 @@ class ScriptArgs(U.ExecuteTrainConfig):
 
 
 def execute(args: ScriptArgs):
-    model_path = f"{args.model_dir}/{MODEL_NAME}"
+    model_path = f"{args.model_dir}/{args.model_name}"
     samples = args.rollout_batch_size * args.n_samples_per_prompt
 
     rollout_args = (
@@ -90,7 +92,7 @@ def execute(args: ScriptArgs):
 
     wandb_args = (
         f"--use-wandb --wandb-project {args.wandb_project} --wandb-team {args.wandb_team} "
-        f"--wandb-group {args.wandb_group or 'qwen3.8-27b-' + args.train_backend} "
+        f"--wandb-group {args.wandb_group or args.model_name.lower() + '-' + args.train_backend} "
         if args.wandb_project
         else ""
     )
@@ -114,6 +116,7 @@ def execute(args: ScriptArgs):
             f"{'--radixscale-compile ' if args.compile else ''}"
             f"--radixscale-fsdp-size {args.fsdp_size} "
             "--log-probs-chunk-size 4096 "
+            f"--expert-model-parallel-size {args.ep_size} "
             "--update-weight-buffer-size 2147483648 "
         )
     else:
@@ -129,6 +132,8 @@ def execute(args: ScriptArgs):
             "--use-dynamic-batch-size "
             f"--max-tokens-per-gpu {args.max_tokens_per_gpu} "
             "--use-distributed-optimizer "
+            f"--expert-model-parallel-size {args.ep_size} "
+            "--expert-tensor-parallel-size 1 "
             "--log-probs-chunk-size 4096 "
             "--attention-dropout 0.0 "
             "--hidden-dropout 0.0 "
@@ -171,7 +176,7 @@ def execute(args: ScriptArgs):
         ),
         config=args,
         num_gpus_per_node=args.num_gpus_per_node,
-        megatron_model_type="qwen3.8-27B" if args.train_backend == "megatron" else None,
+        megatron_model_type=MEGATRON_MODEL_TYPE[args.model_name] if args.train_backend == "megatron" else None,
         train_script="train_async.py" if args.fully_async else "train.py",
     )
 
