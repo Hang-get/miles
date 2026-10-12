@@ -428,7 +428,7 @@ def get_miles_extra_args_provider(add_custom_arguments=None):
             parser.add_argument(
                 "--train-backend",
                 type=str,
-                choices=["megatron", "fsdp", "torchtitan"],
+                choices=["megatron", "fsdp", "torchtitan", "radixscale"],
                 default="megatron",
                 help="The backend for training.",
             )
@@ -2826,6 +2826,10 @@ def parse_args(add_custom_arguments=None, entry="train", preprocess_args=None):
             from miles.backends.torchtitan_utils.arguments import load_torchtitan_args
 
             args = load_torchtitan_args(extra_args_provider=add_miles_arguments)
+        elif backend == "radixscale":
+            from miles.backends.radixscale_utils.arguments import load_radixscale_args
+
+            args = load_radixscale_args(extra_args_provider=add_miles_arguments)
         else:
             from miles.backends.fsdp_utils.arguments import load_fsdp_args
 
@@ -2870,6 +2874,10 @@ def parse_args(add_custom_arguments=None, entry="train", preprocess_args=None):
         from miles.backends.torchtitan_utils.arguments import validate_torchtitan_args
 
         validate_torchtitan_args(args)
+    elif backend == "radixscale":
+        from miles.backends.radixscale_utils.arguments import validate_radixscale_args
+
+        validate_radixscale_args(args)
     else:
         from miles.backends.fsdp_utils.arguments import validate_hybrid_shard_args, validate_kernel_backend_args
 
