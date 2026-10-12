@@ -11,7 +11,7 @@ from torch.distributed.fsdp import MixedPrecisionPolicy, fully_shard
 from transformers import Qwen3_5ForConditionalGeneration
 
 from examples.clef.joint_schema_model import ClefModel, JointSchemaHead
-from miles.backends.fsdp_utils.adaptations.precision import apply_fp32_master
+from examples.clef.state import apply_fp32_master
 
 
 class TrainableClefModel(ClefModel):

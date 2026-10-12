@@ -13,7 +13,7 @@ from torch.distributed.checkpoint.state_dict import StateDictOptions, get_model_
 
 from examples.clef.model import TrainableClefModel
 from examples.clef.s3_checkpoint import load_s3_checkpoint, save_s3_checkpoint
-from miles.backends.fsdp_utils.checkpoint import ModelState, OptimizerState
+from examples.clef.state import ModelState, OptimizerState
 
 
 def save_checkpoint(

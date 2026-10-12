@@ -16,7 +16,7 @@ from torch.distributed.checkpoint._fsspec_filesystem import FsspecReader, Fsspec
 from torch.distributed.checkpoint.filesystem import FileSystem, FileSystemWriter
 from torch.distributed.checkpoint.state_dict import StateDictOptions, get_model_state_dict
 
-from miles.backends.fsdp_utils.checkpoint import ModelState, OptimizerState
+from examples.clef.state import ModelState, OptimizerState
 
 
 class _ObjectStoreFileSystem(FileSystem):
