@@ -7,6 +7,17 @@ import tinker
 from miles.tinker.core.token_trace import TokenTurn
 
 
+def limit_before_first_sample(stop_reason: str) -> Trajectory:
+    """The cookbook's shape for a first prompt already over a limit: one empty terminal transition, nothing to train."""
+    transition = Transition(
+        ob=tinker.ModelInput.empty(),
+        ac=TokensWithLogprobs(tokens=[], maybe_logprobs=[]),
+        reward=0.0,
+        episode_done=True,
+    )
+    return Trajectory(transitions=[transition], final_ob=tinker.ModelInput.empty(), stop_reason=stop_reason)
+
+
 def turns_to_trajectory(turns: Sequence[TokenTurn], stop_reason: str | None = None) -> Trajectory:
     """Each sample keeps its own stop reason; why the episode ended is known only to whoever ran it."""
     if not turns:

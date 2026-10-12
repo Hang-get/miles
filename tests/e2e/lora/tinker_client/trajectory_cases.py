@@ -1,7 +1,7 @@
 import pytest
 from tinker_cookbook.rl.data_processing import trajectory_to_data
 
-from miles.tinker.client.trajectory import turns_to_trajectory
+from miles.tinker.client.trajectory import limit_before_first_sample, turns_to_trajectory
 from miles.tinker.core.token_trace import TokenTrace
 
 
@@ -29,6 +29,15 @@ def test_only_actual_token_prefixes_merge(next_prompt, expected_count):
     assert logprobs == pytest.approx([-0.3, -0.4, -0.6, -0.7])
     if expected_count == 2:
         assert datums[1].model_input.to_ints() == [*next_prompt, 6]
+
+
+def test_a_limit_before_the_first_sample_is_the_cookbooks_empty_terminal_transition():
+    trajectory = limit_before_first_sample("context_overflow")
+    assert trajectory.stop_reason == "context_overflow"
+    assert [transition.ac.tokens for transition in trajectory.transitions] == [[]]
+    assert trajectory_to_data(trajectory, traj_advantage=1.0) == []
+    with pytest.raises(ValueError, match="no samples"):
+        turns_to_trajectory([], "context_overflow")
 
 
 def test_repeated_prompts_and_continuations_after_length_are_retained():
