@@ -205,8 +205,10 @@ class RadixscaleTrainRayActor(TorchNativeTrainRayActor):
                     if isinstance(value, torch.Tensor):
                         state[key] = value.to(device, non_blocking=True)
         torch.cuda.synchronize()
-        # no gc.collect here: on a trainer-sized heap it costs 1.2-1.6 s per call
-        torch.cuda.empty_cache()
+        # release cache only when handing memory to the engine; no gc.collect: on a
+        # trainer-sized heap it costs 1.2-1.6 s, and empty_cache itself ~1 s
+        if device == "cpu":
+            torch.cuda.empty_cache()
         dist.barrier(group=get_gloo_group())
         print_memory(f"after moving the model to {device}")
 
