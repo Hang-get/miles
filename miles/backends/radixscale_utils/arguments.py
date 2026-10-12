@@ -8,6 +8,8 @@ class RadixscaleArgs(FSDPArgs):
     # radixscale.models.registry family; "auto" picks it from the HF config's model_type
     radixscale_family: str = "auto"
     radixscale_compile: bool = False
+    # with --gradient-checkpointing: keep matmul/attention outputs, recompute only the cheap rest
+    radixscale_selective_recompute: bool = False
     # dense FSDP shard group size; 0 = one NVLink domain (replicas across domains)
     radixscale_fsdp_size: int = 0
     # expert replicas across NVLink domains (expert HSDP); 0 shards experts over the whole world
