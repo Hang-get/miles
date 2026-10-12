@@ -31,6 +31,8 @@ class ScriptArgs(U.ExecuteTrainConfig):
     fsdp_size: int = 0
     # trainer allocator; conflicts with the cuda_ipc weight-sync protocol, so train-only runs
     expandable_segments: bool = False
+    # raw PYTORCH_CUDA_ALLOC_CONF for the trainer (allocator fragmentation experiments)
+    alloc_conf: str = ""
     num_gpus_per_node: int = 4
     num_rollout: int = 20
     rollout_batch_size: int = 16
@@ -142,8 +144,9 @@ def execute(args: ScriptArgs):
         "train": f"--debug-train-only --load-debug-rollout-data {args.debug_data} ",
     }[args.debug_mode]
 
-    if args.expandable_segments:
-        train_backend_args += """--train-env-vars '{"PYTORCH_CUDA_ALLOC_CONF":"expandable_segments:True"}' """
+    alloc_conf = args.alloc_conf or ("expandable_segments:True" if args.expandable_segments else "")
+    if alloc_conf:
+        train_backend_args += f"""--train-env-vars '{{"PYTORCH_CUDA_ALLOC_CONF":"{alloc_conf}"}}' """
 
     if args.fully_async:
         actor_nodes = args.num_nodes // 2
