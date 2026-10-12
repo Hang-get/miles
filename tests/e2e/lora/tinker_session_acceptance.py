@@ -60,7 +60,8 @@ async def execute(base_url, base_model):
     trained = await (await training.save_weights_for_sampler_async(name="session-trained"))
     updated_sampler = await service.create_sampling_client_async(model_path=trained.path)
     response = await updated_sampler.sample_async(
-        prompt=sent[0].model_input, num_samples=1,
+        prompt=sent[0].model_input,
+        num_samples=1,
         sampling_params=tinker.SamplingParams(max_tokens=4),
     )
     assert response.sequences[0].tokens

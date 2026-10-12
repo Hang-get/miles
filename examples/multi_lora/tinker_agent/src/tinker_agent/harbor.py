@@ -8,14 +8,13 @@ from pathlib import Path
 import chz
 from harbor.models.trial.config import TaskConfig, TrialConfig
 from harbor.trial.trial import Trial
+from tinker_agent.proxy import serve_proxy
+from tinker_agent.recording import RecordingSampler
+from tinker_agent.trajectory import turns_to_trajectory
 from tinker_cookbook import renderers
 from tinker_cookbook.completers import TinkerTokenCompleter
 from tinker_cookbook.rl.rollout_strategy import RolloutResult, RolloutStrategy
 from tinker_cookbook.rl.types import Env, EnvGroupBuilder, RLDataset, RLDatasetBuilder, StopReason
-
-from tinker_agent.proxy import serve_proxy
-from tinker_agent.recording import RecordingSampler
-from tinker_agent.trajectory import turns_to_trajectory
 
 
 @dataclass
@@ -125,14 +124,21 @@ class HarborRolloutStrategy(RolloutStrategy):
         semaphore = asyncio.Semaphore(self.max_parallel_trials_per_group)
         auth_token = secrets.token_urlsafe(32)
         async with serve_proxy(
-            renderer, recorder, model_label="policy", default_max_tokens=policy.max_tokens,
-            host=self.listen_host, auth_token=auth_token,
+            renderer,
+            recorder,
+            model_label="policy",
+            default_max_tokens=policy.max_tokens,
+            host=self.listen_host,
+            auth_token=auth_token,
         ) as port:
+
             async def one(index, env):
                 async with semaphore:
                     config = trial_config(
-                        self.trial_template, env.task_path,
-                        f"http://{self.advertised_host}:{port}/r/traj/{index}", auth_token,
+                        self.trial_template,
+                        env.task_path,
+                        f"http://{self.advertised_host}:{port}/r/traj/{index}",
+                        auth_token,
                     )
                     async with recorder.episode(index) as episode:
                         trial = await Trial.create(config)

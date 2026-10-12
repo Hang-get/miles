@@ -10,12 +10,19 @@ from tinker_agent.train import HarborTinkerConfig, build_config
 from tinker_cookbook.completers import TinkerTokenCompleter
 from tinker_cookbook.rl.data_processing import trajectory_to_data
 
-TEMPLATE = json.dumps({
-    "environment": {"type": "docker"},
-    "agent": {"name": "terminus-2", "model_name": "openai/policy", "kwargs": {
-        "api_base": "{proxy_url}/v1", "llm_kwargs": {"api_key": "{proxy_api_key}"},
-    }},
-})
+TEMPLATE = json.dumps(
+    {
+        "environment": {"type": "docker"},
+        "agent": {
+            "name": "terminus-2",
+            "model_name": "openai/policy",
+            "kwargs": {
+                "api_base": "{proxy_url}/v1",
+                "llm_kwargs": {"api_key": "{proxy_api_key}"},
+            },
+        },
+    }
+)
 
 
 @pytest.mark.asyncio
@@ -39,6 +46,7 @@ async def test_harbor_http_calls_become_unmodified_training_data(monkeypatch, re
                     )
                     response.raise_for_status()
             return SimpleNamespace(exception_info=None, verifier_result=SimpleNamespace(rewards={"reward": reward}))
+
         return SimpleNamespace(run=run)
 
     monkeypatch.setattr(harbor.Trial, "create", create)
@@ -68,14 +76,21 @@ def test_only_scored_trial_outcomes_are_accepted(failure, reason):
     assert harbor.trial_outcome(result, "reward") == (0.5, reason)
 
 
-@pytest.mark.parametrize("failure,rewards", [
-    ("VerifierTimeoutError", {"reward": 0}),
-    ("NonZeroAgentExitCodeError", {"reward": 0}),
-    (None, None), ("AgentTimeoutError", None), (None, {"reward": float("nan")}),
-])
+@pytest.mark.parametrize(
+    "failure,rewards",
+    [
+        ("VerifierTimeoutError", {"reward": 0}),
+        ("NonZeroAgentExitCodeError", {"reward": 0}),
+        (None, None),
+        ("AgentTimeoutError", None),
+        (None, {"reward": float("nan")}),
+    ],
+)
 def test_failed_or_unscored_trials_cannot_turn_into_zero_rewards(failure, rewards):
     result = SimpleNamespace(
-        exception_info=None if failure is None else SimpleNamespace(exception_type=failure, exception_message="failed"),
+        exception_info=(
+            None if failure is None else SimpleNamespace(exception_type=failure, exception_message="failed")
+        ),
         verifier_result=SimpleNamespace(rewards=rewards),
     )
     with pytest.raises((RuntimeError, ValueError)):
@@ -85,9 +100,14 @@ def test_failed_or_unscored_trials_cannot_turn_into_zero_rewards(failure, reward
 def test_recipe_uses_public_sdk_configuration_and_harbor_defaults(tmp_path):
     config_path = tmp_path / "trial.json"
     config_path.write_text(TEMPLATE)
-    config = build_config(HarborTinkerConfig(
-        model_name="model", renderer_name="role_colon", tasks_dir=str(tmp_path), trial_config=str(config_path),
-    ))
+    config = build_config(
+        HarborTinkerConfig(
+            model_name="model",
+            renderer_name="role_colon",
+            tasks_dir=str(tmp_path),
+            trial_config=str(config_path),
+        )
+    )
     assert config.base_url is None
     assert config.ttl_seconds is None
     trial = harbor.trial_config(TEMPLATE, tmp_path, "http://proxy/r/traj/7", 'key"quoted')

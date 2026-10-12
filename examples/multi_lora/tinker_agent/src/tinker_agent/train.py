@@ -2,9 +2,8 @@ import asyncio
 from pathlib import Path
 
 import chz
-from tinker_cookbook.rl import train
-
 from tinker_agent.harbor import HarborDatasetBuilder, HarborRolloutStrategy
+from tinker_cookbook.rl import train
 
 
 @chz.chz
@@ -40,13 +39,18 @@ def build_config(config: HarborTinkerConfig) -> train.Config:
         recipe_name="harbor-tinker",
         log_path=config.log_path,
         dataset_builder=HarborDatasetBuilder(
-            tasks_dir=config.tasks_dir, groups_per_batch=config.groups_per_batch,
-            group_size=config.group_size, epochs=config.epochs,
+            tasks_dir=config.tasks_dir,
+            groups_per_batch=config.groups_per_batch,
+            group_size=config.group_size,
+            epochs=config.epochs,
         ),
         rollout_error_tolerance=HarborRolloutStrategy(
-            renderer_name=config.renderer_name, trial_template=Path(config.trial_config).read_text(),
-            reward_key=config.reward_key, advertised_host=config.advertised_host,
-            listen_host=config.listen_host, max_parallel_trials_per_group=config.max_parallel_trials_per_group,
+            renderer_name=config.renderer_name,
+            trial_template=Path(config.trial_config).read_text(),
+            reward_key=config.reward_key,
+            advertised_host=config.advertised_host,
+            listen_host=config.listen_host,
+            max_parallel_trials_per_group=config.max_parallel_trials_per_group,
         ),
         learning_rate=config.learning_rate,
         lora_rank=config.lora_rank,
