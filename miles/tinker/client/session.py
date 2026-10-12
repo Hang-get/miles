@@ -61,7 +61,9 @@ class ChatSession:
             if self.policy.context_window is not None:
                 params["max_tokens"] = min(params["max_tokens"], self.policy.context_window - len(input_ids))
             if params["max_tokens"] <= 0 or len(input_ids) + params["max_tokens"] - 1 > self.max_datum_tokens:
-                raise self._refuse(StopReason.CONTEXT_OVERFLOW, "prompt plus completion exceeds the per-datum token budget")
+                raise self._refuse(
+                    StopReason.CONTEXT_OVERFLOW, "prompt plus completion exceeds the per-datum token budget"
+                )
             response = await self.policy.sampling_client.sample_async(
                 prompt=tinker.ModelInput.from_ints(input_ids),
                 num_samples=1,
