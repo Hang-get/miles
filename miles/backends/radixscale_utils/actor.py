@@ -121,16 +121,17 @@ class RadixscaleTrainRayActor(TorchNativeTrainRayActor):
         return LinearStepRunner(self._forward, self._zero_grad, self._apply_step)
 
     def _forward(self, batch: dict) -> torch.Tensor:
-        tokens = batch["tokens"][0]
+        # radixscale plans packing on the host (cu_seqlens_host spares a device sync)
+        tokens = batch["tokens"][0].cpu()
         pack = PackedBatch(
             input_ids=tokens,
             labels=torch.full_like(tokens, IGNORE_LABEL),
-            position_ids=batch["position_ids"][0],
-            cu_seqlens=batch["cu_seqlens"].to(torch.int32),
+            position_ids=batch["position_ids"][0].cpu(),
+            cu_seqlens=torch.tensor(batch["cu_seqlens_host"], dtype=torch.int32),
             max_seqlen=int(batch["max_seqlen"]),
         )
         (shard,) = split_for_cp(pack, cp_size=1)
-        return self.model(shard).unsqueeze(0)
+        return self.model(shard.to("cuda")).unsqueeze(0)
 
     def _zero_grad(self) -> None:
         self.optimizer.zero_grad(set_to_none=True)
