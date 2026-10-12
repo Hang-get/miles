@@ -42,7 +42,10 @@ reuse `examples/experimental/harbor/harbor_agent_function.py`.
 
 The trial verdict supplies the trajectory reward; cookbook computes group
 advantages and training Datums. An `AgentError` aborts the group so infrastructure
-failures cannot become zero-reward policy samples. Repeated prompts and samples
+failures cannot become zero-reward policy samples; a trial the adapter stopped for
+its own token budget or turn limit is instead a scored episode end (`context_overflow`
+or `max_turns`), and one stopped before its first sample carries no training tokens.
+Repeated prompts and samples
 after length stops remain in the token trace. Edited, compacted, or re-tokenized
 histories become separate Datums unless the actual token prefix still matches.
 Checkpoint TTL is disabled because the Miles gateway owns checkpoint retention.
