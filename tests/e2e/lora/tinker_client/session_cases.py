@@ -11,9 +11,9 @@ from tinker_cookbook.completers import TinkerTokenCompleter
 from tinker_cookbook.renderers.role_colon import RoleColonRenderer
 
 import tinker
+from miles.tinker.client import session as session_module
 from miles.tinker.client.rendering import ChatRequest, render_prompt
 from miles.tinker.client.server import SessionServer
-from miles.tinker.client import session as session_module
 from miles.tinker.client.session import ChatSession
 
 

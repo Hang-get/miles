@@ -55,7 +55,12 @@ class SessionServer:
             return await session.complete(chat_request)
         except SessionLimit as error:
             # An explicit marker the harness's own exception will quote, so the rollout can attribute what follows.
-            detail = {"message": str(error), "code": "session_limit", "limit": str(error.refusal.limit), "token": error.refusal.token}
+            detail = {
+                "message": str(error),
+                "code": "session_limit",
+                "limit": str(error.refusal.limit),
+                "token": error.refusal.token,
+            }
             raise HTTPException(400, detail) from error
         except ChatRequestError as error:  # refused before sampling; anything after a sample propagates as a 500
             raise HTTPException(400, str(error)) from error
