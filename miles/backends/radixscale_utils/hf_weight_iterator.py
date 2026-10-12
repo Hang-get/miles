@@ -1,8 +1,6 @@
 import json
 import os
 
-import torch
-
 from radixscale.bridge.sglang_adapter import to_sglang_named_tensors
 from radixscale.bridge.weight_sync import iter_full_weights
 
@@ -42,7 +40,6 @@ class RadixscaleHfWeightIterator(HfWeightIteratorBase):
         finally:
             if offloaded:
                 self.model.cpu()
-                torch.cuda.empty_cache()
         yield from iter_checkpoint_tower_units(self.args.hf_checkpoint, materialize=materialize)
 
     def _hf_atomic_update_groups(self):
