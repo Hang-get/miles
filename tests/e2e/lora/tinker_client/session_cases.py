@@ -91,7 +91,9 @@ async def test_rendering_runs_on_the_thread_that_parses(monkeypatch):
     seen = []
     original = session_module.render_prompt
     monkeypatch.setattr(
-        session_module, "render_prompt", lambda renderer, request: seen.append(threading.get_ident()) or original(renderer, request)
+        session_module,
+        "render_prompt",
+        lambda renderer, request: seen.append(threading.get_ident()) or original(renderer, request),
     )
     await session.complete(ChatRequest(messages=[{"role": "user", "content": "hi"}]))
     assert seen == [threading.get_ident()]  # a shared HF fast tokenizer is mutated per encode; one thread owns it
