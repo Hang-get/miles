@@ -29,6 +29,8 @@ class ScriptArgs(U.ExecuteTrainConfig):
     compile: bool = False
     max_tokens_per_gpu: int = 16384
     fsdp_size: int = 0
+    # trainer allocator; conflicts with the cuda_ipc weight-sync protocol, so train-only runs
+    expandable_segments: bool = False
     num_gpus_per_node: int = 4
     num_rollout: int = 20
     rollout_batch_size: int = 16
@@ -134,6 +136,9 @@ def execute(args: ScriptArgs):
         "rollout": f"--debug-rollout-only --save-debug-rollout-data {args.debug_data} ",
         "train": f"--debug-train-only --load-debug-rollout-data {args.debug_data} ",
     }[args.debug_mode]
+
+    if args.expandable_segments:
+        train_backend_args += """--train-env-vars '{"PYTORCH_CUDA_ALLOC_CONF":"expandable_segments:True"}' """
 
     misc_args = (
         f"--actor-num-nodes {args.num_nodes} "
