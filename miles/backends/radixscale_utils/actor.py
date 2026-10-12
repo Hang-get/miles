@@ -23,7 +23,7 @@ from miles.utils.ft_utils.indep_dp import IndepDPInfo
 from miles.utils.distributed_utils import get_gloo_group
 from miles.utils.memory_utils import clear_memory, print_memory
 from miles.utils.profile_utils import TrainProfiler
-from miles.utils.timer import Timer
+from miles.utils.timer import Timer, timer
 from miles.utils.tracking_utils.tracking import init_tracking
 from miles.utils.workers.rpc.common.wire_types import Pickled
 
@@ -236,20 +236,29 @@ class RadixscaleTrainRayActor(TorchNativeTrainRayActor):
         torch.cuda.synchronize()
         self._parked = []
 
+    @timer
     def update_weights(self, info):  # type: ignore[override]
         """Colocated syncs run while the trainer sleeps: bring the parameters (not the
-        optimizer state) back for the gathers, then park them again."""
+        optimizer state) back for the gathers, then park them again. No gc.collect
+        afterwards (the base class's clear_memory costs ~1.3 s on this heap)."""
+        if self.args.debug_train_only or self.args.debug_rollout_only:
+            return None
         parked = bool(getattr(self, "_parked", None))
-        if parked:
-            with torch.no_grad():
-                self._unpark_params()
-        try:
-            return super().update_weights(info)
-        finally:
+        with torch.no_grad():
             if parked:
-                with torch.no_grad():
+                self._unpark_params()
+            try:
+                self.weight_updater.reconnect_if_needed(info)
+                print_memory("before update_weights")
+                self.weight_updater.update_weights()
+                print_memory("after update_weights")
+                if self.args.ci_test:
+                    self.weight_updater.verify_engine_version(info.rollout_engines)
+            finally:
+                if parked:
                     self._park_params()
-                clear_memory()
+                    torch.cuda.empty_cache()
+        return self.weight_updater.weight_version
 
     def _save_checkpoint(self, rollout_id: int) -> None:
         checkpoint.save_step(Path(self.args.save), rollout_id + 1, self.model, self.optimizer)
