@@ -12,7 +12,7 @@ from tinker_cookbook.rl.types import Env, EnvGroupBuilder, RLDataset, RLDatasetB
 
 from miles.tinker.client.server import SessionServer
 from miles.tinker.client.session import ChatSession
-from miles.tinker.client.trajectory import turns_to_trajectory
+from miles.tinker.client.trajectory import limit_before_first_sample, turns_to_trajectory
 
 
 # Why the episode ended, in the cookbook's vocabulary, from the exit_status harbor_agent_function assigns.
@@ -21,6 +21,10 @@ STOP_REASONS = {
     "TimeLimitExceeded": StopReason.ROLLOUT_TIMEOUT,
     "SequenceLengthLimitExceeded": StopReason.CONTEXT_OVERFLOW,
 }
+
+
+# What Harbor records when the harness's HTTP request to the adapter failed (litellm in harbor-miles-v0.20.0).
+HARNESS_REQUEST_ERRORS = {"BadRequestError"}
 
 
 @dataclass
@@ -128,9 +132,21 @@ class SessionRolloutStrategy(RolloutStrategy):
                                 "max_seq_len": self.max_datum_tokens + 1,
                             },
                         )
-                    if env.verdict["exit_status"] == "AgentError":
-                        raise RuntimeError(f"Harbor trial {env.task_id} failed: {env.verdict}")
-                    return turns_to_trajectory(session.trace.turns, str(STOP_REASONS[env.verdict["exit_status"]]))
+                    verdict = env.verdict
+                    failure = verdict.get("exception") or {}  # absent when the trial never ran (a run()-level failure)
+                    if verdict["exit_status"] != "AgentError":
+                        stop_reason = STOP_REASONS[verdict["exit_status"]]
+                    elif (
+                        session.refusal is not None
+                        and failure.get("type") in HARNESS_REQUEST_ERRORS
+                        and session.refusal.token in failure.get("message", "")
+                    ):
+                        stop_reason = session.refusal.limit  # the harness failed on this session's own refusal: a scored end
+                        if not session.trace.turns:
+                            return limit_before_first_sample(str(stop_reason))
+                    else:
+                        raise RuntimeError(f"Harbor trial {env.task_id} failed: {verdict}")
+                    return turns_to_trajectory(session.trace.turns, str(stop_reason))
 
             # An infrastructure failure invalidates the group, rather than becoming a zero reward.
             async with asyncio.TaskGroup() as tasks:
