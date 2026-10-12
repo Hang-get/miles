@@ -6,7 +6,7 @@ import torch
 import torch.distributed as dist
 from radixscale.mesh import build_mesh
 from radixscale.models.registry import build_model
-from radixscale.packing import IGNORE_LABEL, PackedBatch, split_for_cp
+from radixscale.packing import IGNORE_LABEL, CpShard, PackedBatch
 from radixscale.spec import ParallelSpec
 from radixscale.train import checkpoint
 from radixscale.train.trainer import clip_grad_norm
@@ -39,6 +39,37 @@ def _family(args, hf_config) -> str:
         if model_type.startswith(prefix):
             return family
     raise ValueError(f"radixscale has no model family for model_type {model_type!r}; pass --radixscale-family")
+
+
+def _cp1_shard(batch: dict) -> CpShard:
+    """The cp=1 shard built on the device from miles' packed microbatch: the host
+    boundaries (cu_seqlens_host) size every op, so nothing waits on the GPU."""
+    tokens = batch["tokens"][0]
+    device = tokens.device
+    bounds = batch["cu_seqlens_host"]
+    lengths = torch.tensor([b - a for a, b in zip(bounds[:-1], bounds[1:])], dtype=torch.long)
+    seq_ids = torch.repeat_interleave(torch.arange(len(lengths)), lengths).to(device, non_blocking=True)
+    cu_seqlens = torch.tensor(bounds, dtype=torch.int32).to(device, non_blocking=True)
+    empty = torch.zeros(0, dtype=torch.long, device=device)
+    pack = PackedBatch(
+        input_ids=tokens,
+        labels=torch.full_like(tokens, IGNORE_LABEL),
+        position_ids=batch["position_ids"][0],
+        cu_seqlens=cu_seqlens,
+        max_seqlen=int(batch["max_seqlen"]),
+    )
+    return CpShard(
+        local=pack,
+        cp_rank=0,
+        cp_size=1,
+        global_cu_seqlens=cu_seqlens,
+        global_max_seqlen=pack.max_seqlen,
+        gather_index=empty,
+        local_seq_ids=seq_ids,
+        cp_kv_rows=empty,
+        cp_cu_k=empty.to(torch.int32),
+        cp_max_k=0,
+    )
 
 
 class RadixscaleTrainRayActor(TorchNativeTrainRayActor):
@@ -124,17 +155,7 @@ class RadixscaleTrainRayActor(TorchNativeTrainRayActor):
         return LinearStepRunner(self._forward, self._zero_grad, self._apply_step)
 
     def _forward(self, batch: dict) -> torch.Tensor:
-        # radixscale plans packing on the host (cu_seqlens_host spares a device sync)
-        tokens = batch["tokens"][0].cpu()
-        pack = PackedBatch(
-            input_ids=tokens,
-            labels=torch.full_like(tokens, IGNORE_LABEL),
-            position_ids=batch["position_ids"][0].cpu(),
-            cu_seqlens=torch.tensor(batch["cu_seqlens_host"], dtype=torch.int32),
-            max_seqlen=int(batch["max_seqlen"]),
-        )
-        (shard,) = split_for_cp(pack, cp_size=1)
-        return self.model(shard.to("cuda")).unsqueeze(0)
+        return self.model(_cp1_shard(batch)).unsqueeze(0)
 
     def _zero_grad(self) -> None:
         self.optimizer.zero_grad(set_to_none=True)
