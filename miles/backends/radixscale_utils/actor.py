@@ -63,11 +63,13 @@ class RadixscaleTrainRayActor(TorchNativeTrainRayActor):
         assert not with_opd_teacher, "radixscale backend does not support on-policy distillation"
 
         world = dist.get_world_size()
+        nvlink = int(os.environ.get("LOCAL_WORLD_SIZE", args.actor_num_gpus_per_node))
         spec = ParallelSpec.create(
             world_size=world,
-            nvlink_size=int(os.environ.get("LOCAL_WORLD_SIZE", args.actor_num_gpus_per_node)),
+            nvlink_size=nvlink,
             ep=args.expert_model_parallel_size,
-            d_rep=args.dp_replicate_size,
+            # FSDP shards inside one NVLink domain and replicates across them (DESIGN.md D4)
+            d_rep=args.dp_replicate_size if args.dp_replicate_size > 1 else max(world // nvlink, 1),
         )
         self.mesh = build_mesh(spec, "cuda")
         set_parallel_state(create_radixscale_parallel_state(self.mesh))
