@@ -2,9 +2,10 @@ import asyncio
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 
-import tinker
 from aiohttp import web
 from tinker_cookbook.capture import current_scope
+
+import tinker
 
 
 @dataclass(frozen=True)
@@ -58,7 +59,9 @@ class Episode:
         if self._pending:
             await self._idle.wait()
         if self._failure is not None:
-            raise RuntimeError("trajectory has an incomplete sampling call; discard the rollout group") from self._failure
+            raise RuntimeError(
+                "trajectory has an incomplete sampling call; discard the rollout group"
+            ) from self._failure
 
     @property
     def turns(self) -> tuple[TokenTurn, ...]:
@@ -88,6 +91,4 @@ class RecordingSampler:
         trajectory_id = current_scope().get("traj_idx")
         if trajectory_id not in self._episodes:
             raise web.HTTPNotFound(text="unknown trajectory")
-        return await self._episodes[trajectory_id].sample(
-            self._sampling_client, prompt, num_samples, sampling_params
-        )
+        return await self._episodes[trajectory_id].sample(self._sampling_client, prompt, num_samples, sampling_params)

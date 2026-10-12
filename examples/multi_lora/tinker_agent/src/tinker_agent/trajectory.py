@@ -1,10 +1,10 @@
 from collections.abc import Sequence
 
-import tinker
+from tinker_agent.recording import TokenTurn
 from tinker_cookbook.completers import TokensWithLogprobs
 from tinker_cookbook.rl.types import Trajectory, Transition
 
-from tinker_agent.recording import TokenTurn
+import tinker
 
 
 def turns_to_trajectory(turns: Sequence[TokenTurn], stop_reason: str) -> Trajectory:
@@ -30,6 +30,7 @@ def turns_to_trajectory(turns: Sequence[TokenTurn], stop_reason: str) -> Traject
         ]
     final_ob = (
         tinker.ModelInput.from_ints([*turns[-1].input_ids, *turns[-1].output_ids])
-        if turns else tinker.ModelInput.empty()
+        if turns
+        else tinker.ModelInput.empty()
     )
     return Trajectory(transitions=transitions, final_ob=final_ob, stop_reason=stop_reason)

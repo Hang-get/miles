@@ -4,14 +4,13 @@ import argparse
 import asyncio
 
 import httpx
+from tinker_agent.proxy import serve_proxy
+from tinker_agent.recording import RecordingSampler
+from tinker_agent.trajectory import turns_to_trajectory
 from tinker_cookbook import renderers
 from tinker_cookbook.rl.data_processing import trajectory_to_data
 
 import tinker
-from tinker_agent.proxy import serve_proxy
-from tinker_agent.recording import RecordingSampler
-from tinker_agent.trajectory import turns_to_trajectory
-
 
 
 async def execute(base_url, base_model):
@@ -22,7 +21,9 @@ async def execute(base_url, base_model):
     renderer = renderers.get_renderer("qwen3_instruct", sampler.get_tokenizer())
     recorder = RecordingSampler(sampler)
     datums = []
-    async with serve_proxy(renderer, recorder, model_label=base_model, default_max_tokens=32) as port, httpx.AsyncClient(base_url=f"http://127.0.0.1:{port}", timeout=300) as http:
+    async with serve_proxy(
+        renderer, recorder, model_label=base_model, default_max_tokens=32
+    ) as port, httpx.AsyncClient(base_url=f"http://127.0.0.1:{port}", timeout=300) as http:
         for trajectory_id, advantage in enumerate([-1.0, 1.0]):
             async with recorder.episode(trajectory_id) as episode:
                 path = f"/r/traj/{trajectory_id}"

@@ -1,8 +1,7 @@
 import pytest
-from tinker_cookbook.rl.data_processing import trajectory_to_data
-
-from tinker_agent.trajectory import turns_to_trajectory
 from tinker_agent.recording import TokenTurn
+from tinker_agent.trajectory import turns_to_trajectory
+from tinker_cookbook.rl.data_processing import trajectory_to_data
 
 
 @pytest.mark.parametrize(
@@ -11,8 +10,10 @@ from tinker_agent.recording import TokenTurn
     ids=["extends", "retokenized", "compacted"],
 )
 def test_only_actual_token_prefixes_merge(next_prompt, expected_count):
-    turns = [TokenTurn((1, 2), (3, 4), (-0.3, -0.4), "stop"),
-             TokenTurn(tuple(next_prompt), (6, 7), (-0.6, -0.7), "length")]
+    turns = [
+        TokenTurn((1, 2), (3, 4), (-0.3, -0.4), "stop"),
+        TokenTurn(tuple(next_prompt), (6, 7), (-0.6, -0.7), "length"),
+    ]
     datums = trajectory_to_data(turns_to_trajectory(turns, "completed"), traj_advantage=2.0)
     assert len(datums) == expected_count
     trained_tokens, logprobs = [], []

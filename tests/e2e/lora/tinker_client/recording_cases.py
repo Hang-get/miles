@@ -3,10 +3,11 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
-import tinker
 from aiohttp import web
 from tinker_agent.recording import Episode, RecordingSampler
 from tinker_cookbook.capture import capture
+
+import tinker
 
 
 class ControlledSampler:
@@ -24,13 +25,17 @@ class ControlledSampler:
 
 def response(token, logprobs=None):
     return SimpleNamespace(
-        sequences=[SimpleNamespace(tokens=[token], logprobs=[-0.5] if logprobs is None else logprobs, stop_reason="stop")]
+        sequences=[
+            SimpleNamespace(tokens=[token], logprobs=[-0.5] if logprobs is None else logprobs, stop_reason="stop")
+        ]
     )
 
 
 async def sample(recorder, trajectory_id, token):
     with capture(traj_idx=trajectory_id):
-        return await recorder.sample_async(tinker.ModelInput.from_ints([token]), 1, tinker.SamplingParams(max_tokens=8))
+        return await recorder.sample_async(
+            tinker.ModelInput.from_ints([token]), 1, tinker.SamplingParams(max_tokens=8)
+        )
 
 
 @pytest.mark.asyncio
@@ -87,9 +92,13 @@ async def test_rejected_prompt_can_recover_without_a_phantom_turn():
     async with recorder.episode(0) as episode:
         task = asyncio.create_task(sample(recorder, 0, 1))
         await backend.started.get()
-        backend.results[1].set_exception(tinker.BadRequestError(
-            "prompt too long", response=httpx.Response(400, request=httpx.Request("POST", "http://test")), body=None
-        ))
+        backend.results[1].set_exception(
+            tinker.BadRequestError(
+                "prompt too long",
+                response=httpx.Response(400, request=httpx.Request("POST", "http://test")),
+                body=None,
+            )
+        )
         with pytest.raises(tinker.BadRequestError):
             await task
         task = asyncio.create_task(sample(recorder, 0, 2))

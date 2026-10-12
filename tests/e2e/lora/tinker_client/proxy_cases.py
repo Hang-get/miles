@@ -29,9 +29,7 @@ class Sampler:
 
     async def sample_async(self, prompt, num_samples, sampling_params):
         self.calls.append((prompt.to_ints(), num_samples, sampling_params.model_dump()))
-        return SimpleNamespace(
-            sequences=[SimpleNamespace(tokens=[1000], logprobs=[-0.25], stop_reason="stop")]
-        )
+        return SimpleNamespace(sequences=[SimpleNamespace(tokens=[1000], logprobs=[-0.25], stop_reason="stop")])
 
 
 def normalized(payload):
