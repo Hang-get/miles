@@ -1,7 +1,6 @@
 import atexit
 import logging
 import os
-import random
 import shutil
 from contextlib import ExitStack, nullcontext
 from functools import partial
@@ -43,7 +42,7 @@ from miles.dashboard import hooks as dashboard_hooks
 from miles.ray.rollout.inference_controller import UpdatableEngines
 from miles.ray.specs.train import compute_trainer_pool_id
 from miles.ray.train_actor import TrainRayActor
-from miles.utils import async_utils, object_store
+from miles.utils import object_store
 from miles.utils.argparse_utils import inplace_modify_args
 from miles.utils.audit_utils.event_logger.logger import event_logger_context
 from miles.utils.audit_utils.sample_ownership.recorder import SampleOwnershipRecorder
@@ -955,11 +954,8 @@ class MegatronTrainRayActor(TrainRayActor):
             self.weight_updater.update_weights(weight_version=weight_version)
             print_memory("after update_weights")
 
-            if self.args.ci_test and len(rollout_engines) > 0 and not is_lora_enabled(self.args):
-                engine = random.choice(rollout_engines)
-                engine_version = async_utils.run(engine.get_weight_version())
-                if str(engine_version) != str(weight_version):
-                    raise RuntimeError(f"Weight version mismatch! Engine: {engine_version}, Updater: {weight_version}")
+            if self.args.ci_test and not is_lora_enabled(self.args):
+                self.weight_updater.verify_engine_version(rollout_engines, weight_version=weight_version)
 
             if getattr(self.args, "keep_old_actor", False):
                 if self.args.update_weights_interval == 1:

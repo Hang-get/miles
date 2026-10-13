@@ -287,7 +287,7 @@ class TestExplicitWeightVersion:
 
         result = _run(updater, weight_version=7)
 
-        assert result is None
+        assert result is True
         assert "weight_version" not in vars(updater)
         assert updater.protocol.begin_sync_versions == [7]
         updater.protocol.finalize.assert_called_once_with(7)
@@ -307,12 +307,12 @@ class TestExplicitWeightVersion:
             == [{"weight_version": "4"}] * _ENGINE_COUNT + [{"weight_version": "5"}] * _ENGINE_COUNT
         )
 
-    def test_skipped_sync_returns_none_without_contacting_engines(self):
+    def test_skipped_sync_returns_false_without_contacting_engines(self):
         """A skipped transfer cannot claim that its requested version reached the engines."""
         calls: list[tuple[int, str, dict]] = []
         updater = _make_updater(_make_engines(calls), begin_sync_result=False)
 
         result = _run(updater, weight_version=1)
 
-        assert result is None
+        assert result is False
         assert calls == []

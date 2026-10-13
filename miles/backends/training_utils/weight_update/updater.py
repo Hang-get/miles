@@ -108,24 +108,24 @@ class WeightUpdater:
         self.conn_status.mark_reconnected(info.snapshot_cell_id_to_hashes)
         dist.barrier(group=get_gloo_group())
 
-    def verify_engine_version(self, rollout_engines: Sequence[SGLangApiClient]) -> None:
-        if not rollout_engines or self.weight_version == 0:
+    def verify_engine_version(self, rollout_engines: Sequence[SGLangApiClient], *, weight_version: int) -> None:
+        if not rollout_engines:
             return
         engine = random.choice(list(rollout_engines))
         engine_version = async_utils.run(engine.get_weight_version())
-        if str(engine_version) != str(self.weight_version):
-            raise RuntimeError(f"Weight version mismatch! Engine: {engine_version}, Updater: {self.weight_version}")
+        if str(engine_version) != str(weight_version):
+            raise RuntimeError(f"Weight version mismatch! Engine: {engine_version}, Updater: {weight_version}")
 
     def pop_metrics(self) -> dict[str, float]:
         """Return and clear the protocol's metrics; the actor drains them onto the step log."""
         return self.protocol.pop_metrics()
 
     @torch.no_grad()
-    def update_weights(self, weight_version: int) -> None:
+    def update_weights(self, weight_version: int) -> bool:
         """Run one weight sync: session frame + base-bucket stream + adapter pushes for LoRA."""
         protocol = self.protocol
         if not protocol.begin_sync(weight_version, self._iter_base_buckets):
-            return
+            return False
 
         sync_base = not self.is_lora or protocol.needs_base_resync_for_lora
         adapters = self._get_updated_adapters()
@@ -166,6 +166,7 @@ class WeightUpdater:
                 maybe_resume_engines(self.args, protocol.rollout_engines)
             dist.barrier(group=get_gloo_group())
         protocol.after_engines_resumed()
+        return True
 
     def _iter_base_buckets(self, *, materialize: bool):
         return self._hf_weight_iterator.iter_hf_weights(self.weights_getter(), materialize=materialize)
