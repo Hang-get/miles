@@ -730,7 +730,7 @@ class _RecordingWeightUpdater:
         )
         self.conn_status.mark_reconnected(info.snapshot_cell_id_to_hashes)
 
-    def verify_engine_version(self, rollout_engines: list[Any]) -> None:
+    def verify_engine_version(self, rollout_engines: list[Any], *, weight_version: int) -> None:
         pass
 
     def update_weights(self, weight_version: int) -> None:
