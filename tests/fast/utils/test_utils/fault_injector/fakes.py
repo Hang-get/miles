@@ -7,6 +7,7 @@ from typing import Any
 import httpx
 import pytest
 
+from miles.utils import async_utils
 from miles.utils.test_utils.fault_injector import controller
 from miles.utils.test_utils.fault_injector.actions import process
 from miles.utils.test_utils.fault_injector.actions.base import FaultHookResources
@@ -129,13 +130,17 @@ def _arm_marker_hook(
     **filters: int,
 ) -> _FaultHookController:
     hooks = _FaultHookController()
-    hooks.configure(resources=FaultHookResources(cell_operations=_MarkerOperations(log=log, fail=fail)))
+    async_utils.run(_configure_marker_hook(hooks=hooks, operations=_MarkerOperations(log=log, fail=fail)))
     request = FaultHookRequest(
         request_id="marker", hook_name=hook_name, action=StopCellAction(cell_id=hook_name.value), **filters
     )
     hooks.apply(FaultHookCommand(operation=FaultHookOperation.SET, request=request))
     monkeypatch.setattr(controller, "fault_hook_controller", hooks)
     return hooks
+
+
+async def _configure_marker_hook(hooks: _FaultHookController, operations: _MarkerOperations) -> None:
+    hooks.configure(resources=FaultHookResources(cell_operations=operations))
 
 
 class _ApiServer:

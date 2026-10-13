@@ -158,10 +158,13 @@ class TestPublishedWeightVersion:
         monkeypatch.setattr(base_module, "print_memory", lambda message: None)
         monkeypatch.setattr(base_module, "clear_memory", lambda: None)
 
-        result = TorchNativeTrainRayActor.update_weights.__wrapped__(actor, info)
+        result = TorchNativeTrainRayActor.update_weights.__wrapped__(
+            actor, info, debug_weight_update_id="update-1", rollout_id=1
+        )
 
         expected_version = previous_version + int(completed)
-        assert result == expected_version
+        assert result.weight_version == expected_version
+        assert result.failed_cell_ids == ()
         assert actor._published_weight_version == expected_version
         actor.weight_updater.update_weights.assert_called_once_with(weight_version=previous_version + 1)
         if expected_version:
@@ -181,7 +184,9 @@ class TestPublishedWeightVersion:
         monkeypatch.setattr(base_module, "print_memory", lambda message: None)
 
         with pytest.raises(RuntimeError, match="transfer failed"):
-            TorchNativeTrainRayActor.update_weights.__wrapped__(actor, SimpleNamespace(rollout_engines=[]))
+            TorchNativeTrainRayActor.update_weights.__wrapped__(
+                actor, SimpleNamespace(rollout_engines=[]), debug_weight_update_id="update-1", rollout_id=1
+            )
 
         assert actor._published_weight_version == 3
         actor.weight_updater.verify_engine_version.assert_not_called()
