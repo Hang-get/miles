@@ -1,8 +1,10 @@
 import asyncio
 from pathlib import Path
+from uuid import uuid4
 
 import chz
 from tinker_agent.harbor import HarborDatasetBuilder, HarborRolloutStrategy
+from tinker_cookbook.capture.store import capture_to_store
 from tinker_cookbook.rl import train
 
 
@@ -31,7 +33,7 @@ class HarborTinkerConfig:
     wandb_name: str | None = None
 
 
-def build_config(config: HarborTinkerConfig) -> train.Config:
+def build_config(config: HarborTinkerConfig, store_url: str, run_id: str) -> train.Config:
     return train.Config(
         model_name=config.model_name,
         renderer_name=config.renderer_name,
@@ -45,6 +47,8 @@ def build_config(config: HarborTinkerConfig) -> train.Config:
             epochs=config.epochs,
         ),
         rollout_error_tolerance=HarborRolloutStrategy(
+            store_url=store_url,
+            run_id=run_id,
             renderer_name=config.renderer_name,
             trial_template=Path(config.trial_config).read_text(),
             reward_key=config.reward_key,
@@ -65,7 +69,9 @@ def build_config(config: HarborTinkerConfig) -> train.Config:
 
 
 def main(config: HarborTinkerConfig):
-    asyncio.run(train.main(build_config(config)))
+    run_id = uuid4().hex
+    with capture_to_store(run_id, data_dir=Path(config.log_path).expanduser() / "capture") as captured:
+        asyncio.run(train.main(build_config(config, captured.base_url, run_id)))
 
 
 if __name__ == "__main__":

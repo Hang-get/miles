@@ -26,7 +26,7 @@ TEMPLATE = json.dumps(
 
 
 @pytest.mark.asyncio
-async def test_harbor_http_calls_become_unmodified_training_data(monkeypatch, renderer, sampler_factory):
+async def test_harbor_http_calls_become_unmodified_training_data(monkeypatch, renderer, sampler_factory, capture_store):
     sampler = sampler_factory()
     sampler.get_tokenizer = lambda: renderer.tokenizer
     policy = TinkerTokenCompleter(sampler, max_tokens=32)
@@ -50,14 +50,15 @@ async def test_harbor_http_calls_become_unmodified_training_data(monkeypatch, re
         return SimpleNamespace(run=run)
 
     monkeypatch.setattr(harbor.Trial, "create", create)
-    strategy = harbor.HarborRolloutStrategy("role_colon", TEMPLATE, max_parallel_trials_per_group=1)
+    strategy = harbor.HarborRolloutStrategy("role_colon", TEMPLATE, capture_store.base_url, "test", max_parallel_trials_per_group=1)
     strategy = pickle.loads(pickle.dumps(strategy))
     group = harbor.HarborGroup(Path("/tasks/task"), 2)
+    first = await strategy.execute(group, policy)
     result = await strategy.execute(group, policy)
-    assert len({c.agent.kwargs["api_base"] for c in configs}) == 2
+    assert len({c.agent.kwargs["api_base"] for c in configs}) == 4
     assert all(c.task.path == Path("/tasks/task") for c in configs)
     assert [reward for reward, _ in await group.compute_group_rewards(result.trajectories, result.envs)] == [1, 0]
-    for trajectory in result.trajectories:
+    for trajectory in [*first.trajectories, *result.trajectories]:
         datums = trajectory_to_data(trajectory, traj_advantage=1.0)
         assert len(datums) == 3
         assert [datum.loss_fn_inputs["target_tokens"].data[-1] for datum in datums] == [1000] * 3
@@ -106,7 +107,7 @@ def test_recipe_uses_public_sdk_configuration_and_harbor_defaults(tmp_path):
             renderer_name="role_colon",
             tasks_dir=str(tmp_path),
             trial_config=str(config_path),
-        )
+        ), "http://store", "test",
     )
     assert config.base_url is None
     assert config.ttl_seconds is None

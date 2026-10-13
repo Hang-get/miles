@@ -31,7 +31,7 @@ recipe supplies each dataset task). For example, Terminus 2 with Docker:
 Use Harbor's normal schema for agent kwargs, sandbox/provider credentials,
 timeouts and verifier settings. The recipe substitutes only `{proxy_url}`
 and `{proxy_api_key}` in this JSON. The URL includes a trajectory-specific
-`/r/traj/<id>` prefix. For `mini-swe-agent`, put `{proxy_url}/v1` in
+`/r/run/<run_id>/group/<group_idx>/traj/<traj_idx>` prefix. For `mini-swe-agent`, put `{proxy_url}/v1` in
 `agent.env.OPENAI_BASE_URL` and `{proxy_api_key}` in `agent.env.OPENAI_API_KEY`.
 For `claude-code`, use `{proxy_url}` in `agent.env.ANTHROPIC_BASE_URL` and
 `{proxy_api_key}` in `agent.env.ANTHROPIC_API_KEY`. Choose a model/renderer
@@ -50,24 +50,28 @@ python -m tinker_agent.train \
 Omit `base_url` to use the official Tinker service. For remote sandboxes,
 `advertised_host` must resolve to this client machine from the sandbox; use
 your provider's reachable host address. Each group gets a random proxy auth
-token. Rendering and trace bookkeeping run on the client machine. Agent
+token. Rendering and official capture run on the client machine. Agent
 sampling parameters come from the agent; `max_tokens` supplies the proxy's
 default only when the request omits it.
 
-One rollout group fixes one sampling client. Every trial closes admission,
-drains accepted samples, then converts immutable input/output tokens and
-logprobs into cookbook transitions. All sampled calls, including compaction
-and repeated prompts, are retained. Cookbook computes group advantages and
-merges only exact token-prefix continuations into training Datums.
+The recipe wraps cookbook `train.main` in one official `capture_to_store`
+context for the entire run, with storage under `<log_path>/capture`. Each
+rollout group fixes one sampling client and uses distinct group/trajectory
+coordinates in the official proxy URL. After the trials finish, the proxy
+closes and drains accepted handlers; the recipe flushes the official exporter
+and reads the store's public rows API. Those rows are the sole sampled-token
+record, including compaction and repeated prompts. Cookbook computes group
+advantages and merges only exact token-prefix continuations into Datums.
 
 A completed trial or an agent timeout with a verifier reward is scored using
-`reward_key` (default `reward`). Missing/non-finite rewards, other Harbor
-exceptions, cancelled/failed sampling or incomplete records abort the group.
-There is no synthetic zero reward for infrastructure errors. Task and agent
-limits belong to Harbor; the proxy adds no turn/token budgets, refusal
-matching, stop overrides or `reasoning_content` reconstruction. Capture's
-export queue is not used for training storage. Crashed groups are discarded;
-there is no partial-episode recovery.
+`reward_key` (default `reward`). Missing/non-finite rewards and other Harbor
+exceptions abort the group. Exporter loss or rows without training logprobs
+also stop training. Failed requests remain official capture annotations;
+the agent and Harbor determine whether the trial can continue. There is no
+synthetic zero reward for infrastructure errors. Task and agent limits belong
+to Harbor; rendering, stops, tools and streaming use official proxy behavior.
+There is no separate recorder, episode state machine or partial-episode
+recovery.
 
 The isolated CPU tests compare the wrapped and bare official proxy and test
 Harbor configuration, trial outcomes and token-to-Datum conversion with a

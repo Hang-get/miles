@@ -2,15 +2,15 @@ import asyncio
 import json
 import math
 import secrets
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from itertools import count
 from pathlib import Path
 
 import chz
 from harbor.models.trial.config import TaskConfig, TrialConfig
 from harbor.trial.trial import Trial
 from tinker_agent.proxy import serve_proxy
-from tinker_agent.recording import RecordingSampler
-from tinker_agent.trajectory import turns_to_trajectory
+from tinker_agent.trajectory import flush_capture, read_samples, rows_to_trajectory
 from tinker_cookbook import renderers
 from tinker_cookbook.completers import TinkerTokenCompleter
 from tinker_cookbook.rl.rollout_strategy import RolloutResult, RolloutStrategy
@@ -108,6 +108,9 @@ def trial_outcome(result, reward_key):
 class HarborRolloutStrategy(RolloutStrategy):
     renderer_name: str
     trial_template: str
+    store_url: str
+    run_id: str
+    _groups: count = field(default_factory=count, init=False, repr=False)
     reward_key: str = "reward"
     advertised_host: str = "127.0.0.1"
     listen_host: str = "127.0.0.1"
@@ -120,12 +123,12 @@ class HarborRolloutStrategy(RolloutStrategy):
         tokenizer = await asyncio.to_thread(policy.sampling_client.get_tokenizer)
         renderer = renderers.get_renderer(self.renderer_name, tokenizer)
         envs = await env_group_builder.make_envs()
-        recorder = RecordingSampler(policy.sampling_client)
+        group_idx = next(self._groups)
         semaphore = asyncio.Semaphore(self.max_parallel_trials_per_group)
         auth_token = secrets.token_urlsafe(32)
         async with serve_proxy(
             renderer,
-            recorder,
+            policy.sampling_client,
             model_label="policy",
             default_max_tokens=policy.max_tokens,
             host=self.listen_host,
@@ -137,15 +140,22 @@ class HarborRolloutStrategy(RolloutStrategy):
                     config = trial_config(
                         self.trial_template,
                         env.task_path,
-                        f"http://{self.advertised_host}:{port}/r/traj/{index}",
+                        f"http://{self.advertised_host}:{port}/r/run/{self.run_id}/group/{group_idx}/traj/{index}",
                         auth_token,
                     )
-                    async with recorder.episode(index) as episode:
-                        trial = await Trial.create(config)
-                        result = await trial.run()
+                    trial = await Trial.create(config)
+                    result = await trial.run()
                     env.reward, env.stop_reason = trial_outcome(result, self.reward_key)
-                    return turns_to_trajectory(episode.turns, env.stop_reason)
 
             async with asyncio.TaskGroup() as tasks:
-                pending = [tasks.create_task(one(index, env)) for index, env in enumerate(envs)]
-        return RolloutResult(trajectories=[task.result() for task in pending], envs=envs, errors=[])
+                for index, env in enumerate(envs):
+                    tasks.create_task(one(index, env))
+        await flush_capture()
+        trajectories = [
+            rows_to_trajectory(
+                await read_samples(self.store_url, self.run_id, group_idx=group_idx, traj_idx=index),
+                env.stop_reason,
+            )
+            for index, env in enumerate(envs)
+        ]
+        return RolloutResult(trajectories=trajectories, envs=envs, errors=[])
