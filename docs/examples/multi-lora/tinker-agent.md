@@ -1,40 +1,44 @@
 ---
-title: "Agent rollouts through the official Tinker proxy"
+title: "Agent rollouts through official Tinker capture"
 description: "Record agent rollouts through the official Tinker cookbook proxy in an independent client package."
 # Generated from examples/multi_lora/tinker_agent/README.md by scripts/tools/sync_example_docs.py. Edit that README, not this file.
 ---
-This is an independently installable client package. It uses the pinned
-`tinker_cookbook.capture.proxy` for OpenAI/Anthropic chat, rendering, tools,
-stop conditions and SSE. It imports no Miles code and works with a sampler
-from either the Miles gateway or the official Tinker service.
+This independently installable client package uses the pinned official
+`tinker_cookbook.capture.proxy`, SDK instrumentation, exporter and capture
+store. It imports no Miles code and accepts a sampling client from either
+the Miles gateway or the official Tinker service.
 
 ```bash
 uv pip install ./examples/multi_lora/tinker_agent
 ```
 
-Use `RecordingSampler(sampling_client)` with `serve_proxy(renderer, recorder,
-model_label=..., default_max_tokens=...)`. Register each trial with
-`async with recorder.episode(traj_idx) as episode` and give the agent the
-proxy URL with `/r/traj/<traj_idx>` before `/v1/chat/completions` or
-`/v1/messages`. One proxy binds one sampler for its entire rollout group.
-For sandbox callers, set `host` to a reachable interface and supply
-`auth_token`, following the official proxy's bind policy.
+Wrap the recipe in the official `capture_to_store(run_id, data_dir=...)`.
+Pass its sampling client directly to `serve_proxy(renderer, sampling_client,
+model_label=..., default_max_tokens=...)`. Give each agent a proxy URL with
+`/r/run/<run_id>/group/<group_idx>/traj/<traj_idx>` before `/v1/...`.
+For sandbox callers, choose a reachable bind interface and an auth token,
+following the official proxy's bind policy.
 
-Closing an episode refuses new sampling calls and drains accepted calls.
-`episode.turns` then contains immutable token/logprob records in submission
-order. `turns_to_trajectory(episode.turns, stop_reason)` supplies cookbook
-transitions; rewards and episode outcomes belong to the trial runner.
-Cookbook decides which exact token-prefix continuations can share a Datum.
+The official proxy owns rendering, tools, stop semantics and SSE. Official
+SDK instrumentation owns capture; the official store is the only sampled-token
+record. There is no separate recorder, token schema or episode state machine.
 
-The recorder saves results synchronously before the official proxy parses
-them. It does not use the capture exporter's lossy queue as training storage.
-Sampling cancellation, missing logprobs or lost responses invalidate the
-trajectory. Backend request rejections can be recovered by the agent without
-inventing a sampled turn. No additional sampling retries, limits or parameter
-overrides are introduced. Records are in memory: a worker crash discards the
-unsubmitted rollout group rather than resuming a partial episode.
+After the group's trials finish, close the proxy and let aiohttp finish its
+accepted handlers. `flush_capture()` flushes the official exporter and checks
+its loss counters before reading the store. A reported capture loss fails
+training rather than silently consuming an incomplete dataset. This is a
+training-consumer check, not a change to official capture or request behavior.
 
-`tests/e2e/lora/test_tinker_client.py` installs the package in an isolated
-environment and compares recorded requests/responses with the unwrapped
-official proxy. The GPU gateway acceptance additionally trains from the
-recorded tokens and logprobs.
+`read_samples()` queries the store's public, paginated rows API by run/group/
+trajectory and sorts by official call timestamps. `rows_to_trajectory()`
+converts those rows to cookbook transitions without rebuilding tokens.
+Rewards and trial outcomes come from the harness; cookbook decides which
+exact token-prefix continuations can share a Datum. Failed requests remain
+in official capture annotations and are handled by the agent/harness.
+The recipe does not add sampling retries, refusal matching, parameter
+overrides or partial-episode recovery.
+
+The isolated tests exercise the real official proxy → instrumentation →
+exporter → store path with a fake sampler, and validate store-row conversion
+to training data. The GPU acceptance trains from actual rows in the official
+store, then samples from the updated policy.

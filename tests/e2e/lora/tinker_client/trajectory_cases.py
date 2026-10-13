@@ -1,7 +1,15 @@
 import pytest
-from tinker_agent.recording import TokenTurn
-from tinker_agent.trajectory import turns_to_trajectory
+from tinker_agent.trajectory import rows_to_trajectory
 from tinker_cookbook.rl.data_processing import trajectory_to_data
+
+
+def row(prompt, tokens, logprobs, stop_reason):
+    return {
+        "prompt_tokens": list(prompt),
+        "sampled_tokens": list(tokens),
+        "logprobs": list(logprobs),
+        "metadata": {"status": "ok", "num_samples": 1, "stop_reason": stop_reason},
+    }
 
 
 @pytest.mark.parametrize(
@@ -11,10 +19,10 @@ from tinker_cookbook.rl.data_processing import trajectory_to_data
 )
 def test_only_actual_token_prefixes_merge(next_prompt, expected_count):
     turns = [
-        TokenTurn((1, 2), (3, 4), (-0.3, -0.4), "stop"),
-        TokenTurn(tuple(next_prompt), (6, 7), (-0.6, -0.7), "length"),
+        row((1, 2), (3, 4), (-0.3, -0.4), "stop"),
+        row(tuple(next_prompt), (6, 7), (-0.6, -0.7), "length"),
     ]
-    datums = trajectory_to_data(turns_to_trajectory(turns, "completed"), traj_advantage=2.0)
+    datums = trajectory_to_data(rows_to_trajectory(turns, "completed"), traj_advantage=2.0)
     assert len(datums) == expected_count
     trained_tokens, logprobs = [], []
     for datum in datums:
@@ -32,7 +40,7 @@ def test_only_actual_token_prefixes_merge(next_prompt, expected_count):
 
 
 def test_a_limit_before_the_first_sample_is_the_cookbooks_empty_terminal_transition():
-    trajectory = turns_to_trajectory([], "context_overflow")
+    trajectory = rows_to_trajectory([], "context_overflow")
     assert trajectory.stop_reason == "context_overflow"
     assert [transition.ac.tokens for transition in trajectory.transitions] == [[]]
     assert trajectory_to_data(trajectory, traj_advantage=1.0) == []
@@ -41,8 +49,8 @@ def test_a_limit_before_the_first_sample_is_the_cookbooks_empty_terminal_transit
 def test_repeated_prompts_and_continuations_after_length_are_retained():
     turns = []
     for index, stop_reason in enumerate(["length", "stop"]):
-        turns.append(TokenTurn((1, 2), (3 + index,), (-0.5,), stop_reason))
-    trajectory = turns_to_trajectory(turns, "completed")
+        turns.append(row((1, 2), (3 + index,), (-0.5,), stop_reason))
+    trajectory = rows_to_trajectory(turns, "completed")
     assert [transition.ac.stop_reason for transition in trajectory.transitions] == ["length", "stop"]
     assert trajectory.stop_reason == "completed"
     assert len(trajectory.transitions) == 2

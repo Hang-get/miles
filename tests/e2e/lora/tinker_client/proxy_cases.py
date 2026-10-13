@@ -5,7 +5,7 @@ import httpx
 import pytest
 from aiohttp.test_utils import TestServer
 from tinker_agent.proxy import serve_proxy
-from tinker_agent.recording import RecordingSampler
+from tinker_agent.trajectory import flush_capture, read_samples
 from tinker_cookbook.capture.proxy.app import ProxyDeps, make_app
 
 
@@ -44,50 +44,53 @@ def test_client_install_has_no_miles_dependency():
         ("messages", {"stream": True, "thinking": {"type": "enabled", "budget_tokens": 16}}),
     ],
 )
-async def test_recording_preserves_official_proxy_behavior(endpoint, extra, renderer, sampler_factory):
+async def test_capture_preserves_official_proxy_behavior(endpoint, extra, renderer, sampler_factory, capture_store):
     bare, backend = sampler_factory(), sampler_factory()
-    recorder = RecordingSampler(backend)
     official = TestServer(make_app(ProxyDeps(renderer, bare, "policy", default_max_tokens=32)))
     await official.start_server()
     try:
-        async with serve_proxy(renderer, recorder, model_label="policy", default_max_tokens=32) as port:
-            async with recorder.episode(0) as episode, httpx.AsyncClient() as http:
+        async with serve_proxy(renderer, backend, model_label="policy", default_max_tokens=32) as port:
+            async with httpx.AsyncClient() as http:
                 body = {
                     "messages": [{"role": "user", "content": "hi"}],
                     "max_tokens": 17,
                     "temperature": 0.7,
                     **extra,
                 }
-                path = f"/r/traj/0/v1/{endpoint}"
-                expected = await http.post(str(official.make_url(path)), json=body)
+                path = f"/r/run/test/traj/0/v1/{endpoint}"
+                expected = await http.post(
+                    str(official.make_url(path.replace("/run/test/", "/run/official/"))), json=body
+                )
                 actual = await http.post(f"http://127.0.0.1:{port}{path}", json=body)
                 assert actual.status_code == expected.status_code
                 assert response_payload(actual) == response_payload(expected)
                 assert backend.calls == bare.calls
-            assert len(episode.turns) == len(backend.calls)
-            if episode.turns:
-                assert episode.turns[0].input_ids == tuple(backend.calls[0][0])
-                assert episode.turns[0].output_ids == (1000,)
+        await flush_capture()
+        rows = await read_samples(capture_store.base_url, "test", traj_idx=0)
+        assert len(rows) == len(backend.calls)
+        if rows:
+            assert rows[0]["prompt_tokens"] == backend.calls[0][0]
+            assert rows[0]["sampled_tokens"] == [1000]
     finally:
         await official.close()
 
 
 @pytest.mark.asyncio
-async def test_parse_failure_keeps_sample_and_closed_trajectory_cannot_sample(monkeypatch, renderer, sampler_factory):
+async def test_parse_failure_keeps_the_official_capture(monkeypatch, renderer, sampler_factory, capture_store):
     backend = sampler_factory()
-    recorder = RecordingSampler(backend)
 
     def fail_parse(tokens):
         raise ValueError("broken output parser")
 
     monkeypatch.setattr(renderer, "parse_response", fail_parse)
-    async with serve_proxy(renderer, recorder, model_label="policy", default_max_tokens=32) as port:
-        async with httpx.AsyncClient(base_url=f"http://127.0.0.1:{port}") as http:
-            async with recorder.episode(0) as episode:
-                body = {"messages": [{"role": "user", "content": "hi"}]}
-                response = await http.post("/r/traj/0/v1/chat/completions", json=body)
-                assert response.status_code == 500
-            assert episode.turns[0].output_ids == (1000,)
-            assert (await http.post("/r/traj/0/v1/chat/completions", json=body)).status_code == 410
-            assert (await http.post("/r/traj/1/v1/chat/completions", json=body)).status_code == 404
-            assert len(backend.calls) == 1
+    async with serve_proxy(renderer, backend, model_label="policy", default_max_tokens=32) as port:
+        async with httpx.AsyncClient() as http:
+            response = await http.post(
+                f"http://127.0.0.1:{port}/r/run/test/traj/0/v1/chat/completions",
+                json={"messages": [{"role": "user", "content": "hi"}]},
+            )
+            assert response.status_code == 500
+    await flush_capture()
+    rows = await read_samples(capture_store.base_url, "test", traj_idx=0)
+    assert len(rows) == 1
+    assert rows[0]["sampled_tokens"] == [1000]
