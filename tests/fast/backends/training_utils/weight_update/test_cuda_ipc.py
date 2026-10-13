@@ -61,6 +61,7 @@ class TestConnect:
     def _make_protocol() -> UpdateWeightFromTensor:
         protocol = UpdateWeightFromTensor.__new__(UpdateWeightFromTensor)
         protocol.args = Namespace(
+            train_backend="megatron",
             rollout_num_gpus_per_engine=2,
             actor_num_nodes=1,
             actor_num_gpus_per_node=8,
@@ -198,13 +199,14 @@ class TestColocatedBaseSend:
 
 
 class TestObservedWorldSize:
-
     def test_colocation_uses_the_live_world_instead_of_declared_actor_capacity(self) -> None:
         """A smaller live trainer world sends engines outside that world through distributed transfer."""
         protocol = TestConnect._make_protocol()
         protocol.args.actor_num_gpus_per_node = 32
-        engines = [MagicMock(name=f'engine{i}') for i in range(4)]
+        engines = [MagicMock(name=f"engine{i}") for i in range(4)]
+
         _, connect, _ = TestConnect._connect(protocol, engines, rank=0, tp_rank=0)
+
         assert protocol.rollout_engines == engines[:3]
         assert protocol.distributed_rollout_engines == engines[3:]
-        connect.assert_called_once_with('miles', engines[3:], engine_gpu_counts=[2])
+        connect.assert_called_once_with("miles", engines[3:], engine_gpu_counts=[2])
