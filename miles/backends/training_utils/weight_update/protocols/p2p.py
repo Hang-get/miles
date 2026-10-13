@@ -2,6 +2,7 @@ import logging
 from argparse import Namespace
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
+from functools import partial
 from typing import NamedTuple
 
 import torch
@@ -28,7 +29,7 @@ from miles.backends.training_utils.weight_update.protocols.utils.model_replica i
 from miles.backends.training_utils.weight_update.protocols.utils.rollout_engine_rank_assignment import (
     assign_rollout_engine_ranks,
 )
-from miles.backends.training_utils.weight_update.protocols.utils.transfer_buffers import TransferBuffers
+from miles.backends.training_utils.weight_update.protocols.utils.transfer_buffers import PendingWrite, TransferBuffers
 from miles.utils.distributed_utils import get_gloo_group
 
 logger = logging.getLogger(__name__)
@@ -96,7 +97,7 @@ class UpdateWeightP2P(WeightTransferProtocol):
         return True
 
     def after_base_weights(self) -> None:
-        """Wait for every write of this update; fail the update if any write failed or is still running."""
+        """Wait for healthy cells and isolate cells with failed or timed-out writes."""
         if not self.is_sender:
             return
         self._transfer_buffers.wait_for_all_writes()
@@ -138,9 +139,26 @@ class UpdateWeightP2P(WeightTransferProtocol):
             ]
             for target in runner_sender.replica_targets:
                 buffer = self._transfer_buffers.acquire()
+                remote_shards = [
+                    shard
+                    for shard in target.remote_shards
+                    if not self._cell_updaters[shard.rollout_engine_ind].is_errored
+                ]
+                if not remote_shards:
+                    continue
                 param_bytes_by_name = target.model_replica.load_into(buffer, param_names, hf_tensors)
-                writes = self._transport.write(target.remote_shards, param_bytes_by_name)
-                self._transfer_buffers.release_after(buffer, list(zip(target.remote_shards, writes, strict=True)))
+                writes = self._transport.write(
+                    remote_shards,
+                    param_bytes_by_name,
+                    run_write=partial(_write_to_cell, cell_updaters=self._cell_updaters),
+                )
+                pending_writes = [
+                    PendingWrite(future=write, cell_updater=self._cell_updaters[shard.rollout_engine_ind])
+                    for shard, write in zip(remote_shards, writes, strict=True)
+                ]
+                for pending in pending_writes:
+                    pending.cell_updater.track_write(pending.future)
+                self._transfer_buffers.release_after(buffer, pending_writes)
 
     def connect(
         self,
@@ -163,24 +181,37 @@ class UpdateWeightP2P(WeightTransferProtocol):
             cell_id: _P2PRolloutCellUpdater(args=self.args, cell_id=cell_id, api_client=api_client)
             for api_client, cell_id in zip(rollout_engines, engine_cell_ids, strict=True)
         }
+        self._cell_updaters = tuple(self.cell_updaters_of_cell_id[cell_id] for cell_id in engine_cell_ids)
+        self._runner_senders = []
+        self.is_sender = False
         assignments = assign_rollout_engine_ranks(parallel_state, placement, engine_gpu_counts)
-        self.is_sender = bool(assignments)
+        if not assignments:
+            return
 
-        if self.is_sender:
-            runner_roles = query_runner_roles(rollout_engines, assignments, selector)
-            configs_by_runner_role = {
-                runner_role: query_rollout_engine_rank_configs(rollout_engines, assignments, runner_role)
-                for runner_role in runner_roles
-            }
-            if self._transport is None:
-                self._transport = MooncakeTransport()
-            remote_shards_by_runner_role = self._transport.connect(rollout_engines, assignments, runner_roles)
-            self._runner_senders = [
-                self._connect_runner(
-                    runner_role, configs_by_runner_role[runner_role], remote_shards_by_runner_role[runner_role]
+        runner_roles = query_runner_roles(self._cell_updaters, assignments, selector)
+        configs_by_runner_role = {
+            role: query_rollout_engine_rank_configs(self._cell_updaters, assignments, role) for role in runner_roles
+        }
+        if not any(configs_by_runner_role.values()):
+            return
+        if self._transport is None:
+            self._transport = MooncakeTransport()
+        remote_shards_by_runner_role = self._transport.connect(self._cell_updaters, assignments, runner_roles)
+        for role, shards_by_rank in remote_shards_by_runner_role.items():
+            healthy_shards_by_rank = {
+                rank: healthy_shards
+                for rank, shards in shards_by_rank.items()
+                if (
+                    healthy_shards := [
+                        shard for shard in shards if not self._cell_updaters[shard.rollout_engine_ind].is_errored
+                    ]
                 )
-                for runner_role in runner_roles
-            ]
+            }
+            if healthy_shards_by_rank:
+                self._runner_senders.append(
+                    self._connect_runner(role, configs_by_runner_role[role], healthy_shards_by_rank)
+                )
+        self.is_sender = bool(self._runner_senders)
 
     def _connect_runner(
         self,
@@ -237,3 +268,12 @@ class UpdateWeightP2P(WeightTransferProtocol):
             unregister_memory=self._transport.unregister_memory,
             write_timeout=self.args.p2p_transfer_timeout,
         )
+
+
+def _write_to_cell(
+    remote_shard: RemoteShard,
+    write: Callable[[], None],
+    *,
+    cell_updaters: Sequence[_P2PRolloutCellUpdater],
+) -> None:
+    cell_updaters[remote_shard.rollout_engine_ind].run_write(write)
