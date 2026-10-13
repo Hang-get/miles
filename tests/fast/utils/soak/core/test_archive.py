@@ -153,7 +153,6 @@ class TestArchiveEvidence:
 
         assert blocked_collector.started.is_set()
         assert blocked_collector.exitcode_on_close in (-signal.SIGTERM, -signal.SIGKILL)
-        blocked_collector.release.set()
         assert not (tmp_path / "late-write").exists()
         assert not (log.path.parent / "archive_manifest.json").exists()
         assert len(log.events) == 1
@@ -172,7 +171,6 @@ class TestArchiveEvidence:
             await task
 
         assert blocked_collector.exitcode_on_close in (-signal.SIGTERM, -signal.SIGKILL)
-        blocked_collector.release.set()
         assert not (tmp_path / "late-write").exists()
         assert not (log.path.parent / "archive_manifest.json").exists()
         assert len(log.events) == 1
