@@ -126,6 +126,9 @@ class UpdateWeightP2P(WeightTransferProtocol):
     def _send_runner_bucket(
         self, runner_sender: _RunnerSender, converted_named_tensors: list[tuple[str, torch.Tensor]]
     ) -> None:
+        cell_updaters_of_cell_id = self.cell_updaters_of_cell_id
+        engine_cell_ids = self._engine_cell_ids
+
         ready_hf_tensors_by_param_group = runner_sender.model_param_stager.stage(converted_named_tensors)
         for param_groups in pack_into_buffers(
             ready_hf_tensors_by_param_group,
@@ -138,11 +141,27 @@ class UpdateWeightP2P(WeightTransferProtocol):
             ]
             for target in runner_sender.replica_targets:
                 buffer = self._transfer_buffers.acquire()
+                remote_shards = [
+                    shard
+                    for shard in target.remote_shards
+                    if not self.cell_updaters_of_cell_id[self._engine_cell_ids[shard.rollout_engine_ind]].is_errored
+                ]
+                if not remote_shards:
+                    continue
                 param_bytes_by_name = target.model_replica.load_into(buffer, param_names, hf_tensors)
-                writes = self._transport.write(target.remote_shards, param_bytes_by_name)
+                writes = self._transport.write(
+                    remote_shards,
+                    param_bytes_by_name,
+                    run_write=lambda remote_shard, write: cell_updaters_of_cell_id[
+                        engine_cell_ids[remote_shard.rollout_engine_ind]
+                    ].run_write(write),
+                )
                 pending_writes = [
-                    PendingWrite(future=write, cell_updater=self.cell_updaters_of_cell_id[self._engine_cell_ids[shard.rollout_engine_ind]])
-                    for shard, write in zip(target.remote_shards, writes, strict=True)
+                    PendingWrite(
+                        future=write,
+                        cell_updater=self.cell_updaters_of_cell_id[self._engine_cell_ids[shard.rollout_engine_ind]],
+                    )
+                    for shard, write in zip(remote_shards, writes, strict=True)
                 ]
                 self._transfer_buffers.release_after(buffer, pending_writes)
 
