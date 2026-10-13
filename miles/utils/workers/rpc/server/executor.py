@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 class RpcCallExecutor:
     def __init__(self, *, worker: object, specs: dict[str, RpcMethodSpec]) -> None:
         self._worker = worker
+        self._closed = False
         self._executors = {
             group: ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"rpc-{group}")
             for group in sorted({spec.concurrency_group for spec in specs.values() if not spec.is_async})
@@ -30,9 +31,22 @@ class RpcCallExecutor:
         return sorted(self._executors)
 
     def start(self, *, spec: RpcMethodSpec, kwargs: dict[str, Any], call_id: str, finish: Callable[..., None]) -> None:
+        if self._closed:
+            raise RuntimeError("The RPC executor is closed")
         task = asyncio.create_task(self._run(spec=spec, kwargs=kwargs, call_id=call_id, finish=finish))
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
+
+    async def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        tasks = list(self._background_tasks)
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        for executor in self._executors.values():
+            await asyncio.to_thread(executor.shutdown, wait=True, cancel_futures=True)
 
     async def _run(
         self, *, spec: RpcMethodSpec, kwargs: dict[str, Any], call_id: str, finish: Callable[..., None]
