@@ -76,31 +76,54 @@ class TestSoakRunnerLifecycle:
         assert teardown.calls == 1
         assert isinstance(runner.event_log.events[-1], SoakCollectionClosedEvent)
 
-    async def test_a_run_exceeding_its_deadline_times_out_and_still_closes(self, tmp_path: Path) -> None:
-        """A hung training is bounded by the run timeout and its evidence is still closed."""
+    async def test_a_run_exceeding_its_deadline_drains_training_before_teardown(self, tmp_path: Path) -> None:
+        """A soft deadline closes admission and drains training before teardown, then propagates its timeout."""
         config = _runner_config(timeouts=SoakTimeoutConfig(run_seconds=0.05))
         runner = _make_runner(tmp_path, observer=_healthy_observer(), config=config)
         teardown = _RecordingTeardown(runner.event_log)
+        release = asyncio.Event()
+        training = asyncio.create_task(release.wait())
+        task = asyncio.create_task(runner.run(training, teardown=teardown))
+
+        try:
+            await _wait_until(lambda: any(isinstance(e, SoakAdmissionClosedEvent) for e in runner.event_log.events))
+            assert not training.done() and not task.done()
+            assert teardown.calls == 0
+            assert not any(isinstance(e, SoakCollectionClosedEvent) for e in runner.event_log.events)
+        finally:
+            release.set()
+            await _wait_until(task.done)
 
         with pytest.raises(BaseException) as excinfo:
-            await runner.run(_hang(), teardown=teardown)
-
+            await task
         assert [type(error) for error in _flatten_errors(excinfo.value)] == [TimeoutError]
+        assert training.result() is True
         assert teardown.calls == 1
         assert isinstance(runner.event_log.events[-1], SoakCollectionClosedEvent)
 
-    async def test_a_cancelled_run_still_tears_down_and_closes(self, tmp_path: Path) -> None:
-        """Cancelling the soak cannot leak the run or leave evidence open."""
+    async def test_a_cancelled_run_drains_training_before_teardown(self, tmp_path: Path) -> None:
+        """Cancellation waits for the launcher to finish before releasing resources and closing evidence."""
         observer = _healthy_observer()
         runner = _make_runner(tmp_path, observer=observer)
         teardown = _RecordingTeardown(runner.event_log)
+        release = asyncio.Event()
+        training = asyncio.create_task(release.wait())
+        task = asyncio.create_task(runner.run(training, teardown=teardown))
 
-        task = asyncio.create_task(runner.run(_hang(), teardown=teardown))
-        await _wait_until(lambda: observer.calls >= 2)
-        task.cancel()
+        try:
+            await _wait_until(lambda: observer.calls >= 2)
+            task.cancel()
+            await _wait_until(lambda: any(isinstance(e, SoakAdmissionClosedEvent) for e in runner.event_log.events))
+            assert not training.done() and not task.done()
+            assert teardown.calls == 0
+            assert not any(isinstance(e, SoakCollectionClosedEvent) for e in runner.event_log.events)
+        finally:
+            release.set()
+            await _wait_until(task.done)
+
         with pytest.raises(asyncio.CancelledError):
             await task
-
+        assert training.result() is True
         assert teardown.calls == 1
         assert isinstance(runner.event_log.events[-1], SoakCollectionClosedEvent)
 
@@ -213,8 +236,8 @@ class TestSoakRunnerTail:
         kinds = [event.kind for event in runner.event_log.events]
         assert kinds.index("admission_closed") == len(kinds) - 3
 
-    async def test_a_tail_exceeding_its_budget_fails_the_soak(self, tmp_path: Path) -> None:
-        """Recovery that does not finish within the tail budget times out instead of running on."""
+    async def test_a_tail_exceeding_its_budget_drains_training_then_fails_the_soak(self, tmp_path: Path) -> None:
+        """An expired recovery tail drains its launcher before teardown and still propagates the timeout."""
         feed = _ScriptedSutFeed([[_step_end(0, at=_now())]])
         runner = _make_runner(
             tmp_path,
@@ -226,13 +249,27 @@ class TestSoakRunnerTail:
         )
         teardown = _RecordingTeardown(runner.event_log)
 
-        with pytest.raises(BaseException) as excinfo:
-            await runner.run(_hang(), teardown=teardown)
+        release = asyncio.Event()
+        training = asyncio.create_task(release.wait())
+        task = asyncio.create_task(runner.run(training, teardown=teardown))
 
+        try:
+            await _wait_until(lambda: len(runner.event_log.events) >= 3)
+            assert not training.done() and not task.done()
+            assert teardown.calls == 0
+            assert not any(isinstance(e, SoakCollectionClosedEvent) for e in runner.event_log.events)
+        finally:
+            release.set()
+            await _wait_until(task.done)
+
+        with pytest.raises(BaseException) as excinfo:
+            await task
         [error] = _flatten_errors(excinfo.value)
         assert isinstance(error, TimeoutError)
         assert "tail exceeded" in str(error)
+        assert training.result() is True
         assert teardown.calls == 1
+        assert isinstance(runner.event_log.events[-1], SoakCollectionClosedEvent)
 
 
 class TestAssertWithinTailBudget:
