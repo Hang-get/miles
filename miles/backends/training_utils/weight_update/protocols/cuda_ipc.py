@@ -83,6 +83,19 @@ class UpdateWeightFromTensor(WeightTransferProtocol):
 
         # Compute colocated engine count: engines whose GPUs fall within actor GPU range.
         total_actor_gpus = dist.get_world_size()
+        if self.args.train_backend == "fsdp":
+            if any(count <= 0 for count in engine_gpu_counts) or any(offset < 0 for offset in engine_gpu_offsets):
+                raise ValueError("FSDP colocated engines require positive GPU counts and nonnegative GPU offsets")
+            covered_ranks = sorted(
+                rank
+                for offset, count in zip(engine_gpu_offsets, engine_gpu_counts, strict=True)
+                for rank in range(offset, offset + count)
+            )
+            if covered_ranks != list(range(total_actor_gpus)):
+                raise ValueError(
+                    f"FSDP colocated engines must cover each of the {total_actor_gpus} training ranks exactly once; "
+                    f"got GPU offsets {list(engine_gpu_offsets)} and counts {list(engine_gpu_counts)}"
+                )
         colocate_engine_nums = 0
         for gpu_offset, gpu_count in zip(engine_gpu_offsets, engine_gpu_counts, strict=True):
             if gpu_offset + gpu_count > total_actor_gpus:
