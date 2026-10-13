@@ -1,4 +1,5 @@
 import asyncio
+import os
 import subprocess
 import threading
 from pathlib import Path
@@ -75,6 +76,25 @@ class TestRayTeardown:
         await teardown_run(config=_ray_config(), event_log=EventLog(tmp_path / "e.jsonl"), evidence_dir=tmp_path)
 
         assert processes.calls == [["ray", "job", "stop", "miles-soak-abc"]]
+
+    async def test_proxy_bypass_is_merged_only_in_the_stop_child_environment(
+        self, tmp_path: Path, processes: _RecordingProcesses, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Cleanup preserves inherited bypass hosts and proxies while adding loopback without mutating the parent."""
+        monkeypatch.setenv("no_proxy", " lower.example,shared.example,,")
+        monkeypatch.setenv("NO_PROXY", "upper.example,shared.example")
+        monkeypatch.setenv("http_proxy", "http://proxy.example:3128")
+        before = os.environ.copy()
+
+        await teardown_run(config=_ray_config(), event_log=EventLog(tmp_path / "events.jsonl"), evidence_dir=tmp_path)
+
+        [env] = processes.environments
+        assert env is not None
+        assert env["no_proxy"] == env["NO_PROXY"] == "lower.example,shared.example,upper.example,127.0.0.1,localhost"
+        assert {name: value for name, value in env.items() if name not in {"no_proxy", "NO_PROXY"}} == {
+            name: value for name, value in before.items() if name not in {"no_proxy", "NO_PROXY"}
+        }
+        assert dict(os.environ) == before
 
     @pytest.mark.parametrize("submission_id", [None, ""])
     async def test_a_ray_run_without_an_owned_submission_is_refused(

@@ -321,11 +321,19 @@ class _RecordingProcesses:
         self._stdout = stdout
         self._error = error
         self.calls: list[list[str]] = []
+        self.environments: list[dict[str, str] | None] = []
 
     def __call__(
-        self, argv: list[str], *, capture_output: bool, check: bool, timeout: float | None = None
+        self,
+        argv: list[str],
+        *,
+        capture_output: bool,
+        check: bool,
+        timeout: float | None = None,
+        env: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
         self.calls.append(argv)
+        self.environments.append(None if env is None else env.copy())
         assert capture_output and check and timeout is not None
         if self._error is not None:
             raise self._error
