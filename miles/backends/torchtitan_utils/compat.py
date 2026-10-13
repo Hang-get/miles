@@ -1,7 +1,7 @@
-
-from miles.utils.attribute_utils import has_external_attribute, read_external_attribute
 import inspect
 import logging
+
+from miles.utils.attribute_utils import has_external_attribute, read_external_attribute
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,6 @@ def _shim_dist_set_timeout() -> None:
 
 def _patch_pipeline_schedule_microbatch_api() -> None:
     import torch
-
     from torchtitan.distributed.pipeline_parallel import PipelineScheduleMulti, PipelineScheduleSingle
 
     if "arg_mbs" in inspect.signature(PipelineScheduleSingle.step).parameters:

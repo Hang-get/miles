@@ -1,5 +1,3 @@
-
-from miles.utils.attribute_utils import has_external_attribute, read_external_attribute
 import copy
 import os
 
@@ -32,6 +30,7 @@ from miles.kernels.attention.dsa import sparse_attention
 from miles.kernels.hyper_connection.mhc import mhc_aggregate, mhc_mix
 from miles.kernels.position.rope import apply_rotary_emb
 from miles.kernels.quant.fake_quant import fake_quant_compressed_kv
+from miles.utils.attribute_utils import has_external_attribute, read_external_attribute
 from miles.utils.hf_utils.config import load_hf_config
 from miles_plugins.models.deepseek_v4.ops.cp_utils import (
     all_gather_cp,

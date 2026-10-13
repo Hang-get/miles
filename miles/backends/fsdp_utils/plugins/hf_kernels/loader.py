@@ -7,8 +7,6 @@ Opt-in through `--kernel-backend hub`; under the default `native` nothing here i
 
 from __future__ import annotations
 
-from miles.utils.attribute_utils import read_external_attribute
-
 import logging
 import os
 from collections.abc import Callable
@@ -17,6 +15,7 @@ from types import ModuleType
 
 import torch.distributed as dist
 
+from miles.utils.attribute_utils import read_external_attribute
 from miles.utils.distributed_utils import get_gloo_group
 from miles.utils.function_registry import load_function
 

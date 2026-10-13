@@ -1,5 +1,3 @@
-
-from miles.utils.attribute_utils import read_external_attribute
 from collections import deque
 from collections.abc import Iterator
 
@@ -10,6 +8,7 @@ from miles.backends.fsdp_utils.adaptations.weight_bridge import get_param_transf
 from miles.backends.fsdp_utils.dtensor import gather_full_param
 from miles.backends.training_utils.weight_update.hf_weight_iterator import HfWeightIteratorBase
 from miles.backends.training_utils.weight_update.hf_weight_iterator.atomic_groups import get_hf_atomic_update_groups
+from miles.utils.attribute_utils import read_external_attribute
 
 
 class FSDPHfWeightIterator(HfWeightIteratorBase):
@@ -17,7 +16,9 @@ class FSDPHfWeightIterator(HfWeightIteratorBase):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._sync_dtypes: dict[str, torch.dtype] = read_external_attribute(self.model, "_fsdp_sync_dtypes", None) or {}
+        self._sync_dtypes: dict[str, torch.dtype] = (
+            read_external_attribute(self.model, "_fsdp_sync_dtypes", None) or {}
+        )
 
     def _iter_hf_param_units(self, weights, *, materialize):
         pending: deque[tuple[str, torch.Tensor, torch.Tensor]] = deque()

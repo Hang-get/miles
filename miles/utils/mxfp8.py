@@ -1,7 +1,6 @@
-
-from miles.utils.attribute_utils import has_external_attribute
 import torch
 
+from miles.utils.attribute_utils import has_external_attribute
 
 MXFP8_GROUP_SIZE = 32
 TE_MXFP8_ROW_ALIGNMENT = 32

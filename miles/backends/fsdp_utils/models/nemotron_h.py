@@ -9,8 +9,6 @@ forward (position_ids don't reach the mixers otherwise). No-op when not packing.
 The post-load fixup re-asserts checkpoint weights that transformers' Mamba ``_init_weights`` clobbers.
 """
 
-from miles.utils.attribute_utils import read_external_attribute
-
 import functools
 import glob
 import json
@@ -19,6 +17,8 @@ import os
 import sys
 
 import torch
+
+from miles.utils.attribute_utils import read_external_attribute
 
 from ..adaptations.packing.boundaries import packed_seq_context
 

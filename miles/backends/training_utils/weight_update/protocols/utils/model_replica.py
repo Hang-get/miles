@@ -1,5 +1,3 @@
-
-from miles.utils.attribute_utils import read_external_attribute
 import logging
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager, nullcontext
@@ -33,6 +31,7 @@ from miles.backends.training_utils.weight_update.protocols.utils.rollout_engine_
     RolloutEngineRankAssignment,
 )
 from miles.backends.training_utils.weight_update.rollout_cell_updater import _RolloutCellUpdater
+from miles.utils.attribute_utils import read_external_attribute
 from miles.utils.workers.argv_utils import _record_field_names
 
 logger = logging.getLogger(__name__)

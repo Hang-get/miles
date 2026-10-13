@@ -1,5 +1,3 @@
-
-from miles.utils.attribute_utils import read_external_attribute
 import contextlib
 import functools
 import logging
@@ -11,6 +9,7 @@ import torch.nn.functional as F
 from torch.distributed.tensor import DTensor
 
 from miles.backends.training_utils.replay.routing_replay import FALLTHROUGH, REPLAY_BACKWARD, REPLAY_FORWARD, stage
+from miles.utils.attribute_utils import read_external_attribute
 from miles.utils.replay_base import routing_replay_manager
 
 logger = logging.getLogger(__name__)
@@ -114,7 +113,9 @@ def install(model_parts: list[nn.Module]) -> int:
 
 
 def _is_installed(model_parts: list[nn.Module]) -> bool:
-    return routing_replay_manager.enabled and all(read_external_attribute(part, _INSTALLED_ATTR, False) for part in model_parts)
+    return routing_replay_manager.enabled and all(
+        read_external_attribute(part, _INSTALLED_ATTR, False) for part in model_parts
+    )
 
 
 def bypass_schedule_initialization(model_parts: list[nn.Module]) -> None:

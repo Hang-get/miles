@@ -1,5 +1,3 @@
-
-from miles.utils.attribute_utils import read_external_attribute
 import functools
 import logging
 from collections.abc import Callable, Iterator, Sequence
@@ -35,6 +33,7 @@ from miles.backends.training_utils.types import TrainStepOutcome, TrainStepOutpu
 from miles.backends.training_utils.weight_update.updater import WeightUpdater
 from miles.ray.rollout.inference_controller import UpdatableEngines
 from miles.ray.train_actor import TrainRayActor, WeightUpdateOutput
+from miles.utils.attribute_utils import read_external_attribute
 from miles.utils.audit_utils.witness.allocator import WitnessInfo
 from miles.utils.distributed_utils import get_gloo_group
 from miles.utils.dp_schedule import TrainParallelConfig

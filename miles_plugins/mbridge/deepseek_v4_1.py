@@ -1,8 +1,7 @@
-
-from miles.utils.attribute_utils import read_external_attribute
 from megatron.core.transformer.enums import AttnBackend
 
 from mbridge.core import register_model
+from miles.utils.attribute_utils import read_external_attribute
 
 from .deepseek_v4 import DeepseekV4Bridge
 

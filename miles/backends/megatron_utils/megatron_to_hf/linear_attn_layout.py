@@ -7,13 +7,12 @@ with ``R = num_v_heads // num_k_heads`` value heads in ``v_g``. A TP chunk is th
 that rank owns, for any TP size, and the projection output feeds the conv without a copy.
 """
 
-from miles.utils.attribute_utils import read_external_attribute
-
 from dataclasses import dataclass
 from functools import cache
 
 import torch
 
+from miles.utils.attribute_utils import read_external_attribute
 from miles.utils.hf_utils.config import load_hf_config
 
 

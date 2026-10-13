@@ -1,5 +1,3 @@
-
-from miles.utils.attribute_utils import read_external_attribute
 import functools
 import inspect
 from collections.abc import Callable
@@ -14,6 +12,7 @@ from torchtitan.trainer import Trainer
 
 from miles.backends.torchtitan_utils import routing_replay
 from miles.backends.training_utils.torch_native.step_runner import StepMetrics
+from miles.utils.attribute_utils import read_external_attribute
 from miles.utils.hf_utils.config import load_hf_config
 
 _FLEX_BLOCK = 128

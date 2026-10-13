@@ -1,5 +1,3 @@
-
-from miles.utils.attribute_utils import read_external_attribute
 import socket
 from argparse import Namespace
 from collections.abc import Sequence
@@ -17,6 +15,7 @@ from miles.backends.training_utils.weight_update.protocol import WeightTransferP
 from miles.backends.training_utils.weight_update.protocols.utils.data_replica import get_data_replica_rank_and_size
 from miles.backends.training_utils.weight_update.rollout_cell_updater import create_rollout_cell_updaters
 from miles.utils import async_utils
+from miles.utils.attribute_utils import read_external_attribute
 from miles.utils.distributed_lock import create_world_ticket_lock
 from miles.utils.distributed_utils import init_process_group
 

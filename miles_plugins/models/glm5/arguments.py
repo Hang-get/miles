@@ -1,8 +1,8 @@
 """Select the raw DSA implementation before Megatron validates its config."""
 
-from miles.utils.attribute_utils import read_external_attribute
-
 from argparse import ArgumentParser, Namespace
+
+from miles.utils.attribute_utils import read_external_attribute
 
 MILES_DSA_SPEC = ("miles_plugins.models.glm5.glm5", "get_glm5_spec")
 MEGATRON_DSA_SPEC = ("miles_plugins.models.glm5.megatron_spec", "get_dsa_spec")

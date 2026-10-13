@@ -32,8 +32,6 @@ Muon takes a different route. Its state already rides Megatron's
 rest alone. Those buffers are unlinked once mapped, so they show up in ``df``, not ``du``.
 """
 
-from miles.utils.attribute_utils import read_external_attribute
-
 import atexit
 import ctypes
 import errno
@@ -48,6 +46,8 @@ from typing import TYPE_CHECKING, NamedTuple
 
 import torch
 from megatron.core.fp8_utils import is_float8tensor
+
+from miles.utils.attribute_utils import read_external_attribute
 
 if TYPE_CHECKING:
     from megatron.core.optimizer.distrib_optimizer import DistributedOptimizer

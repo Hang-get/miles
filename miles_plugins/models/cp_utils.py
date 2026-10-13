@@ -10,11 +10,11 @@ chunk. Anything that hands a sequence to fla under CP therefore has to relayout
 first and undo it afterwards.
 """
 
-from miles.utils.attribute_utils import read_external_attribute
-
 import torch
 import torch.distributed as dist
 import torch.nn as nn
+
+from miles.utils.attribute_utils import read_external_attribute
 
 try:
     from fla.ops.cp import build_cp_context as _fla_build_cp_context

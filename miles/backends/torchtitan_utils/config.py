@@ -1,5 +1,3 @@
-
-from miles.utils.attribute_utils import read_external_attribute
 import importlib
 import logging
 import os
@@ -8,14 +6,15 @@ from types import ModuleType
 
 from torchtitan.components.optimizer import ParamGroupConfig
 from torchtitan.distributed.activation_checkpoint import FullAC
-from torchtitan.trainer import Trainer
 from torchtitan.protocols.model_spec import ModelSpec
+from torchtitan.trainer import Trainer
 
 from miles.backends.torchtitan_utils.components import EmptyDataLoader, TiedCheckpointManager
 from miles.backends.torchtitan_utils.loss import RLLossAdapter
 from miles.backends.torchtitan_utils.parallel import parallel_dims_from_config
-from miles.utils.hf_utils.config import load_hf_config
 from miles.utils.args.runtime import TrainerConfig
+from miles.utils.attribute_utils import read_external_attribute
+from miles.utils.hf_utils.config import load_hf_config
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +93,9 @@ def build_trainer_config(
             f"--global-batch-size {args.backend.global_batch_size} must be a multiple of dp * micro_batch_size "
             f"({dp_size} * {args.backend.micro_batch_size}) under pipeline parallelism"
         )
-    config.training.local_batch_size = max(args.backend.global_batch_size // dp_size // args.backend.micro_batch_size, 1)
+    config.training.local_batch_size = max(
+        args.backend.global_batch_size // dp_size // args.backend.micro_batch_size, 1
+    )
     config.training.global_batch_size = config.training.local_batch_size * dp_size
     config.training.steps = max(lr_total_steps, 1)
     config.training.max_norm = args.backend.clip_grad

@@ -22,8 +22,6 @@ Only the text decoder is built: vision/audio towers and the MTP layers are not.
 
 from __future__ import annotations
 
-from miles.utils.attribute_utils import read_external_attribute
-
 import copy
 import dataclasses
 import logging
@@ -41,6 +39,8 @@ from megatron.core.models.gpt.gpt_layer_specs import get_gpt_decoder_block_spec
 from megatron.core.models.gpt.gpt_model import GPTModel
 from megatron.core.transformer import ModuleSpec
 from megatron.core.transformer.attention import SelfAttention
+
+from miles.utils.attribute_utils import read_external_attribute
 
 logger = logging.getLogger(__name__)
 
@@ -174,7 +174,9 @@ class MiMoV2Bridge(MegatronModelBridge):
 
     def provider_bridge(self, hf_pretrained) -> MiMoV2ModelProvider:
         hf = hf_pretrained.config
-        if read_external_attribute(hf, "attention_projection_layout", "split") != "split" or read_external_attribute(hf, "quantization_config", None):
+        if read_external_attribute(hf, "attention_projection_layout", "split") != "split" or read_external_attribute(
+            hf, "quantization_config", None
+        ):
             raise ValueError(
                 "MiMo-V2 bridge reads BF16 split q/k/v checkpoints; convert the official checkpoint "
                 "with tools/convert_mimo_v2_to_bf16.py first"
@@ -184,7 +186,9 @@ class MiMoV2Bridge(MegatronModelBridge):
             ("swa_head_dim", "head_dim"),
             ("swa_v_head_dim", "v_head_dim"),
         ):
-            assert read_external_attribute(hf, swa_key) == read_external_attribute(hf, full_key), f"{swa_key} must equal {full_key}"
+            assert read_external_attribute(hf, swa_key) == read_external_attribute(
+                hf, full_key
+            ), f"{swa_key} must equal {full_key}"
 
         provider = super().provider_bridge(hf_pretrained)
         pattern = [int(p) for p in hf.hybrid_layer_pattern]

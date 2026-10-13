@@ -1,5 +1,3 @@
-
-from miles.utils.attribute_utils import has_external_attribute, read_external_attribute
 import logging
 import os
 from contextlib import contextmanager, nullcontext
@@ -15,6 +13,7 @@ from miles.backends.training_utils.metrics import train_dump
 from miles.backends.training_utils.parallel import get_parallel_state, set_parallel_state
 from miles.backends.training_utils.torch_native.actor import TorchNativeTrainRayActor
 from miles.backends.training_utils.torch_native.step_runner import LinearStepRunner, StepMetrics
+from miles.utils.attribute_utils import has_external_attribute, read_external_attribute
 from miles.utils.audit_utils.config_snapshot.dumper import ConfigSnapshotDumper
 from miles.utils.context_utils import with_defer
 from miles.utils.distributed_utils import get_gloo_group

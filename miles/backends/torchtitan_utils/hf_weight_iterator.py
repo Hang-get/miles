@@ -1,5 +1,3 @@
-
-from miles.utils.attribute_utils import read_external_attribute
 import functools
 import glob
 import json
@@ -17,6 +15,7 @@ from miles.backends.training_utils.weight_update.hf_weight_iterator.atomic_group
 from miles.backends.training_utils.weight_update.hf_weight_iterator.checkpoint_towers import (
     iter_checkpoint_tower_units,
 )
+from miles.utils.attribute_utils import read_external_attribute
 from miles.utils.hf_utils.config import load_hf_config
 
 
@@ -26,7 +25,9 @@ class TitanHfWeightIterator(HfWeightIteratorBase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._engine_dtypes = _checkpoint_dtypes(self.args.hf_checkpoint)
-        self._q_lora_rank = read_external_attribute(load_hf_config(self.args.hf_checkpoint), "q_lora_rank", None) or None
+        self._q_lora_rank = (
+            read_external_attribute(load_hf_config(self.args.hf_checkpoint), "q_lora_rank", None) or None
+        )
 
     def _iter_hf_param_units(self, weights, *, materialize):
         for name, tensor in hf_weights(self.model, complete_across_pp=self.placement.gather_pp):
@@ -144,7 +145,9 @@ class _StageLayout:
             if self.my_rank in holders:
                 tensor = gather_full_param(local[name]).contiguous()
             else:
-                tensor = torch.empty(shape, dtype=read_external_attribute(torch, dtype.split(".")[-1]), device=self.device)
+                tensor = torch.empty(
+                    shape, dtype=read_external_attribute(torch, dtype.split(".")[-1]), device=self.device
+                )
             dist.broadcast(tensor, src=holders[0], group=self.broadcast_group)
             yield name, tensor
             del tensor

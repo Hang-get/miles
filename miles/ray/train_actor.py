@@ -1,5 +1,3 @@
-
-from miles.utils.attribute_utils import has_external_attribute
 import abc
 import logging
 import os
@@ -17,6 +15,7 @@ from miles.backends.training_utils.types import TrainStepOutput
 from miles.ray.rollout.inference_controller import UpdatableEngines
 from miles.utils import object_store
 from miles.utils.args.runtime import TrainerConfig
+from miles.utils.attribute_utils import has_external_attribute
 from miles.utils.audit_utils.process_identity import TrainProcessIdentity
 from miles.utils.audit_utils.witness.allocator import WitnessInfo
 from miles.utils.distributed_utils import init_gloo_group, one_rank_at_a_time

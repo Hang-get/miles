@@ -1,8 +1,7 @@
-
-from miles.utils.attribute_utils import read_external_attribute
 from contextlib import contextmanager
 
 from miles.backends.training_utils.model_companion import ModelCompanionInstallationUtils
+from miles.utils.attribute_utils import read_external_attribute
 
 try:
     from megatron.core.utils import unwrap_model

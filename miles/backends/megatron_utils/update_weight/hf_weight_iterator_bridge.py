@@ -1,5 +1,3 @@
-
-from miles.utils.attribute_utils import read_external_attribute
 import dataclasses
 import inspect
 import itertools
@@ -15,6 +13,7 @@ from miles.backends.megatron_utils.update_weight.hf_weight_iterator import (
 )
 from miles.backends.training_utils.parallel import get_parallel_state
 from miles.utils import megatron_bridge_utils
+from miles.utils.attribute_utils import read_external_attribute
 from miles.utils.hf_utils.weight_mapping import get_param_name_remap_for_checkpoint
 from miles.utils.lora.utils import is_lora_weight_name
 
@@ -191,7 +190,9 @@ def _gather_export_dtypes(conversion_tasks):
     """Share owner parameter dtypes with PP receivers that have no local tensor."""
     local_dtypes = {
         task.global_param_name: (
-            torch.float32 if read_external_attribute(task.param_weight, "keep_in_fp32", False) else task.param_weight.dtype
+            torch.float32
+            if read_external_attribute(task.param_weight, "keep_in_fp32", False)
+            else task.param_weight.dtype
         )
         for task in conversion_tasks
         if task is not None and task.param_weight is not None

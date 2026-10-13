@@ -1,12 +1,12 @@
 """Qwen3.8-Next runs its GDN replicated on every TP rank through the HF-attention shim.
 Moved from qwen3_5.py when Qwen3.5 / Qwen3-Next switched to the head-sharded layer."""
 
-from miles.utils.attribute_utils import read_external_attribute
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from transformers.activations import ACT2FN
+
+from miles.utils.attribute_utils import read_external_attribute
 
 try:
     from fla.modules import FusedRMSNormGated, ShortConvolution

@@ -6,8 +6,6 @@ DTensor gather in `update_weight_utils.py` are untouched -- which is why running
 `apply_fsdp2` is safe, for the policy and the ref model alike.
 """
 
-from miles.utils.attribute_utils import has_external_attribute, read_external_attribute
-
 import logging
 
 from miles.backends.fsdp_utils.plugins.hf_kernels.loader import HubKernels
@@ -16,6 +14,7 @@ from miles.backends.fsdp_utils.plugins.hf_kernels.presets import (
     SLOT_FLASH_ATTN_VARLEN,
     SLOT_GATED_DELTA_RULE,
 )
+from miles.utils.attribute_utils import has_external_attribute, read_external_attribute
 
 logger = logging.getLogger(__name__)
 
