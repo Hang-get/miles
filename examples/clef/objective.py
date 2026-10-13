@@ -59,6 +59,7 @@ def summarize(rows: Sequence[dict], bins: int = 15) -> dict[str, float]:
         "brier_per_field": sum(row["brier"] for row in rows) / len(rows),
         "collapse_percentage": 100 * sum(row["collapsed"] for row in rows) / len(rows),
         "near_collapse_percentage": 100 * sum(row["near_collapsed"] for row in rows) / len(rows),
+        "distribution_entropy": sum(-sum(p * math.log(p) for p in row["probabilities"] if p > 0) for row in rows) / len(rows),
         "questions": float(len(rows)),
         "records": float(len(records)),
     }
