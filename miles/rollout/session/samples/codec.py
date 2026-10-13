@@ -14,8 +14,8 @@ from copy import copy, deepcopy
 import numpy as np
 import safetensors.numpy
 import torch
+from sglang.srt.state_capturer.routed_experts_codec import ROUTED_EXPERTS_DTYPES
 
-from miles.utils.routed_experts import ROUTED_EXPERTS_DTYPES
 from miles.utils.sampling_mask import RolloutSamplingMask
 from miles.utils.types import Sample, WeightVersionsPerCall
 
