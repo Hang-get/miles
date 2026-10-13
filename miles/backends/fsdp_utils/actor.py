@@ -38,6 +38,11 @@ logger = logging.getLogger(__name__)
 class FSDPTrainRayActor(TorchNativeTrainRayActor):
     backend_name = "fsdp"
 
+    def _before_train(self) -> None:
+        if not self._config_snapshot_train_recorded:
+            ConfigSnapshotDumper.dump(stage="train_first_step", config={"args": self.args, "role": self.role})
+            self._config_snapshot_train_recorded = True
+
     @with_defer(lambda: Timer().start("train_wait"))
     def init(
         self,
