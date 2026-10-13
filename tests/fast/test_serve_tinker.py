@@ -51,3 +51,23 @@ class TestServe:
 
         assert tinker_startup.controller.disposed
         assert http_utils._http_client is None
+
+
+class TestTrainerTokenBudget:
+
+    @pytest.mark.parametrize('context_parallel_size,local_budget,rejected', [(1, 1, False), (2, 1, True), (2, 3, False)])
+    async def test_zigzag_rounding_uses_raw_backend_context_parallelism(self, tinker_startup: SimpleNamespace, context_parallel_size: int, local_budget: int, rejected: bool) -> None:
+        """Only context-parallel training requires a budget large enough for two local zigzag chunks."""
+        args = tinker_startup.args
+        args.max_tokens_per_gpu = local_budget
+        args.data_pad_size_multiplier = 1
+        args.raw_megatron.base_args['context_parallel_size'] = context_parallel_size
+        assert 'context_parallel_size' not in vars(args)
+        if rejected:
+            with pytest.raises(AssertionError, match='at least one padding block'):
+                await with_disposer(serve_tinker.serve, args)
+            assert not tinker_startup.controller.initialized
+            assert tinker_startup.trainer.request is None
+        else:
+            await with_disposer(serve_tinker.serve, args)
+            assert tinker_startup.trainer.request is not None
