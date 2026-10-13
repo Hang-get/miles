@@ -69,7 +69,7 @@ class MooncakeTransport:
         writes of the one it replaced.
         """
         for write_executor in self._write_executors_by_rollout_engine_ind.values():
-            write_executor.shutdown(wait=False)
+            write_executor.shutdown(wait=False, cancel_futures=True)
         self._write_executors_by_rollout_engine_ind = {}
         return {
             runner_role: {
