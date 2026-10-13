@@ -1,7 +1,9 @@
+import logging
 import os
 from collections.abc import Callable, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from functools import partial
 from typing import Any, NamedTuple
 
@@ -12,8 +14,14 @@ from miles.backends.training_utils.weight_update.protocols.utils.rollout_engine_
     RolloutEngineRankAssignment,
 )
 from miles.backends.training_utils.weight_update.rollout_cell_updater import _RolloutCellUpdater
-from miles.utils.test_utils.fault_injector.controller import reach_fault_hook
+from miles.utils.audit_utils.event_logger.logger import get_event_logger, is_event_logger_initialized
+from miles.utils.audit_utils.event_logger.models import WeightTransferFailedEvent
+from miles.utils.test_utils.fault_injector.actions.base import FaultHookContext
+from miles.utils.test_utils.fault_injector.controller import fault_hook_controller, reach_fault_hook
 from miles.utils.test_utils.fault_injector.models import FaultHookName
+
+
+logger = logging.getLogger(__name__)
 
 
 class RemoteWeightLocation(NamedTuple):
@@ -26,6 +34,7 @@ class RemoteWeightLocation(NamedTuple):
 class RemoteShard:
     """Mooncake session and published weight addresses for one engine rank's target or draft runner."""
 
+    cell_id: str
     rollout_engine_ind: int
     rollout_engine_rank: int
     runner_role: str
@@ -118,14 +127,16 @@ class MooncakeTransport:
     ) -> list[Future[None]]:
         """Writes each tensor into the weight of the same name on every shard; returns one future per shard.
 
-        The tensors must lie in registered memory and stay unchanged until their futures are done. Raises before
-        writing anything if a shard lacks one of the weights or holds it in a different number of bytes.
+        Allocations must stay registered while native writes may still read them. Healthy receivers require
+        unchanged bytes until their futures finish. Raises before writing anything if a shard lacks one of the
+        weights or holds it in a different number of bytes.
         """
         for remote_shard in remote_shards:
             _assert_tensors_fit(remote_shard, tensors_by_name)
+        context = fault_hook_controller.current_context()
         writes = []
         for remote_shard in remote_shards:
-            task = partial(self._write_shard, remote_shard, tensors_by_name)
+            task = partial(self._write_shard, remote_shard, tensors_by_name, context=context)
             if run_write is not None:
                 task = partial(run_write, remote_shard, task)
             writes.append(self._write_executor(remote_shard.rollout_engine_ind).submit(task))
@@ -138,9 +149,14 @@ class MooncakeTransport:
             )
         return self._write_executors_by_rollout_engine_ind[rollout_engine_ind]
 
-    def _write_shard(self, remote_shard: RemoteShard, tensors_by_name: dict[str, torch.Tensor]) -> None:
+    def _write_shard(
+        self, remote_shard: RemoteShard, tensors_by_name: dict[str, torch.Tensor], *, context: FaultHookContext
+    ) -> None:
         names = list(tensors_by_name)
+        if not names:
+            return
         reach_fault_hook(FaultHookName.TRAINER_WEIGHT_UPDATE_BEFORE_SEND)
+        started_at = datetime.now(timezone.utc)
         try:
             ret = self._transfer_engine.batch_transfer_sync_write(
                 remote_shard.session_id,
@@ -150,8 +166,24 @@ class MooncakeTransport:
             )
             if ret < 0:
                 raise RuntimeError(f"Mooncake batch_transfer_sync_write returned {ret}")
-        except Exception:
+        except Exception as error:
             self._has_uncertain_writes = True
+            if is_event_logger_initialized() and context.debug_weight_update_id is not None:
+                try:
+                    get_event_logger().log(
+                        WeightTransferFailedEvent,
+                        dict(
+                            debug_weight_update_id=context.debug_weight_update_id,
+                            cell_id=remote_shard.cell_id,
+                            workers_hash=context.snapshot_cell_id_to_hashes[remote_shard.cell_id],
+                            started_at=started_at,
+                            error=repr(error),
+                        ),
+                        include_context=False,
+                    )
+                except Exception:
+                    logger.exception("Could not record P2P transport failure for session %s", remote_shard.session_id)
+            logger.exception("P2P transport write failed for session %s", remote_shard.session_id)
             raise
 
 
@@ -168,6 +200,7 @@ def _query_remote_shard(
         session_id is not None
     ), f"the {runner_role} of rollout engine {rollout_engine_ind} rank {rollout_engine_rank} has no Mooncake session"
     return RemoteShard(
+        cell_id=cell_updater.cell_id,
         rollout_engine_ind=rollout_engine_ind,
         rollout_engine_rank=rollout_engine_rank,
         runner_role=runner_role,
