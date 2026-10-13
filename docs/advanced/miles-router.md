@@ -29,8 +29,13 @@ so numerical noise no longer flips routes.
 
 **SGLang side.** Miles enables `enable_return_routed_experts` automatically when
 `--use-rollout-routing-replay` is on. SGLang then includes `routed_experts`
-in `meta_info` of each response, with shape
-`(seq_len - 1, num_layers, top_k)` and dtype `int32`.
+in `meta_info` of each response, with shape `(seq_len - 1, num_layers, top_k)`.
+By default it is base64 of the `int32` buffer. Add
+`--sglang-routed-experts-encoding zstd` to send it sorted, narrowed to `uint8`
+(`uint16` past 256 experts) and zstd-compressed: about 7x fewer bytes on the
+wire and far less CPU in SGLang's detokenizer and tokenizer manager.
+`meta_info["routed_experts_encoding"]` names the encoding, so Miles decodes
+either.
 
 **Miles side.** Enable R3 with:
 
@@ -39,16 +44,21 @@ in `meta_info` of each response, with shape
 ```
 
 Rollout sends `return_routed_experts=true` in each request and stores the
-results in `sample.rollout_routed_experts` (`miles/utils/types.py`). The
+results in `sample.rollout_routed_experts` (`miles/utils/types.py`) as `uint8`
+(`uint16` past 256 experts; `miles/utils/routed_experts.py`). In multi-turn
+rollouts, each turn after the first asks only for the rows the sample does not
+hold yet (`routed_experts_start_len`), unless `--pause-generation-mode retract`
+can recompute the prefix on a weight update. The
 trainer pushes the arrays through `RoutingReplayManager`
 (`miles/utils/replay_base.py`), and `replay_utils.py` plugs them into the
 forward pass so recorded routes are used instead of recomputed ones.
 
 ## Memory cost
 
-`(num_tokens - 1) × num_layers × top_k × 4 bytes` (int32 per element, see
-`miles/utils/types.py`). For a 32K-token sequence, 60 layers, and
-`top_k = 8`, that is roughly 60 MB per sample of routing metadata.
+`(num_tokens - 1) × num_layers × top_k` bytes in rollout (one byte per
+expert id up to 256 experts, two beyond). For a 32K-token sequence, 60 layers,
+and `top_k = 8`, that is roughly 15 MB per sample of routing metadata. The
+trainer widens each microbatch to `int32` before padding.
 
 ## When R3 is not required
 
