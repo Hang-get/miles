@@ -5,18 +5,10 @@ from miles.backends.fsdp_utils.arguments import FSDPArgs, build_dataclass_parser
 
 @dataclass
 class RadixscaleArgs(FSDPArgs):
-    # radixscale.models.registry family; "auto" picks it from the HF config's model_type
     radixscale_family: str = "auto"
-    radixscale_compile: bool = False
-    # with --gradient-checkpointing: keep matmul/attention outputs, recompute only the cheap rest
-    radixscale_selective_recompute: bool = False
-    # compute per-token log-probs/entropy chunk by chunk inside the model instead of returning [T, vocab] logits
     radixscale_fused_logprobs: bool = True
-    # with --gradient-checkpointing: the last N layers keep their activations (no recompute)
     radixscale_recompute_skip_layers: int = 0
-    # dense FSDP shard group size; 0 = one NVLink domain (replicas across domains)
     radixscale_fsdp_size: int = 0
-    # expert replicas across NVLink domains (expert HSDP); 0 shards experts over the whole world
     radixscale_expert_rep: int = 0
     expert_model_parallel_size: int = 1
 

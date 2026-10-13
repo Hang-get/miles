@@ -17,11 +17,9 @@ from miles.utils.sampling_mask import RolloutSamplingMask
 
 @dataclass
 class TokenLogProbs:
-    """Per-token log-probs (and entropies) a backend computed itself, standing in
-    for the [1, T, V] logits so the full-vocabulary logits are never built.
+    """Backend-computed per-token log-probs (and entropies) passed in place of [1, T, V] logits.
 
-    log_probs[0, p] is the log-prob of the token at p + 1 under the logits at p,
-    exactly what `_iter_response_chunks` would slice out of real logits.
+    log_probs[0, p] is the log-prob of token p + 1 under the logits at position p.
     """
 
     log_probs: torch.Tensor

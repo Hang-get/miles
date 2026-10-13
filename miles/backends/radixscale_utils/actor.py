@@ -1,16 +1,15 @@
-import logging
 import os
 from pathlib import Path
 
 import torch
 import torch.distributed as dist
-from torch.distributed.tensor import DTensor
 from radixscale.mesh import build_mesh
 from radixscale.models.registry import build_model
 from radixscale.packing import IGNORE_LABEL, CpShard, PackedBatch
 from radixscale.spec import ParallelSpec
 from radixscale.train import checkpoint
 from radixscale.train.trainer import clip_grad_norm
+from torch.distributed.tensor import DTensor
 
 from miles.backends.fsdp_utils.lr_scheduler import get_lr_scheduler
 from miles.backends.radixscale_utils.hf_weight_iterator import RadixscaleHfWeightIterator
@@ -19,24 +18,22 @@ from miles.backends.training_utils.loss.hub.logit_processors import TokenLogProb
 from miles.backends.training_utils.parallel import get_parallel_state, set_parallel_state
 from miles.backends.training_utils.torch_native.actor import TorchNativeTrainRayActor
 from miles.backends.training_utils.torch_native.step_runner import LinearStepRunner, StepMetrics
+from miles.ray.rollout.inference_controller import UpdatableEngines
 from miles.utils.context_utils import with_defer
-from miles.utils.ft_utils.indep_dp import IndepDPInfo
 from miles.utils.distributed_utils import get_gloo_group
+from miles.utils.ft_utils.indep_dp import IndepDPInfo
 from miles.utils.memory_utils import clear_memory, print_memory
 from miles.utils.profile_utils import TrainProfiler
 from miles.utils.timer import Timer, timer
 from miles.utils.tracking_utils.tracking import init_tracking
 from miles.utils.workers.rpc.common.wire_types import Pickled
 
-logger = logging.getLogger(__name__)
-
 _FAMILY_BY_MODEL_TYPE = (("glm", "glm"), ("qwen", "qwen"))
 
 
-def _family(args, hf_config) -> str:
-    if args.radixscale_family != "auto":
-        return args.radixscale_family
-    model_type = getattr(hf_config, "model_type", "")
+def _family(requested: str, model_type: str) -> str:
+    if requested != "auto":
+        return requested
     for prefix, family in _FAMILY_BY_MODEL_TYPE:
         if model_type.startswith(prefix):
             return family
@@ -44,12 +41,10 @@ def _family(args, hf_config) -> str:
 
 
 def _cp1_shard(batch: dict) -> CpShard:
-    """The cp=1 shard built on the device from miles' packed microbatch: the host
-    boundaries (cu_seqlens_host) size every op, so nothing waits on the GPU."""
     tokens = batch["tokens"][0]
     device = tokens.device
     bounds = batch["cu_seqlens_host"]
-    lengths = torch.tensor([b - a for a, b in zip(bounds[:-1], bounds[1:])], dtype=torch.long)
+    lengths = torch.tensor([b - a for a, b in zip(bounds[:-1], bounds[1:], strict=True)], dtype=torch.long)
     seq_ids = torch.repeat_interleave(torch.arange(len(lengths)), lengths).to(device, non_blocking=True)
     cu_seqlens = torch.tensor(bounds, dtype=torch.int32).to(device, non_blocking=True)
     empty = torch.zeros(0, dtype=torch.long, device=device)
@@ -75,7 +70,6 @@ def _cp1_shard(batch: dict) -> CpShard:
 
 
 def _next_token_labels(batch: dict) -> torch.Tensor:
-    """labels[p] = tokens[p + 1] inside each packed sample, ignored at sample ends."""
     tokens = batch["tokens"][0]
     sample_ends = torch.tensor(batch["cu_seqlens_host"][1:], dtype=torch.long) - 1
     labels = torch.roll(tokens, -1)
@@ -88,7 +82,7 @@ def _fused_logprobs_supported(args) -> bool:
         args.radixscale_fused_logprobs
         and not args.true_on_policy_mode
         and not args.use_sampling_support_replay
-        and getattr(args, "loss_type", "policy_loss") == "policy_loss"
+        and args.loss_type == "policy_loss"
         and args.context_parallel_size == 1
         and args.qkv_format == "thd"
     )
@@ -110,6 +104,7 @@ class RadixscaleTrainRayActor(TorchNativeTrainRayActor):
         indep_dp_store_addr: str | None,
     ) -> int | None:  # type: ignore[override]
         super()._init_common(args, role, with_ref, with_opd_teacher=with_opd_teacher)
+        self._parked: list[tuple[torch.UntypedStorage, torch.Tensor]] = []
         assert indep_dp_info.quorum_id == 0
         assert indep_dp_store_addr is None
         assert recv_ckpt_src_rank is None, "radixscale backend does not support checkpoint healing"
@@ -118,8 +113,6 @@ class RadixscaleTrainRayActor(TorchNativeTrainRayActor):
 
         world = dist.get_world_size()
         nvlink = int(os.environ.get("LOCAL_WORLD_SIZE", args.actor_num_gpus_per_node))
-        # FSDP shards inside one NVLink domain and replicates across them (DESIGN.md D4)
-        # unless a wider shard group is asked for explicitly
         fsdp = args.radixscale_fsdp_size or nvlink
         spec = ParallelSpec.create(
             world_size=world,
@@ -137,12 +130,11 @@ class RadixscaleTrainRayActor(TorchNativeTrainRayActor):
         self.prof = TrainProfiler(args)
         self.load_hf_assets()
         built = build_model(
-            _family(args, self.hf_config),
+            _family(args.radixscale_family, self.hf_config.model_type),
             Path(args.hf_checkpoint),
             self.mesh,
-            recompute="selective" if args.gradient_checkpointing and args.radixscale_selective_recompute else args.gradient_checkpointing,
+            recompute=args.gradient_checkpointing,
             recompute_skip_last_layers=args.radixscale_recompute_skip_layers,
-            compile=args.radixscale_compile,
         )
         self.model = built.model
         self.grad_sum_factors = built.grad_sum_factors
@@ -184,7 +176,6 @@ class RadixscaleTrainRayActor(TorchNativeTrainRayActor):
         if not self._fused_logprobs:
             return self.model(shard).unsqueeze(0)
         args = self.args
-        # the log-prob pass (no grad) records entropy; training needs it only for the loss or its metric
         with_entropy = not torch.is_grad_enabled() or args.entropy_coef != 0 or args.observe_training_entropy
         out = self.model(
             shard,
@@ -209,10 +200,7 @@ class RadixscaleTrainRayActor(TorchNativeTrainRayActor):
         )
 
     def _mean_reduce_grads(self) -> None:
-        """miles' losses assume FSDP's data-parallel mean. FSDP already averaged dense
-        grads over the world; expert grads arrive summed over ep (tokens are dispatched
-        to their owner) and averaged over e_fsdp only, and the fp32-critical params live
-        outside FSDP (DESIGN.md N6)."""
+        """Bring every grad to the data-parallel mean miles' losses assume."""
         world = dist.get_world_size()
         ep = self.mesh.spec.ep
         for name, param in self.model.named_parameters():
@@ -226,10 +214,6 @@ class RadixscaleTrainRayActor(TorchNativeTrainRayActor):
                 param.grad.div_(ep)
 
     def _move_to(self, device: str) -> None:
-        """Park parameter storage on the host by resizing it to zero, then refill it on
-        wake: tensor objects and devices never change, which module._apply (swaps the
-        DTensor params, refused while the profiler holds weakrefs) and param.data
-        (cross-device rebinding is disallowed) cannot guarantee."""
         print_memory(f"before moving the model to {device}")
         with torch.no_grad():
             if device == "cpu":
@@ -242,8 +226,6 @@ class RadixscaleTrainRayActor(TorchNativeTrainRayActor):
                     if isinstance(value, torch.Tensor):
                         state[key] = value.to(device, non_blocking=True)
         torch.cuda.synchronize()
-        # release cache only when handing memory to the engine; no gc.collect: on a
-        # trainer-sized heap it costs 1.2-1.6 s, and empty_cache itself ~1 s
         if device == "cpu":
             torch.cuda.empty_cache()
         dist.barrier(group=get_gloo_group())
@@ -267,20 +249,17 @@ class RadixscaleTrainRayActor(TorchNativeTrainRayActor):
             storage.resize_(0)
 
     def _unpark_params(self) -> None:
-        for storage, host in getattr(self, "_parked", []):
+        for storage, host in self._parked:
             storage.resize_(host.numel())
             torch.empty(0, dtype=torch.uint8, device="cuda").set_(storage).copy_(host, non_blocking=True)
         torch.cuda.synchronize()
         self._parked = []
 
     @timer
-    def update_weights(self, info):  # type: ignore[override]
-        """Colocated syncs run while the trainer sleeps: bring the parameters (not the
-        optimizer state) back for the gathers, then park them again. No gc.collect
-        afterwards (the base class's clear_memory costs ~1.3 s on this heap)."""
+    def update_weights(self, info: UpdatableEngines) -> int | None:  # type: ignore[override]
         if self.args.debug_train_only or self.args.debug_rollout_only:
             return None
-        parked = bool(getattr(self, "_parked", None))
+        parked = bool(self._parked)
         with torch.no_grad():
             if parked:
                 self._unpark_params()

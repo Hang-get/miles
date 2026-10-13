@@ -1,13 +1,13 @@
 import torch.distributed as dist
+from radixscale.mesh import RadixMesh
 
 from miles.backends.training_utils.parallel import ParallelState
 from miles.utils.distributed_utils import get_gloo_group
 from miles.utils.ft_utils.process_group_utils import GroupInfo
 
 
-def create_radixscale_parallel_state(mesh) -> ParallelState:
-    """Dense data parallelism spans the world (d_rep x fsdp); experts add an ep group.
-    radixscale has no tp, pp or Megatron-style cp, so those are singleton groups."""
+def create_radixscale_parallel_state(mesh: RadixMesh) -> ParallelState:
+    """miles ParallelState for radixscale: data parallel over the world plus an ep group."""
     alone = GroupInfo(rank=0, size=1, group=dist.new_group([dist.get_rank()]))
     world = GroupInfo(
         rank=dist.get_rank(), size=dist.get_world_size(), group=dist.group.WORLD, gloo_group=get_gloo_group()

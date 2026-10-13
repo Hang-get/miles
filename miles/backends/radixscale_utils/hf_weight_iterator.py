@@ -17,8 +17,7 @@ def _vlm_prefixed(hf_checkpoint: str) -> bool:
 
 
 class RadixscaleHfWeightIterator(HfWeightIteratorBase):
-    """radixscale parameter names are HF names by construction, so a unit is one
-    gathered parameter (fused experts exploded per expert, VLM prefix restored)."""
+    """One HF-named unit per gathered radixscale parameter."""
 
     forced_placement = None
 
