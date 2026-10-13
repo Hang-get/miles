@@ -959,7 +959,7 @@ class MegatronTrainRayActor(TrainRayActor):
                     rollout_id=rollout_id,
                     weight_version=weight_version,
                     debug_weight_update_id=debug_weight_update_id,
-                    snapshot_cell_id_to_hashes=snapshot_cell_id_to_hashes,
+                    snapshot_cell_id_to_hashes=info.snapshot_cell_id_to_hashes,
                 )
             ):
                 self.weight_updater.update_weights(weight_version=weight_version)
