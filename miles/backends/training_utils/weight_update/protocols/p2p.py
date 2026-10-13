@@ -163,38 +163,57 @@ class UpdateWeightP2P(WeightTransferProtocol):
             cell_id: _P2PRolloutCellUpdater(args=self.args, cell_id=cell_id, api_client=api_client)
             for api_client, cell_id in zip(rollout_engines, engine_cell_ids, strict=True)
         }
+        self._runner_senders = []
         assignments = assign_rollout_engine_ranks(parallel_state, placement, engine_gpu_counts)
         self.is_sender = bool(assignments)
 
         if self.is_sender:
-            runner_roles = query_runner_roles(rollout_engines, assignments, selector)
+            runner_roles = query_runner_roles(self.cell_updaters_of_cell_id, engine_cell_ids, assignments, selector)
             configs_by_runner_role = {
-                runner_role: query_rollout_engine_rank_configs(rollout_engines, assignments, runner_role)
+                runner_role: query_rollout_engine_rank_configs(
+                    self.cell_updaters_of_cell_id, engine_cell_ids, assignments, runner_role
+                )
                 for runner_role in runner_roles
             }
+            if not any(configs_by_runner_role.values()):
+                self.is_sender = False
+                return
             if self._transport is None:
                 self._transport = MooncakeTransport()
             remote_shards_by_runner_role = self._transport.connect(rollout_engines, assignments, runner_roles)
-            self._runner_senders = [
-                self._connect_runner(
-                    runner_role, configs_by_runner_role[runner_role], remote_shards_by_runner_role[runner_role]
-                )
-                for runner_role in runner_roles
-            ]
+            for runner_role in runner_roles:
+                if (
+                    runner_sender := self._connect_runner(
+                        runner_role=runner_role,
+                        configs_by_rollout_engine_rank=configs_by_runner_role[runner_role],
+                        remote_shards_by_rollout_engine_rank=remote_shards_by_runner_role[runner_role],
+                        engine_cell_ids=engine_cell_ids,
+                    )
+                ) is not None:
+                    self._runner_senders.append(runner_sender)
+            self.is_sender = bool(self._runner_senders)
 
     def _connect_runner(
         self,
         runner_role: str,
         configs_by_rollout_engine_rank: dict[int, RolloutEngineRankConfig],
         remote_shards_by_rollout_engine_rank: dict[int, list[RemoteShard]],
-    ) -> _RunnerSender:
+        engine_cell_ids: Sequence[str],
+    ) -> _RunnerSender | None:
         if runner_role not in self._model_replicas_by_runner_role:
             self._model_replicas_by_runner_role[runner_role] = ModelReplicas(
                 model_path=self.args.hf_checkpoint, transfer_buffer_device=self._transport.transfer_buffer_device
             )
         model_replicas = self._model_replicas_by_runner_role[runner_role]
         replica_targets = []
-        for rollout_engine_rank, remote_shards in remote_shards_by_rollout_engine_rank.items():
+        for rollout_engine_rank, all_remote_shards in remote_shards_by_rollout_engine_rank.items():
+            remote_shards = [
+                shard
+                for shard in all_remote_shards
+                if not self.cell_updaters_of_cell_id[engine_cell_ids[shard.rollout_engine_ind]].is_errored
+            ]
+            if not remote_shards:
+                continue
             model_replica = model_replicas.get_or_build(configs_by_rollout_engine_rank[rollout_engine_rank])
             for remote_shard in remote_shards:
                 assert_replica_matches_shard(
@@ -206,7 +225,7 @@ class UpdateWeightP2P(WeightTransferProtocol):
                     ),
                 )
             replica_targets.append(_ReplicaTarget(model_replica, remote_shards))
-        return _RunnerSender(model_replicas, replica_targets)
+        return _RunnerSender(model_replicas, replica_targets) if replica_targets else None
 
     def _log_hf_names_no_runner_loads(self) -> None:
         hf_names_no_runner_loads = sorted(
