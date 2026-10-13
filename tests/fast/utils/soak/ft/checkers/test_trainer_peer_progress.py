@@ -4,7 +4,7 @@ from tests.utils.soak.core.events import SoakEvent
 from tests.utils.soak.ft.checkers.trainer_peer_progress import assert_trainer_peers_progress
 from tests.utils.soak.ft.types import CellTarget
 
-from miles.backends.megatron_utils.ft.types import TrainStepOutcome
+from miles.backends.training_utils.types import TrainStepOutcome
 from miles.utils.audit_utils.event_logger.models import TrainGroupStepEndEvent
 from miles.utils.workers.naming import compute_cell_id
 

@@ -3,7 +3,7 @@ from tests.utils.soak.core.events import SoakActionResultEvent, SoakEvent
 from tests.utils.soak.core.views import project_actions
 from tests.utils.soak.ft.actions.inject_fault import InjectFaultForm
 
-from miles.backends.megatron_utils.ft.types import TrainStepOutcome
+from miles.backends.training_utils.types import TrainStepOutcome
 from miles.utils.test_utils.fault_injector.actions.process import KillProcessAction
 
 _FORM = InjectFaultForm(base_url="http://api:18080", action=KillProcessAction())

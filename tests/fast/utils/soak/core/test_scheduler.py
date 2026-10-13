@@ -16,7 +16,7 @@ from tests.utils.soak.core.events import SoakAdmissionClosedEvent, SoakEvent
 from tests.utils.soak.core.scheduler import SoakActionScheduler
 from tests.utils.soak.core.types import SoakForms, SoakTarget
 
-from miles.backends.megatron_utils.ft.types import TrainStepOutcome
+from miles.backends.training_utils.types import TrainStepOutcome
 
 _LATER = 1e12
 

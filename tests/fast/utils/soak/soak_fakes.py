@@ -44,7 +44,7 @@ from tests.utils.soak.ft.types import (
 from tests.utils.soak.k8s_utils.pod_manipulation import PodDeletedEvidence, SoakPodTarget
 from tests.utils.soak.k8s_utils.pod_processes import ProcessIdentity, ProcessTarget
 
-from miles.backends.megatron_utils.ft.types import TrainStepOutcome
+from miles.backends.training_utils.types import TrainStepOutcome
 from miles.backends.megatron_utils.megatron_config import ACTOR_ROLE
 from miles.utils.audit_utils.event_logger.models import (
     CellReconfigureEvent,

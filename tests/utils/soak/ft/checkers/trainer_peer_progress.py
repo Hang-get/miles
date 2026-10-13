@@ -7,7 +7,7 @@ from tests.utils.soak.core.events import (
 from tests.utils.soak.core.views import alive_targets_of_kind
 from tests.utils.soak.ft.types import ACTOR_CELL_TYPE
 
-from miles.backends.megatron_utils.ft.types import TrainStepOutcome
+from miles.backends.training_utils.types import TrainStepOutcome
 from miles.utils.audit_utils.event_logger.models import Event, TrainGroupStepEndEvent
 from miles.utils.workers.naming import parse_cell_id
 

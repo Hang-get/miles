@@ -3,7 +3,7 @@ from tests.fast.utils.soak.soak_fakes import _applied, _at, _cell_target, _obser
 from tests.utils.soak.core.checkers.tail_completeness import assert_tail_complete
 from tests.utils.soak.core.events import SoakAdmissionClosedEvent, SoakEvent
 
-from miles.backends.megatron_utils.ft.types import TrainStepOutcome
+from miles.backends.training_utils.types import TrainStepOutcome
 
 
 def _progress(rollout_id: int, *, at: float, **kwargs: object) -> SoakEvent:
