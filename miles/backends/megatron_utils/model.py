@@ -159,7 +159,6 @@ def setup_model_and_optimizer(
     """
     assert isinstance(args, TrainerConfig)
     assert not args.backend.moe_use_upcycling
-    assert args.backend.load is not None or args.backend.pretrained_checkpoint is not None
 
     # Multi-LoRA and single-LoRA (actor, bridge) both build via the bridge helper,
     # which picks the adapter type internally.
@@ -1040,7 +1039,12 @@ def load_model_state(
 
     load_dir = args.backend.load
     native_optimizer_restored = False
-    # --load may be unset: setup_model_and_optimizer already asserted pretrained_checkpoint covers it.
+    # --load may be unset when pretrained weights or an in-memory checkpoint supplies the state.
+    assert (
+        load_dir is not None
+        or args.backend.pretrained_checkpoint is not None
+        or "local_checkpoint_manager" in (checkpointing_context or {})
+    )
     if load_dir is None or _has_loadable_ckpt(load_dir):
         with load_ctx:
             iteration, restored_trained_iteration, native_optimizer_restored = load_checkpoint(
