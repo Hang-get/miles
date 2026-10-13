@@ -313,3 +313,31 @@ class TestALoraAdapterThatCarriesItsOwnIteration:
     def test_adapter_weights_without_training_state_start_at_rollout_zero(self, tmp_path: Path) -> None:
         """An HF adapter or shards saved without training state carry no iteration to continue from."""
         assert self._start(tmp_path, adapter_iteration=None).start_rollout_id == 0
+
+
+class TestCheckpointSourceRequirement:
+
+    def test_local_checkpoint_manager_allows_loading_without_disk_or_pretrained_path(self) -> None:
+        """An in-memory checkpoint supplies a valid source even when no disk path was requested."""
+        from miles.backends.megatron_utils.model import load_model_state
+        args = make_trainer_config(load=None, pretrained_checkpoint=None, lora_rank=0)
+        context = {'local_checkpoint_manager': object()}
+        model = [_FakeModelChunk()]
+        with ExitStack() as stack:
+            load = stack.enter_context(patch('miles.backends.megatron_utils.model.load_checkpoint', return_value=(7, True)))
+            _patch_initialize_side_effects(stack)
+            result = load_model_state(args, model=model, optimizer=None, opt_param_scheduler=None, role='actor', checkpointing_context=context)
+        assert (result.loaded_rollout_id, result.start_rollout_id) == (7, 8)
+        assert load.call_args.kwargs['checkpointing_context'] is context
+        assert load.call_args.kwargs['args'] is args
+        load.assert_called_once()
+
+    @pytest.mark.parametrize('context', [None, {}, {'unrelated': True}])
+    def test_loading_without_any_checkpoint_source_is_rejected(self, context: dict | None) -> None:
+        """An empty or unrelated checkpoint context cannot manufacture a valid model-loading source."""
+        from miles.backends.megatron_utils.model import load_model_state
+        args = make_trainer_config(load=None, pretrained_checkpoint=None, lora_rank=0)
+        with patch('miles.backends.megatron_utils.model.load_checkpoint') as load:
+            with pytest.raises(AssertionError):
+                load_model_state(args, model=[_FakeModelChunk()], optimizer=None, opt_param_scheduler=None, role='actor', checkpointing_context=context)
+        load.assert_not_called()
