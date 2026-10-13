@@ -58,7 +58,10 @@ async def test_harbor_http_calls_become_unmodified_training_data(
 
     monkeypatch.setattr(harbor.Trial, "create", create)
     strategy = harbor.HarborRolloutStrategy(
-        "role_colon", TEMPLATE, capture_store.base_url, "test",
+        "role_colon",
+        TEMPLATE,
+        capture_store.base_url,
+        "test",
         harbor.HarborConfig(trial_config="unused.json", max_parallel_trials_per_group=1),
     )
     strategy = pickle.loads(pickle.dumps(strategy))
@@ -68,7 +71,8 @@ async def test_harbor_http_calls_become_unmodified_training_data(
     assert len({c.agent.kwargs["api_base"] for c in configs}) == 4
     assert all(c.task.path == Path("/tasks/task") for c in configs)
     assert await group.compute_group_rewards(result.trajectories, result.envs) == [
-        (1, {"stop/completed": 1.0}), (0, {"stop/completed": 1.0}),
+        (1, {"stop/completed": 1.0}),
+        (0, {"stop/completed": 1.0}),
     ]
     for trajectory in [*first.trajectories, *result.trajectories]:
         datums = trajectory_to_data(trajectory, traj_advantage=1.0)
@@ -118,23 +122,40 @@ def test_harbor_config_uses_native_defaults(tmp_path):
     assert "max_turns" not in trial.agent.kwargs
 
 
-@pytest.mark.parametrize("overrides", [[], [
-    "loss_fn=ppo", 'loss_fn_config={"clip_low_threshold": 0.1}',
-    "load_checkpoint_path=tinker://checkpoint", "rolling_save_every=3",
-    "ttl_seconds=None", "lora_rank=8", "async_config.max_steps_off_policy=2",
-    "async_config.groups_per_batch=3", "dataset_builder.epochs=2",
-]])
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        [],
+        [
+            "loss_fn=ppo",
+            'loss_fn_config={"clip_low_threshold": 0.1}',
+            "load_checkpoint_path=tinker://checkpoint",
+            "rolling_save_every=3",
+            "ttl_seconds=None",
+            "lora_rank=8",
+            "async_config.max_steps_off_policy=2",
+            "async_config.groups_per_batch=3",
+            "dataset_builder.epochs=2",
+        ],
+    ],
+)
 def test_cli_preserves_official_config_and_capture_lifetime(tmp_path, monkeypatch, overrides):
     config_path = tmp_path / "trial.json"
     config_path.write_text(TEMPLATE)
     arguments = [
-        "model_name=model", "renderer_name=role_colon", "learning_rate=0.00001",
-        "max_tokens=32", f"log_path={tmp_path / 'logs'}",
-        f"dataset_builder.tasks_dir={tmp_path}", *overrides,
+        "model_name=model",
+        "renderer_name=role_colon",
+        "learning_rate=0.00001",
+        "max_tokens=32",
+        f"log_path={tmp_path / 'logs'}",
+        f"dataset_builder.tasks_dir={tmp_path}",
+        *overrides,
     ]
-    expected = (chz.Blueprint(train.Config)
+    expected = (
+        chz.Blueprint(train.Config)
         .apply({"recipe_name": "harbor-tinker", "dataset_builder": harbor.HarborDatasetBuilder})
-        .make_from_argv(arguments))
+        .make_from_argv(arguments)
+    )
     events = []
     seen = []
 
@@ -153,30 +174,40 @@ def test_cli_preserves_official_config_and_capture_lifetime(tmp_path, monkeypatc
     monkeypatch.setattr(train, "main", train_main)
     recipe.cli([*["config." + arg for arg in arguments], f"harbor.trial_config={config_path}"])
     assert events == ["capture-enter", "train", "capture-exit"]
-    actual, = seen
+    (actual,) = seen
     assert type(actual) is train.Config
     assert isinstance(actual.rollout_error_tolerance, harbor.HarborRolloutStrategy)
     assert chz.asdict(chz.replace(actual, rollout_error_tolerance=None)) == chz.asdict(expected)
 
 
-@pytest.mark.parametrize("argument,match", [
-    ("config.rollout_error_tolerance=True", "recipe owns config.rollout_error_tolerance"),
-    ("config.temperature=0.5", "Set temperature in the Harbor agent config"),
-])
+@pytest.mark.parametrize(
+    "argument,match",
+    [
+        ("config.rollout_error_tolerance=True", "recipe owns config.rollout_error_tolerance"),
+        ("config.temperature=0.5", "Set temperature in the Harbor agent config"),
+    ],
+)
 def test_conflicting_rollout_options_fail_before_training(tmp_path, argument, match):
     with pytest.raises(ValueError, match=match):
-        recipe.cli([
-            "config.model_name=model", "config.renderer_name=role_colon",
-            "config.learning_rate=0.00001", "config.max_tokens=32",
-            f"config.log_path={tmp_path}", f"config.dataset_builder.tasks_dir={tmp_path}",
-            "harbor.trial_config=unused.json", argument,
-        ])
+        recipe.cli(
+            [
+                "config.model_name=model",
+                "config.renderer_name=role_colon",
+                "config.learning_rate=0.00001",
+                "config.max_tokens=32",
+                f"config.log_path={tmp_path}",
+                f"config.dataset_builder.tasks_dir={tmp_path}",
+                "harbor.trial_config=unused.json",
+                argument,
+            ]
+        )
 
 
 def test_installed_cli_help_lists_official_and_harbor_options():
     result = subprocess.run(
         [sys.executable, "-I", "-m", "tinker_agent.train", "--help"],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     assert result.stderr == ""
     assert "config.rolling_save_every" in result.stdout
