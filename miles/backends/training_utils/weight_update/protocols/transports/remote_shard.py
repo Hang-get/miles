@@ -24,7 +24,7 @@ class RemoteShard:
     rollout_engine_ind: int
     rollout_engine_rank: int
     runner_role: str
-    # what the transport names the runner it writes into: a Mooncake session or a NIXL agent
+    # what the transport names the runner it writes into, such as a Mooncake session
     transport_peer: str
     weight_locations_by_name: dict[str, RemoteWeightLocation]
 
