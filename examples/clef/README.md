@@ -6,6 +6,20 @@ the supervised entrypoint below continues to initialize a fresh head.
 
 ## Broad decision curriculum
 
+### Counterfactual boundary supplement
+
+Run `uv run examples/clef/build_boundary_data.py --output-dir /data/new-boundary-corpus`
+to create 16,384 additional training cases and 1,024 held-out validation cases.
+The builder owns the composition and deterministic seed: tool-use judgment is
+the majority, followed by multi-label selection and intent/product boundaries.
+Tool cases contrast executable calls, missing arguments, unavailable capabilities,
+and direct answers supported by existing evidence. Related cases stay in one
+split; validation holds out tool, intent, and product families. Public benchmark
+questions are not generation inputs. The corpus uses programmatic templates,
+not LLM-generated prose; executable checks are not an independent language audit.
+The script declares its standalone dependency for `uv`; generated native records
+must additionally pass the trainer's loader and full-schema encoder before use.
+
 `python -m examples.clef.build_broad_dataset` prepares 65,536 training cases
 and a 4,096-case validation candidate pool: 30% rule-based business workflows, 15%
 ToolACE tool selection, 15% SNLI evidence inference, 15% CLINC intent routing,
