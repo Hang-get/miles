@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from argparse import Namespace
 from pathlib import Path
 from types import SimpleNamespace
@@ -49,15 +50,15 @@ class TestWhatARolloutHandsToTheDriver:
 
 
 class TestRolloutExecutorLifecycleRpc:
-    async def test_load_awaits_state_restore_on_the_rpc_event_loop(self, tmp_path: Path) -> None:
+    async def test_load_restores_on_the_isolated_worker_event_loop(self, tmp_path: Path) -> None:
         """The native RPC executor awaits checkpoint state restoration."""
         worker = RolloutExecutor.__new__(RolloutExecutor)
-        loaded = asyncio.Event()
+        loaded = threading.Event()
 
         rpc_loop = asyncio.get_running_loop()
 
         def load_state(_directory) -> None:
-            assert asyncio.get_running_loop() is rpc_loop
+            assert asyncio.get_running_loop() is not rpc_loop
             loaded.set()
 
         worker.args = Namespace(load=str(tmp_path), save_debug_event_data=None)
@@ -78,7 +79,10 @@ class TestRolloutExecutorLifecycleRpc:
             call_id="load",
             finish=recorder.finish,
         )
-        await asyncio.gather(*executor._background_tasks)
+        try:
+            await asyncio.gather(*executor._background_tasks)
+        finally:
+            await executor.close()
 
         assert loaded.is_set()
         assert [outcome.status for outcome in recorder.outcomes] == ["success"]
