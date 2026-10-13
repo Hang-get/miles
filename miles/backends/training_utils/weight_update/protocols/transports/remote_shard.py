@@ -39,14 +39,14 @@ def query_remote_shards(
     rollout_engines: Sequence[SGLangApiClient],
     assignments: Sequence[RolloutEngineRankAssignment],
     runner_roles: Sequence[str],
-    remote_shard_from_published: Callable[[Any, int, int, str], RemoteShard],
+    build_remote_shard: Callable[[Any, int, int, str], RemoteShard],
 ) -> dict[str, dict[int, list[RemoteShard]]]:
-    """Return assigned shards by runner role and rollout rank, each made by `remote_shard_from_published` from what
-    its rollout engine rank published."""
+    """Return assigned shards by runner role and rollout rank, each built by `build_remote_shard` from the transfer
+    engine info its rollout engine rank published."""
     return {
         runner_role: {
             assignment.rollout_engine_rank: [
-                remote_shard_from_published(
+                build_remote_shard(
                     async_utils.run(
                         rollout_engines[rollout_engine_ind].get_remote_instance_transfer_engine_info(
                             rank=assignment.rollout_engine_rank, role=runner_role

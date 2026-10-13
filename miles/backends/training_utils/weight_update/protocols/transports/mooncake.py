@@ -42,7 +42,7 @@ class MooncakeTransport:
     ) -> dict[str, dict[int, list[RemoteShard]]]:
         """Return assigned shards by runner role and rollout rank."""
         self._write_threads.restart()
-        return query_remote_shards(rollout_engines, assignments, runner_roles, _remote_shard_from_published)
+        return query_remote_shards(rollout_engines, assignments, runner_roles, _build_remote_shard)
 
     def register_memory(self, tensor: torch.Tensor) -> None:
         ret = self._transfer_engine.register_memory(tensor.data_ptr(), tensor.nbytes)
@@ -75,10 +75,10 @@ class MooncakeTransport:
             raise RuntimeError(f"Mooncake batch_transfer_sync_write returned {ret}")
 
 
-def _remote_shard_from_published(
-    published_weights: tuple[str, dict], rollout_engine_ind: int, rollout_engine_rank: int, runner_role: str
+def _build_remote_shard(
+    transfer_engine_info: tuple[str, dict], rollout_engine_ind: int, rollout_engine_rank: int, runner_role: str
 ) -> RemoteShard:
-    session_id, weights_info = published_weights
+    session_id, weights_info = transfer_engine_info
     assert (
         session_id is not None
     ), f"the {runner_role} of rollout engine {rollout_engine_ind} rank {rollout_engine_rank} has no Mooncake session"
