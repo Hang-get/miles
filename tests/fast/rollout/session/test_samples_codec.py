@@ -232,10 +232,10 @@ class TestSamplesWireCodec:
 
     def test_encode_rejects_non_int32_replay_dtype(self):
         sample = _computed_sample(rollout_routed_experts=np.arange(24, dtype=np.int64).reshape(4, 3, 2))
-        with pytest.raises(ValueError, match="rollout_routed_experts must have dtype uint8 or uint16 or int32"):
+        with pytest.raises(ValueError, match="rollout_routed_experts must have dtype uint8 or int16 or int32"):
             encode_samples([sample], {}, None)
 
-    @pytest.mark.parametrize("dtype", [np.uint8, np.uint16])
+    @pytest.mark.parametrize("dtype", [np.uint8, np.int16])
     def test_narrow_routed_experts_round_trip(self, dtype):
         routed = np.arange(24, dtype=dtype).reshape(4, 3, 2)
         out = decode_samples_and_merge_input_sample(

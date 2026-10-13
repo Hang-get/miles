@@ -15,7 +15,7 @@ from miles.rollout.generate_utils.rollout_topk_logprobs import (
 from miles.rollout.generate_utils.sampling_mask import append_sampling_metadata, should_return_sampling_mask
 from miles.utils.lora.utils import LORA_ADAPTER_NAME, lora_rollout_enabled
 from miles.utils.processing_utils import encode_image_for_rollout_engine, extract_multimodal_train_inputs
-from miles.utils.routed_experts import decode_routed_experts, routed_experts_dtype
+from miles.utils.routed_experts import decode_routed_experts
 from miles.utils.types import Sample
 
 
@@ -152,7 +152,7 @@ def _decode_topk_buffer(info: str, num_tokens: int, num_layers: int, topk: int) 
 def get_routed_experts_from_response(args, output, num_tokens: int):
     if output["meta_info"].get("routed_experts") is None:
         return None
-    return decode_routed_experts(output["meta_info"], num_tokens, args.num_layers, routed_experts_dtype(args))
+    return decode_routed_experts(output["meta_info"], num_tokens, args.num_layers)
 
 
 def request_routed_experts_patch(args, payload: dict, sample: Sample) -> None:

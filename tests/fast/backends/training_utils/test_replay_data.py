@@ -158,13 +158,15 @@ def test_fill_replay_thd_preserves_packed_order(monkeypatch, sequence_first, tp_
         torch.testing.assert_close(replay.recorded[0][:, 0], local_expected)
 
 
-@pytest.mark.parametrize("dtype", [torch.uint8, torch.uint16])
-def test_fill_replay_widens_unsigned_rollout_ids_before_padding(monkeypatch, dtype):
+def test_fill_replay_widens_unsigned_rollout_ids_before_padding(monkeypatch):
     args = SimpleNamespace(qkv_format="thd", allgather_cp=False, sequence_parallel=False, data_pad_size_multiplier=1)
     state = SimpleNamespace(cp=SimpleNamespace(size=1, rank=0), tp=SimpleNamespace(size=1, rank=0))
     monkeypatch.setattr(parallel, "_parallel_state", state)
     rollout_data = {
-        "routes": [torch.tensor([0, 255]).to(dtype).reshape(2, 1, 1), torch.tensor([7, 9]).to(dtype).reshape(2, 1, 1)],
+        "routes": [
+            torch.tensor([0, 255], dtype=torch.uint8).reshape(2, 1, 1),
+            torch.tensor([7, 9], dtype=torch.uint8).reshape(2, 1, 1),
+        ],
         "tokens": [torch.arange(3), torch.arange(3)],
         "max_seq_lens": None,
     }

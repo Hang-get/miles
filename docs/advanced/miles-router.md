@@ -29,13 +29,10 @@ so numerical noise no longer flips routes.
 
 **SGLang side.** Miles enables `enable_return_routed_experts` automatically when
 `--use-rollout-routing-replay` is on. SGLang then includes `routed_experts`
-in `meta_info` of each response, with shape `(seq_len - 1, num_layers, top_k)`.
-By default it is base64 of the `int32` buffer. Add
-`--sglang-routed-experts-encoding zstd` to send it sorted, narrowed to `uint8`
-(`uint16` past 256 experts) and zstd-compressed: about 7x fewer bytes on the
-wire and far less CPU in SGLang's detokenizer and tokenizer manager.
-`meta_info["routed_experts_encoding"]` names the encoding, so Miles decodes
-either.
+in `meta_info` of each response: rows of shape `(seq_len - 1, num_layers, top_k)`,
+sorted within each row, in `uint8` (`int16` past 256 experts), zstd-compressed
+with a small self-describing header. Miles decodes it with SGLang's
+`routed_experts_codec`, so the two always agree on the format.
 
 **Miles side.** Enable R3 with:
 
@@ -44,8 +41,8 @@ either.
 ```
 
 Rollout sends `return_routed_experts=true` in each request and stores the
-results in `sample.rollout_routed_experts` (`miles/utils/types.py`) as `uint8`
-(`uint16` past 256 experts; `miles/utils/routed_experts.py`). In multi-turn
+results in `sample.rollout_routed_experts` (`miles/utils/types.py`) in that
+narrow dtype (`miles/utils/routed_experts.py`). In multi-turn
 rollouts, each turn after the first asks only for the rows the sample does not
 hold yet (`routed_experts_start_len`), unless `--pause-generation-mode retract`
 can recompute the prefix on a weight update. The

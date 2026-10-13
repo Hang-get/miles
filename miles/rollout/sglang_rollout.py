@@ -36,7 +36,7 @@ from miles.utils.processing_utils import (
     load_processor,
     load_tokenizer,
 )
-from miles.utils.routed_experts import decode_routed_experts, routed_experts_dtype
+from miles.utils.routed_experts import decode_routed_experts
 from miles.utils.types import Sample
 
 from .generate_utils.generate_endpoint_utils import (
@@ -275,7 +275,6 @@ async def generate(
             output["meta_info"],
             num_tokens=int(output["meta_info"]["prompt_tokens"]) + len(new_response_tokens) - 1,
             num_layers=args.num_layers,
-            dtype=routed_experts_dtype(args),
             allow_extra_tail_row=True,
         )
     if "indexer_topk" in output["meta_info"]:
