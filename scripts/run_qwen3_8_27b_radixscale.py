@@ -24,9 +24,10 @@ Examples:
         --fsdp-size 16 --cp-size 1 --ep-size 4 --max-tokens-per-gpu 65536 --recompute-skip-layers 16
     python3 scripts/run_qwen3_8_27b_radixscale.py --num-nodes 4 --train-backend megatron --tp-size 2 --no-recompute \
         --max-tokens-per-gpu 16384
-    # 128k context on 2x8 H200, 16 x 8 samples (fsdp 4 x cp 4 by default; peak 66/87 GB at one
-    # 131072-token sample per cp group; --fsdp-size 16 --cp-size 1 --recompute-host-inputs is 3%
-    # faster on uniform 128k samples: 812 s actor per step, peak 79/97 GB)
+    # 128k context on 2x8 H200 (FlashAttention-3), 8 x 32 samples averaging ~73k tokens: fsdp 4 x cp 4
+    # (default) 893 s per step (711 s actor + 165 s log-prob pass), peak 66/87 GB; --max-tokens-per-gpu
+    # 262144 881 s at 96/120 GB; --fsdp-size 16 --cp-size 1 --recompute-host-inputs 857 s at 79/97 GB
+    # plus ~1 TB pinned host memory per node
     python3 scripts/run_qwen3_8_27b_radixscale.py --num-nodes 2 --num-gpus-per-node 8 --rollout-max-response-len 131072
 """
 
