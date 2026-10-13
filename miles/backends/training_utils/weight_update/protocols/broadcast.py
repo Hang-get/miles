@@ -74,6 +74,10 @@ class UpdateWeightFromDistributed(WeightTransferProtocol):
 
     def send_bucket(self, bucket: list[tuple[str, torch.Tensor]]) -> None:
         """Lock → broadcast → clear → unlock. Lock prevents NCCL deadlock."""
+        try:
+            transfer_mode = self.args.update_weight_transfer_mode
+        except AttributeError:
+            transfer_mode = "broadcast"
         with self._engine_lock:
             futures = update_weights_from_distributed(
                 self.group_name,
@@ -81,7 +85,7 @@ class UpdateWeightFromDistributed(WeightTransferProtocol):
                 self.rollout_engines,
                 bucket,
                 selector=self._selector,
-                transfer_mode=self.args.update_weight_transfer_mode,
+                transfer_mode=transfer_mode,
             )
             async_utils.wait_futures(futures)
             bucket.clear()

@@ -76,7 +76,10 @@ class WeightTransferProtocol(ABC):
 
 
 def get_weight_transfer_protocol(args: Namespace) -> WeightTransferProtocol:
-    mode = args.update_weight_transfer_mode
+    try:
+        mode = args.update_weight_transfer_mode
+    except AttributeError:
+        mode = "broadcast"
     if mode not in ("broadcast", "broadcast_packed", "p2p", "disk-delta"):
         raise ValueError(f"Unknown --update-weight-transfer-mode {mode!r}")
     if mode == "broadcast_packed" and (args.train_backend != "megatron" or args.colocate):
