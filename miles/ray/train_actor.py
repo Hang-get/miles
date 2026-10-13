@@ -1,3 +1,5 @@
+
+from miles.utils.attribute_utils import has_external_attribute
 import abc
 import logging
 import os
@@ -120,7 +122,7 @@ class TrainRayActor(NodeProbeMixin):
             self.tokenizer = load_tokenizer(
                 self.args.hf_checkpoint, chat_template_path=self.args.chat_template_path, trust_remote_code=True
             )
-            if with_processor and hasattr(self.hf_config, "vision_config"):
+            if with_processor and has_external_attribute(self.hf_config, "vision_config"):
                 self.processor = load_processor(self.args.hf_checkpoint, trust_remote_code=True)
 
     def propose_master_addr_and_port(self) -> tuple[str, int]:

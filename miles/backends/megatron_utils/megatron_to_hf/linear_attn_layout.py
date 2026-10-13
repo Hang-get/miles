@@ -7,6 +7,8 @@ with ``R = num_v_heads // num_k_heads`` value heads in ``v_g``. A TP chunk is th
 that rank owns, for any TP size, and the projection output feeds the conv without a copy.
 """
 
+from miles.utils.attribute_utils import read_external_attribute
+
 from dataclasses import dataclass
 from functools import cache
 
@@ -56,7 +58,7 @@ class LinearAttnHeads:
 
 def gdn_heads(hf_config) -> LinearAttnHeads:
     """Head layout of a Qwen3.5 / Qwen3-Next GDN layer; VLM configs nest it under ``text_config``."""
-    text_config = getattr(hf_config, "text_config", hf_config)
+    text_config = read_external_attribute(hf_config, "text_config", hf_config)
     return LinearAttnHeads(
         num_k_heads=text_config.linear_num_key_heads,
         num_v_heads=text_config.linear_num_value_heads,

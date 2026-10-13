@@ -1,3 +1,5 @@
+
+from miles.utils.attribute_utils import read_external_attribute
 import importlib
 import logging
 import os
@@ -37,7 +39,7 @@ def _model_package(name: str) -> ModuleType:
 
 def resolve_model_spec(args: TrainerConfig) -> ModelSpec:
     module = _model_package(args.backend.titan_model_name)
-    registry = getattr(module, "model_registry", None)
+    registry = read_external_attribute(module, "model_registry", None)
     if registry is None:
         raise ValueError(f"{module.__name__} exposes no model_registry(); cannot build a ModelSpec")
     return registry(args.backend.titan_model_flavor, attn_backend="flex")

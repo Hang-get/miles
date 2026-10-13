@@ -6,6 +6,8 @@ DTensor gather in `update_weight_utils.py` are untouched -- which is why running
 `apply_fsdp2` is safe, for the policy and the ref model alike.
 """
 
+from miles.utils.attribute_utils import has_external_attribute, read_external_attribute
+
 import logging
 
 from miles.backends.fsdp_utils.plugins.hf_kernels.loader import HubKernels
@@ -75,7 +77,7 @@ def bind_nemotron_h(model, hub: HubKernels) -> int:
     mixers = [
         mod.mixer
         for mod in model.modules()
-        if getattr(mod, "block_type", None) == "attention" and hasattr(mod, "mixer")
+        if read_external_attribute(mod, "block_type", None) == "attention" and has_external_attribute(mod, "mixer")
     ]
     if not mixers:
         return 0

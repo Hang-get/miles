@@ -1,3 +1,5 @@
+
+from miles.utils.attribute_utils import read_external_attribute
 import functools
 import glob
 import json
@@ -24,7 +26,7 @@ class TitanHfWeightIterator(HfWeightIteratorBase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._engine_dtypes = _checkpoint_dtypes(self.args.hf_checkpoint)
-        self._q_lora_rank = getattr(load_hf_config(self.args.hf_checkpoint), "q_lora_rank", None) or None
+        self._q_lora_rank = read_external_attribute(load_hf_config(self.args.hf_checkpoint), "q_lora_rank", None) or None
 
     def _iter_hf_param_units(self, weights, *, materialize):
         for name, tensor in hf_weights(self.model, complete_across_pp=self.placement.gather_pp):
@@ -68,7 +70,7 @@ _GROUPED_EXPERTS = "moe.routed_experts.inner_experts"
 
 
 def _hf_weights_on_device(trainer, *, complete_across_pp: bool) -> Iterator[tuple[str, torch.Tensor]]:
-    sd_adapter = getattr(trainer.checkpointer, "sd_adapter", None)
+    sd_adapter = read_external_attribute(trainer.checkpointer, "sd_adapter", None)
     if sd_adapter is None:
         sd_adapter = trainer.config.model_spec.state_dict_adapter(trainer.model_config, trainer.config.hf_assets_path)
     state = {k: v for part in trainer.model_parts for k, v in part.state_dict().items()}
@@ -142,7 +144,7 @@ class _StageLayout:
             if self.my_rank in holders:
                 tensor = gather_full_param(local[name]).contiguous()
             else:
-                tensor = torch.empty(shape, dtype=getattr(torch, dtype.split(".")[-1]), device=self.device)
+                tensor = torch.empty(shape, dtype=read_external_attribute(torch, dtype.split(".")[-1]), device=self.device)
             dist.broadcast(tensor, src=holders[0], group=self.broadcast_group)
             yield name, tensor
             del tensor

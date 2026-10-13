@@ -1,3 +1,5 @@
+
+from miles.utils.attribute_utils import read_external_attribute
 import logging
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager, nullcontext
@@ -96,7 +98,7 @@ def _get_shard_layout_server_args(server_args: ServerArgs) -> dict[str, object]:
         "enable_w4a4_mxfp4_megamoe",
         "flashinfer_a2a_dispatch_type",
     )
-    return {name: getattr(server_args, name) for name in field_names}
+    return {name: read_external_attribute(server_args, name) for name in field_names}
 
 
 def query_rollout_engine_rank_configs(
@@ -431,7 +433,7 @@ def _run_engine_postprocess_and_restore(
     reload_layouts_by_param_id = {}
     for module_name, module in model.named_modules():
         # modules without one keep their params as built
-        if getattr(module, "quant_method", None) is not None:
+        if read_external_attribute(module, "quant_method", None) is not None:
             reload_layouts_by_param_id |= _run_module_postprocess_and_restore(
                 module_name, module, built_shapes_by_param_id, parallelism, postprocess_device
             )

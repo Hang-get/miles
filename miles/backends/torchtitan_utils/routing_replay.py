@@ -1,3 +1,5 @@
+
+from miles.utils.attribute_utils import read_external_attribute
 import contextlib
 import functools
 import logging
@@ -112,7 +114,7 @@ def install(model_parts: list[nn.Module]) -> int:
 
 
 def _is_installed(model_parts: list[nn.Module]) -> bool:
-    return routing_replay_manager.enabled and all(getattr(part, _INSTALLED_ATTR, False) for part in model_parts)
+    return routing_replay_manager.enabled and all(read_external_attribute(part, _INSTALLED_ATTR, False) for part in model_parts)
 
 
 def bypass_schedule_initialization(model_parts: list[nn.Module]) -> None:

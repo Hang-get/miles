@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from miles.utils.args.custom_function import CustomFunctionConfig
+from miles.utils.attribute_utils import read_external_attribute
 
 _MISSING = object()
 
@@ -79,7 +80,7 @@ def _pick_from_mapping(data: dict[str, Any], key_names: tuple[str, ...] | None) 
 
 def pick_from_args(args: Any, attrs: tuple[str, ...]) -> Any:
     for attr in attrs:
-        value = getattr(args, attr, None)  # config-access-exempt: attribute selected at runtime from attr
+        value = read_external_attribute(args, attr, None)
         if value is not None:
             return value
     return None

@@ -1,3 +1,5 @@
+
+from miles.utils.attribute_utils import has_external_attribute, read_external_attribute
 import inspect
 import logging
 
@@ -13,7 +15,7 @@ def install() -> None:
 def _shim_dist_set_timeout() -> None:
     import torch.distributed as dist
 
-    if hasattr(dist, "set_timeout"):
+    if has_external_attribute(dist, "set_timeout"):
         return
     from torch.distributed.distributed_c10d import _set_pg_timeout
 
@@ -54,14 +56,14 @@ def _patch_pipeline_schedule_microbatch_api() -> None:
                 )
             if (
                 self._has_backward
-                and getattr(self, "_backward_requires_autograd", True)
+                and read_external_attribute(self, "_backward_requires_autograd", True)
                 and not torch.is_grad_enabled()
             ):
                 raise RuntimeError(
                     "step() requires gradients to be enabled for backward computation; "
                     "call eval() under torch.no_grad() instead."
                 )
-            stages = getattr(self, "_stages", None) or [self._stage]
+            stages = read_external_attribute(self, "_stages", None) or [self._stage]
             for stage in stages:
                 stage.has_backward = self._has_backward
                 stage.clear_runtime_states()
@@ -83,7 +85,7 @@ def _patch_fsdp2_grad_accumulation_attr_error() -> None:
         return
 
     def to_accumulated_grad_if_needed(self) -> None:
-        unsharded_param = getattr(self, "_unsharded_param", None)
+        unsharded_param = read_external_attribute(self, "_unsharded_param", None)
         if (
             self.reduce_dtype is None
             or unsharded_param is None

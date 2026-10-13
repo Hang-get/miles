@@ -7,6 +7,8 @@ Opt-in through `--kernel-backend hub`; under the default `native` nothing here i
 
 from __future__ import annotations
 
+from miles.utils.attribute_utils import read_external_attribute
+
 import logging
 import os
 from collections.abc import Callable
@@ -155,7 +157,7 @@ class HubKernels:
         if spec is None or slot in self._slot_failures:
             return None
         module = self._modules[(spec.repo_id, spec.version, spec.revision)]
-        return {name: getattr(module, name) for name in spec.functions}
+        return {name: read_external_attribute(module, name) for name in spec.functions}
 
     def _resolve_module(self, spec: HubKernelSpec) -> ModuleType | None:
         key = (spec.repo_id, spec.version, spec.revision)
@@ -178,7 +180,7 @@ class HubKernels:
         module = self._resolve_module(spec)
         if module is None:
             return None, self._module_errors[(spec.repo_id, spec.version, spec.revision)]
-        missing = [name for name in spec.functions if not callable(getattr(module, name, None))]
+        missing = [name for name in spec.functions if not callable(read_external_attribute(module, name, None))]
         if missing:
             return None, f"{spec.describe()} does not expose callable {missing}"
 

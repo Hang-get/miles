@@ -1,3 +1,5 @@
+
+from miles.utils.attribute_utils import read_external_attribute
 import functools
 import logging
 from collections.abc import Callable, Iterator, Sequence
@@ -102,7 +104,7 @@ class TorchNativeTrainRayActor(TrainRayActor):
             model,
             weights_getter=lambda: None,
             model_name=model_name,
-            quantization_config=getattr(self.hf_config, "quantization_config", None),
+            quantization_config=read_external_attribute(self.hf_config, "quantization_config", None),
             iterator_factory=iterator_factory,
             parallel_state=get_parallel_state(),
             is_lora=False,

@@ -1,3 +1,5 @@
+
+from miles.utils.attribute_utils import read_external_attribute
 from contextlib import contextmanager
 
 from miles.backends.training_utils.model_companion import ModelCompanionInstallationUtils
@@ -41,7 +43,7 @@ def apply_dsa_backend_args(provider, args) -> None:
     explicit = getattr(
         args.backend, "dsa_kernel_backend", None
     )  # config-access-exempt: older Megatron parsers omit the DSA kernel backend switch
-    if getattr(provider, "experimental_attention_variant", None) == "dsv4_hybrid":
+    if read_external_attribute(provider, "experimental_attention_variant", None) == "dsv4_hybrid":
         provider.dsa_kernel_backend = explicit or "cudnn"
         return
 

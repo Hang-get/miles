@@ -9,6 +9,8 @@ forward (position_ids don't reach the mixers otherwise). No-op when not packing.
 The post-load fixup re-asserts checkpoint weights that transformers' Mamba ``_init_weights`` clobbers.
 """
 
+from miles.utils.attribute_utils import read_external_attribute
+
 import functools
 import glob
 import json
@@ -136,7 +138,7 @@ def _patch_attn_forward(attn_cls):
         cache = kwargs.get("past_key_values", kwargs.get("cache_params"))
         # A hub kernel bound on the instance wins over the flash-attn wheel; without either,
         # the packed-document reset below cannot run and attention goes dense across documents.
-        varlen_func = getattr(self, HUB_VARLEN_ATTR, None) or native_varlen_func
+        varlen_func = read_external_attribute(self, HUB_VARLEN_ATTR, None) or native_varlen_func
         if cu is None or cache is not None or varlen_func is None:
             return orig(self, hidden_states, *args, **kwargs)
         # Packed rows arrive as (1, total_tokens, hidden); flash varlen consumes flat

@@ -32,6 +32,8 @@ Muon takes a different route. Its state already rides Megatron's
 rest alone. Those buffers are unlinked once mapped, so they show up in ``df``, not ``du``.
 """
 
+from miles.utils.attribute_utils import read_external_attribute
+
 import atexit
 import ctypes
 import errno
@@ -437,8 +439,8 @@ class NVMeOptimizerStateStore:
         from megatron.core.transformer.module import param_is_not_shared
 
         dist_opt = self.dist_opt
-        tp_group = getattr(dist_opt, "tp_group", None)
-        expert_tp_group = getattr(dist_opt, "expert_tp_group", None)
+        tp_group = read_external_attribute(dist_opt, "tp_group", None)
+        expert_tp_group = read_external_attribute(dist_opt, "expert_tp_group", None)
         sum_sq = torch.zeros((), dtype=torch.float32, device=torch.cuda.current_device())
         for bucket in self.buckets:
             for entry in bucket.entries:
@@ -448,7 +450,7 @@ class NVMeOptimizerStateStore:
                     and param_is_not_tensor_parallel_duplicate(
                         main, tp_group=tp_group, expert_tp_group=expert_tp_group
                     )
-                    and not getattr(main, "_is_witness_param", False)
+                    and not read_external_attribute(main, "_is_witness_param", False)
                 ):
                     sum_sq += torch.linalg.vector_norm(self._model_grad_shard(entry), dtype=torch.float32) ** 2
         return [sum_sq.sqrt().reshape(1)]

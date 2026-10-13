@@ -1,3 +1,5 @@
+
+from miles.utils.attribute_utils import has_external_attribute, read_external_attribute
 import logging
 import os
 from contextlib import contextmanager, nullcontext
@@ -183,9 +185,9 @@ class FSDPTrainRayActor(TorchNativeTrainRayActor):
         return int(self.args.start_rollout_id)
 
     def _has_image_text_to_text_impl(self) -> bool:
-        if not hasattr(self.hf_config, "vision_config"):
+        if not has_external_attribute(self.hf_config, "vision_config"):
             return False
-        auto_map = getattr(self.hf_config, "auto_map", None)
+        auto_map = read_external_attribute(self.hf_config, "auto_map", None)
         return not auto_map or "AutoModelForImageTextToText" in auto_map
 
     def _get_model_cls(self):
