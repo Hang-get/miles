@@ -1,17 +1,17 @@
 import os
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
+from functools import partial
 from typing import Any, NamedTuple
 
 import ray
 import torch
 
-from miles.backends.sglang_utils.sglang_api_client import SGLangApiClient
 from miles.backends.training_utils.weight_update.protocols.utils.rollout_engine_rank_assignment import (
     RolloutEngineRankAssignment,
 )
-from miles.utils import async_utils
+from miles.backends.training_utils.weight_update.rollout_cell_updater import _RolloutCellUpdater
 from miles.utils.test_utils.fault_injector.controller import reach_fault_hook
 from miles.utils.test_utils.fault_injector.models import FaultHookName
 
@@ -58,7 +58,7 @@ class MooncakeTransport:
 
     def connect(
         self,
-        rollout_engines: Sequence[SGLangApiClient],
+        cell_updaters: Sequence[_RolloutCellUpdater],
         assignments: Sequence[RolloutEngineRankAssignment],
         runner_roles: Sequence[str],
     ) -> dict[str, dict[int, list[RemoteShard]]]:
@@ -68,18 +68,22 @@ class MooncakeTransport:
         writes of the one it replaced.
         """
         for write_executor in self._write_executors_by_rollout_engine_ind.values():
-            write_executor.shutdown(wait=False)
+            write_executor.shutdown(wait=False, cancel_futures=True)
         self._write_executors_by_rollout_engine_ind = {}
         return {
             runner_role: {
                 assignment.rollout_engine_rank: [
-                    _query_remote_shard(
-                        rollout_engines[rollout_engine_ind],
-                        rollout_engine_ind,
-                        assignment.rollout_engine_rank,
-                        runner_role,
-                    )
+                    remote_shard
                     for rollout_engine_ind in assignment.rollout_engine_indices
+                    if (
+                        remote_shard := _query_remote_shard(
+                            cell_updaters[rollout_engine_ind],
+                            rollout_engine_ind,
+                            assignment.rollout_engine_rank,
+                            runner_role,
+                        )
+                    )
+                    is not None
                 ]
                 for assignment in assignments
             }
@@ -105,7 +109,13 @@ class MooncakeTransport:
             raise RuntimeError(f"Mooncake could not unregister the memory at {tensor.data_ptr():#x}: error {ret}")
         del self._registered_tensors[tensor.data_ptr()]
 
-    def write(self, remote_shards: Sequence[RemoteShard], tensors_by_name: dict[str, torch.Tensor]) -> list[Future]:
+    def write(
+        self,
+        remote_shards: Sequence[RemoteShard],
+        tensors_by_name: dict[str, torch.Tensor],
+        *,
+        run_write: Callable[[RemoteShard, Callable[[], None]], None] | None = None,
+    ) -> list[Future[None]]:
         """Writes each tensor into the weight of the same name on every shard; returns one future per shard.
 
         The tensors must lie in registered memory and stay unchanged until their futures are done. Raises before
@@ -115,7 +125,9 @@ class MooncakeTransport:
             _assert_tensors_fit(remote_shard, tensors_by_name)
         return [
             self._write_executor(remote_shard.rollout_engine_ind).submit(
-                self._write_shard, remote_shard, tensors_by_name
+                partial(self._write_shard, remote_shard, tensors_by_name)
+                if run_write is None
+                else partial(run_write, remote_shard, partial(self._write_shard, remote_shard, tensors_by_name))
             )
             for remote_shard in remote_shards
         ]
@@ -145,11 +157,14 @@ class MooncakeTransport:
 
 
 def _query_remote_shard(
-    rollout_engine: SGLangApiClient, rollout_engine_ind: int, rollout_engine_rank: int, runner_role: str
-) -> RemoteShard:
-    session_id, weights_info = async_utils.run(
-        rollout_engine.get_remote_instance_transfer_engine_info(rank=rollout_engine_rank, role=runner_role)
-    )
+    cell_updater: _RolloutCellUpdater, rollout_engine_ind: int, rollout_engine_rank: int, runner_role: str
+) -> RemoteShard | None:
+    info = cell_updater.submit_client_call(
+        "get_remote_instance_transfer_engine_info", rank=rollout_engine_rank, role=runner_role
+    ).result()
+    if info is None:
+        return None
+    session_id, weights_info = info
     assert (
         session_id is not None
     ), f"the {runner_role} of rollout engine {rollout_engine_ind} rank {rollout_engine_rank} has no Mooncake session"
