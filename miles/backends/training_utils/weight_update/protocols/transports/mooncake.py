@@ -52,6 +52,8 @@ class MooncakeTransport:
 
     def __init__(self) -> None:
         self._transfer_engine = _create_transfer_engine()
+        self._registered_tensors: dict[int, torch.Tensor] = {}
+        self._has_uncertain_writes = False
         self._write_executors_by_rollout_engine_ind: dict[int, ThreadPoolExecutor] = {}
 
     def connect(
@@ -91,10 +93,17 @@ class MooncakeTransport:
                 f"Mooncake could not register {_nbytes(tensor)} bytes at {tensor.data_ptr():#x}: error {ret}"
             )
 
+        self._registered_tensors[tensor.data_ptr()] = tensor
+
     def unregister_memory(self, tensor: torch.Tensor) -> None:
+        if self._has_uncertain_writes:
+            raise RuntimeError(
+                "Cannot release registered memory after a Mooncake write with unknown native completion"
+            )
         ret = self._transfer_engine.unregister_memory(tensor.data_ptr())
         if ret != 0:
             raise RuntimeError(f"Mooncake could not unregister the memory at {tensor.data_ptr():#x}: error {ret}")
+        del self._registered_tensors[tensor.data_ptr()]
 
     def write(self, remote_shards: Sequence[RemoteShard], tensors_by_name: dict[str, torch.Tensor]) -> list[Future]:
         """Writes each tensor into the weight of the same name on every shard; returns one future per shard.
@@ -121,14 +130,18 @@ class MooncakeTransport:
     def _write_shard(self, remote_shard: RemoteShard, tensors_by_name: dict[str, torch.Tensor]) -> None:
         names = list(tensors_by_name)
         reach_fault_hook(FaultHookName.TRAINER_WEIGHT_UPDATE_BEFORE_SEND)
-        ret = self._transfer_engine.batch_transfer_sync_write(
-            remote_shard.session_id,
-            [tensors_by_name[name].data_ptr() for name in names],
-            [remote_shard.weight_locations_by_name[name].address for name in names],
-            [_nbytes(tensors_by_name[name]) for name in names],
-        )
-        if ret < 0:
-            raise RuntimeError(f"Mooncake batch_transfer_sync_write returned {ret}")
+        try:
+            ret = self._transfer_engine.batch_transfer_sync_write(
+                remote_shard.session_id,
+                [tensors_by_name[name].data_ptr() for name in names],
+                [remote_shard.weight_locations_by_name[name].address for name in names],
+                [_nbytes(tensors_by_name[name]) for name in names],
+            )
+            if ret < 0:
+                raise RuntimeError(f"Mooncake batch_transfer_sync_write returned {ret}")
+        except Exception:
+            self._has_uncertain_writes = True
+            raise
 
 
 def _query_remote_shard(
