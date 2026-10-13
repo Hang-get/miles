@@ -1,0 +1,15 @@
+# Install into a uv-managed environment with the devbox's CUDA PyTorch available.
+torch>=2.6
+transformers>=5.12.1
+safetensors
+huggingface-hub
+typed-argument-parser
+wandb
+prometheus-client
+polars>=1.42
+numpy
+fastapi
+uvicorn
+httpx
+
+s3fs
