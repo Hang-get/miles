@@ -1,12 +1,12 @@
 """GRPO on dapo-math-17k with the radixscale training backend, or the same recipe on Megatron.
 
-Trains Qwen3.8-27B (dense) or Qwen3.6-35B-A3B (MoE) with one tp4 sglang engine per node,
+Trains Qwen3.8-27B (dense) or Qwen3.5/3.6-35B-A3B (MoE) with one tp4 sglang engine per node,
 colocated by default, fully async with --fully-async. Expects the HF checkpoint under
 --model-dir and dapo-math-17k under --data-dir; radixscale must be importable on every node.
 
 Args:
     --train-backend: radixscale or megatron.
-    --model-name: Qwen3.8-27B or Qwen3.6-35B-A3B.
+    --model-name: Qwen3.8-27B, Qwen3.5-35B-A3B or Qwen3.6-35B-A3B.
     --fsdp-size / --ep-size / --expert-rep: radixscale dense FSDP group, expert parallel and
         expert replica sizes (0 = one NVLink domain / no replicas).
     --tp-size: Megatron tensor parallel size.
@@ -27,13 +27,17 @@ import typer
 
 from miles.utils.external_utils import command_utils
 
-_MEGATRON_MODEL_TYPE = {"Qwen3.8-27B": "qwen3.8-27B", "Qwen3.6-35B-A3B": "qwen3.6-35B-A3B"}
+_MEGATRON_MODEL_TYPE = {
+    "Qwen3.8-27B": "qwen3.8-27B",
+    "Qwen3.5-35B-A3B": "qwen3.5-35B-A3B",
+    "Qwen3.6-35B-A3B": "qwen3.6-35B-A3B",
+}
 
 
 @dataclass
 class ScriptArgs(command_utils.ExecuteTrainConfig):
     train_backend: Literal["radixscale", "megatron"] = "radixscale"
-    model_name: Literal["Qwen3.8-27B", "Qwen3.6-35B-A3B"] = "Qwen3.8-27B"
+    model_name: Literal["Qwen3.8-27B", "Qwen3.5-35B-A3B", "Qwen3.6-35B-A3B"] = "Qwen3.8-27B"
     fsdp_size: int = 0
     ep_size: int = 1
     expert_rep: int = 0
