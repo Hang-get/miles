@@ -9,15 +9,15 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager, nullcontext
 from types import ModuleType, SimpleNamespace
 from typing import Any
+
 import pytest
 import torch
 
+from miles.backends.training_utils.weight_update.checksum_utils import hash_tensor_sha256
 from miles.backends.training_utils.weight_update.protocols.utils.loader_probe import HfNameMapping
 from miles.backends.training_utils.weight_update.protocols.utils.rollout_engine_rank_assignment import (
     assign_rollout_engine_ranks_for_data_replica,
 )
-
-from miles.backends.training_utils.weight_update.checksum_utils import hash_tensor_sha256
 
 _FAILURE_BOUND = 10.0
 _WEIGHT_NUMEL = 4
@@ -310,7 +310,11 @@ class _P2PSenderHarness:
         return self._loaded_events.setdefault(tp_rank, threading.Event())
 
     def make_protocol(
-        self, *, p2p_transfer_timeout: float = _FAILURE_BOUND, update_weight_buffer_size: int = 1024, check_weight_transfer_checksum: bool = False
+        self,
+        *,
+        p2p_transfer_timeout: float = _FAILURE_BOUND,
+        update_weight_buffer_size: int = 1024,
+        check_weight_transfer_checksum: bool = False,
     ) -> Any:
         args = Namespace(
             hf_checkpoint="/model",

@@ -1,6 +1,3 @@
-
-import torch
-
 from miles.backends.training_utils.weight_update.checksum_utils import hash_tensor_sha256
 
 
