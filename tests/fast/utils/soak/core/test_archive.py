@@ -1,8 +1,10 @@
-import threading
+import asyncio
+import signal
 from pathlib import Path
 
 import pytest
-from tests.fast.utils.soak.soak_fakes import _at, _observation, _run_context
+from tests.fast.utils.soak.core.archive_fakes import _GatedCollector
+from tests.fast.utils.soak.soak_fakes import _at, _observation, _run_context, _wait_until
 from tests.utils.soak.core import archive as archive_module
 from tests.utils.soak.core.archive import archive_evidence
 from tests.utils.soak.core.event_log import EventLog
@@ -100,16 +102,18 @@ class TestArchiveEvidence:
 
     @pytest.mark.parametrize("name", ["", ".", "..", "../escape", "a/b"])
     async def test_a_source_name_that_is_not_a_plain_directory_name_is_refused(
-        self, tmp_path: Path, name: str
+        self, tmp_path: Path, name: str, capfd: pytest.CaptureFixture[str]
     ) -> None:
         """A source name cannot place archived files outside its own archive directory."""
         source = _make_source(tmp_path, "events", {"a.jsonl": "a\n"})
         log = EventLog(tmp_path / "evidence" / "events.jsonl")
         log.append(_run_context({name: source}, at=_at(0)))
 
-        with pytest.raises(AssertionError, match="Invalid evidence source name"):
+        with pytest.raises(RuntimeError, match="collection failed with exit code 1"):
             await archive_evidence(log)
-        assert not any(isinstance(event, SoakCollectionClosedEvent) for event in log.events)
+        assert "Invalid evidence source name" in capfd.readouterr().err
+        assert len(log.events) == 1
+        assert not (log.path.parent / "sources").exists()
 
     async def test_a_disk_log_that_differs_from_memory_is_not_closed(self, tmp_path: Path) -> None:
         """Collection refuses to close when the persisted log no longer matches what was recorded."""
@@ -121,42 +125,54 @@ class TestArchiveEvidence:
             await archive_evidence(log)
         assert not any(isinstance(event, SoakCollectionClosedEvent) for event in log.events)
 
-    async def test_a_copy_failure_propagates_and_leaves_the_log_open(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A failed copy must not be reported as archived evidence."""
+    async def test_a_copy_failure_propagates_and_leaves_the_log_open(self, tmp_path: Path) -> None:
+        """A failed child copy propagates its exit status without publishing archived or closed evidence."""
         source = _make_source(tmp_path, "events", {"a.jsonl": "a\n"})
         log = EventLog(tmp_path / "evidence" / "events.jsonl")
         log.append(_run_context({"training_events": source}, at=_at(0)))
+        target = log.path.parent / "sources" / "training_events" / source.name
+        target.parent.mkdir(parents=True)
+        target.write_text("existing destination")
 
-        def copytree(src: Path, dst: Path) -> None:
-            raise OSError("no space")
-
-        monkeypatch.setattr(archive_module.shutil, "copytree", copytree)
-
-        with pytest.raises(OSError, match="no space"):
+        with pytest.raises(RuntimeError, match="collection failed with exit code 1"):
             await archive_evidence(log)
+        assert target.read_text() == "existing destination"
+        assert not (log.path.parent / "archive_manifest.json").exists()
         assert len(log.events) == 1
 
-    async def test_a_collection_exceeding_its_bound_times_out_without_closing(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    async def test_a_collection_exceeding_its_bound_stops_the_child_without_closing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, blocked_collector: _GatedCollector
     ) -> None:
-        """A stuck copy fails the soak within the collection bound instead of hanging."""
-        source = _make_source(tmp_path, "events", {"a.jsonl": "a\n"})
+        """A timeout reaps the blocked collector before returning, so it cannot write after collection ends."""
         log = EventLog(tmp_path / "evidence" / "events.jsonl")
-        log.append(_run_context({"training_events": source}, at=_at(0)))
-        release = threading.Event()
-
-        def copytree(src: Path, dst: Path) -> None:
-            release.wait(timeout=10)
-            raise OSError("released after the test")
-
-        monkeypatch.setattr(archive_module.shutil, "copytree", copytree)
+        log.append(_run_context({"training_events": tmp_path / "events"}, at=_at(0)))
         monkeypatch.setattr(archive_module, "_COLLECTION_TIMEOUT_SECONDS", 0.05)
 
-        try:
-            with pytest.raises(TimeoutError, match="collection exceeded"):
-                await archive_evidence(log)
-            assert len(log.events) == 1
-        finally:
-            release.set()
+        with pytest.raises(TimeoutError, match="collection exceeded"):
+            await archive_evidence(log)
+
+        assert blocked_collector.started.is_set()
+        assert blocked_collector.exitcode_on_close in (-signal.SIGTERM, -signal.SIGKILL)
+        blocked_collector.release.set()
+        assert not (tmp_path / "late-write").exists()
+        assert not (log.path.parent / "archive_manifest.json").exists()
+        assert len(log.events) == 1
+
+    async def test_a_cancelled_collection_stops_the_child_without_closing(
+        self, tmp_path: Path, blocked_collector: _GatedCollector
+    ) -> None:
+        """Cancellation reaps the running collector before propagating and never closes partial evidence."""
+        log = EventLog(tmp_path / "evidence" / "events.jsonl")
+        log.append(_run_context({"training_events": tmp_path / "events"}, at=_at(0)))
+        task = asyncio.create_task(archive_evidence(log))
+        await _wait_until(blocked_collector.started.is_set)
+
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        assert blocked_collector.exitcode_on_close in (-signal.SIGTERM, -signal.SIGKILL)
+        blocked_collector.release.set()
+        assert not (tmp_path / "late-write").exists()
+        assert not (log.path.parent / "archive_manifest.json").exists()
+        assert len(log.events) == 1
