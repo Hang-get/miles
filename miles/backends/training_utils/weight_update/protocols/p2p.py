@@ -180,7 +180,7 @@ class UpdateWeightP2P(WeightTransferProtocol):
                 return
             if self._transport is None:
                 self._transport = MooncakeTransport()
-            remote_shards_by_runner_role = self._transport.connect(rollout_engines, assignments, runner_roles)
+            remote_shards_by_runner_role = self._transport.connect(self.cell_updaters_of_cell_id, engine_cell_ids, assignments, runner_roles)
             for runner_role in runner_roles:
                 if (
                     runner_sender := self._connect_runner(
