@@ -15,7 +15,9 @@ class FSDPHfWeightIterator(HfWeightIteratorBase):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._sync_dtypes: dict[str, torch.dtype] = getattr(self.model, "_fsdp_sync_dtypes", None) or {}  # config-access-exempt: only mixed-precision FSDP models carry original sync dtypes
+        self._sync_dtypes: dict[str, torch.dtype] = (
+            getattr(self.model, "_fsdp_sync_dtypes", None) or {}  # config-access-exempt: only mixed-precision FSDP models carry original sync dtypes
+        )
 
     def _iter_hf_param_units(self, weights, *, materialize):
         pending: deque[tuple[str, torch.Tensor, torch.Tensor]] = deque()
