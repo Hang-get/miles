@@ -10,7 +10,6 @@ from pathlib import Path
 
 import httpx
 import pytest
-
 from tests.utils.soak.core.config import SoakRunnerConfig
 from tests.utils.soak.core.event_log import EventLog
 from tests.utils.soak.core.events import (
@@ -44,8 +43,8 @@ from tests.utils.soak.ft.types import (
 from tests.utils.soak.k8s_utils.pod_manipulation import PodDeletedEvidence, SoakPodTarget
 from tests.utils.soak.k8s_utils.pod_processes import ProcessIdentity, ProcessTarget
 
-from miles.backends.training_utils.types import TrainStepOutcome
 from miles.backends.megatron_utils.megatron_config import ACTOR_ROLE
+from miles.backends.training_utils.types import TrainStepOutcome
 from miles.utils.audit_utils.event_logger.models import (
     CellReconfigureEvent,
     Event,

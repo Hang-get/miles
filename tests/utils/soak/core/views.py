@@ -14,8 +14,8 @@ from tests.utils.soak.core.events import (
 )
 from tests.utils.soak.core.types import SoakTarget
 
-from miles.backends.training_utils.types import TrainStepOutcome
 from miles.backends.megatron_utils.megatron_config import ACTOR_ROLE
+from miles.backends.training_utils.types import TrainStepOutcome
 from miles.utils.audit_utils.event_logger.logger import EVENTS_DIRNAME, read_events
 from miles.utils.audit_utils.event_logger.models import Event, TrainGroupStepEndEvent, WeightUpdateResultEvent
 from miles.utils.audit_utils.process_identity import TrainerControllerProcessIdentity
