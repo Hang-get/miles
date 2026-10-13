@@ -57,6 +57,14 @@ class _RolloutExecutorOutputSnapshotter:
         self._snapshots[key] = replace(entry, phase=_OutputSnapshotPhase.REPLAYED)
         return copy.deepcopy(entry)
 
+    def discard_completed(self, *, completed_rollout_ids: dict[str | None, int]) -> None:
+        self._snapshots = {
+            key: entry
+            for key, entry in self._snapshots.items()
+            if key.trainer_model_id not in completed_rollout_ids
+            or key.rollout_id > completed_rollout_ids[key.trainer_model_id]
+        }
+
     def save(self, directory: Path) -> None:
         save_simple_checkpoint(
             directory=directory,

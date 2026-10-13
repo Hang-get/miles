@@ -327,9 +327,12 @@ class RolloutExecutor:
 
     # TODO the train and eval rollout functions will become one object, so one save/load is enough here
     # async but never awaits: the RPC layer runs sync methods on a thread, and an await-free coroutine is atomic against the rollout coroutines on this loop
-    async def save(self, rollout_id: int) -> None:
+    async def save(self, rollout_id: int, completed_rollout_ids: dict[str, int] | None = None) -> None:
         assert self.args.save is not None, "the orchestration only saves when --save is set"
 
+        self._output_snapshotter.discard_completed(
+            completed_rollout_ids={None: rollout_id} if completed_rollout_ids is None else completed_rollout_ids
+        )
         target = compute_rollout_checkpoint_dir(self.args.save, rollout_id=rollout_id)
         with atomic_save_folder(target) as dir_temp:
             self.data_source.save(dir_temp / _DATA_SOURCE_DIRNAME)
@@ -342,7 +345,7 @@ class RolloutExecutor:
             self._output_snapshotter.save(dir_temp / _EXECUTOR_DIRNAME)
 
     # async but never awaits, for the same reason as save
-    async def load(self, rollout_id: int) -> None:
+    async def load(self, rollout_id: int, completed_rollout_ids: dict[str, int] | None = None) -> None:
         if self.args.load is None:
             logger.warning("no --load: the rollout side starts fresh")
             return
@@ -355,6 +358,9 @@ class RolloutExecutor:
         )
 
         self._output_snapshotter.load(directory / _EXECUTOR_DIRNAME)
+        self._output_snapshotter.discard_completed(
+            completed_rollout_ids={None: rollout_id} if completed_rollout_ids is None else completed_rollout_ids
+        )
         self.data_source.load(directory / _DATA_SOURCE_DIRNAME)
         if not self.use_legacy_rollout_v1:
             if self.generate_rollout is not None:

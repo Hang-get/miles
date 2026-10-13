@@ -521,6 +521,20 @@ class _CustomDataSource:
 
 
 class TestOneDirectoryPerRolloutCheckpoint:
+    async def test_checkpoint_progress_prunes_each_policy_on_save_and_load(self, tmp_path: Path) -> None:
+        """Only the matching model checkpoint can retire an executor snapshot."""
+        executor = _make_executor(tmp_path, _CountingRolloutFn())
+        for model_id in ["solver", "verifier"]:
+            executor._output_snapshotter.capture(
+                trainer_model_id=model_id, rollout_id=4, data=[Sample(index=4)], metadata={}
+            )
+        await executor.save(4, completed_rollout_ids={"solver": 4, "verifier": 2})
+        assert set(_load_executor_state(tmp_path, rollout_id=4)) == {("verifier", 4)}
+
+        restored = _make_executor(tmp_path, _CountingRolloutFn())
+        await restored.load(4, completed_rollout_ids={"solver": 4, "verifier": 4})
+        assert restored._output_snapshotter.get(trainer_model_id="verifier", rollout_id=4) is None
+
     async def test_the_directory_appears_only_after_every_component_saved(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

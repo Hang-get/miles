@@ -153,3 +153,45 @@ class TestRolloutExecutorOutputSnapshotter:
         resumed.load(tmp_path)
 
         assert resumed.get(trainer_model_id=None, rollout_id=3).data == [Sample(index=7, tokens=[1])]
+
+
+class TestCheckpointProgressPruning:
+    def test_repeated_restarts_keep_only_unfinished_batches(self, tmp_path: Path) -> None:
+        """Restored snapshots are retired by completed training rather than accumulating each restart."""
+        snapshotter = _RolloutExecutorOutputSnapshotter(args=_args())
+        for cycle in range(5):
+            first = cycle * 3
+            for rollout_id in range(first, first + 3):
+                snapshotter.capture(trainer_model_id=None, rollout_id=rollout_id, data=[], metadata={})
+            snapshotter.discard_completed(completed_rollout_ids={None: first + 1})
+            snapshotter.save(tmp_path)
+            snapshotter = _RolloutExecutorOutputSnapshotter(args=_args())
+            snapshotter.load(tmp_path)
+            assert len(snapshotter._snapshots) == 1
+            assert snapshotter.get(trainer_model_id=None, rollout_id=first + 2) is not None
+
+    def test_replayed_but_untrained_batch_survives_pruning(self, tmp_path: Path) -> None:
+        """Returning a batch does not make it part of the model checkpoint."""
+        snapshotter = _RolloutExecutorOutputSnapshotter(args=_args())
+        snapshotter.capture(trainer_model_id=None, rollout_id=3, data=[Sample(index=7)], metadata={})
+        snapshotter.save(tmp_path)
+        snapshotter = _RolloutExecutorOutputSnapshotter(args=_args())
+        snapshotter.load(tmp_path)
+        snapshotter.get(trainer_model_id=None, rollout_id=3)
+        snapshotter.discard_completed(completed_rollout_ids={None: 2})
+        snapshotter.save(tmp_path)
+        restored = _RolloutExecutorOutputSnapshotter(args=_args())
+        restored.load(tmp_path)
+        assert restored.get(trainer_model_id=None, rollout_id=3).data == [Sample(index=7)]
+
+    def test_each_policy_uses_its_own_completed_position(self, tmp_path: Path) -> None:
+        """A fast leader must not retire the slower policy's untrained snapshot."""
+        snapshotter = _RolloutExecutorOutputSnapshotter(args=_args())
+        for model_id in ["solver", "verifier"]:
+            snapshotter.capture(trainer_model_id=model_id, rollout_id=4, data=[Sample(index=4)], metadata={})
+        snapshotter.discard_completed(completed_rollout_ids={"solver": 4, "verifier": 2})
+        snapshotter.save(tmp_path)
+        restored = _RolloutExecutorOutputSnapshotter(args=_args())
+        restored.load(tmp_path)
+        assert restored.get(trainer_model_id="solver", rollout_id=4) is None
+        assert restored.get(trainer_model_id="verifier", rollout_id=4).data == [Sample(index=4)]
