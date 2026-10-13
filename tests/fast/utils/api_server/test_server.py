@@ -446,7 +446,9 @@ class TestStartApiServerRaw:
             await running.dispose()
         assert not running.thread.is_alive()
 
-    async def test_a_caller_supplied_host_overrides_the_loopback_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_a_caller_supplied_host_overrides_the_loopback_default(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Remote FT controllers are opted into by passing a wider bind host explicitly."""
         serving_threads: list[threading.Thread] = []
         start_and_wait_thread = server._start_and_wait_thread
@@ -492,9 +494,7 @@ class TestStartApiServerRaw:
 
 
 class TestApiServerHandle:
-    async def test_a_server_thread_that_does_not_stop_fails_disposal(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_a_server_thread_that_does_not_stop_fails_disposal(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Disposal requests shutdown but refuses to report success while its bounded join leaves a live thread."""
         release = threading.Event()
         thread = threading.Thread(target=release.wait, kwargs={"timeout": 5.0}, daemon=True)
