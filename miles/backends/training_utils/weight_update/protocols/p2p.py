@@ -96,7 +96,7 @@ class UpdateWeightP2P(WeightTransferProtocol):
         return True
 
     def after_base_weights(self) -> None:
-        """Wait for every write of this update; fail the update if any write failed or is still running."""
+        """Wait for healthy cells and isolate cells with failed or timed-out writes."""
         if not self.is_sender:
             return
         self._transfer_buffers.wait_for_all_writes()
@@ -141,7 +141,7 @@ class UpdateWeightP2P(WeightTransferProtocol):
                 param_bytes_by_name = target.model_replica.load_into(buffer, param_names, hf_tensors)
                 writes = self._transport.write(target.remote_shards, param_bytes_by_name)
                 pending_writes = [
-                    PendingWrite(remote_shard=shard, future=write)
+                    PendingWrite(future=write, cell_updater=self.cell_updaters_of_cell_id[self._engine_cell_ids[shard.rollout_engine_ind]])
                     for shard, write in zip(target.remote_shards, writes, strict=True)
                 ]
                 self._transfer_buffers.release_after(buffer, pending_writes)
@@ -163,6 +163,7 @@ class UpdateWeightP2P(WeightTransferProtocol):
         )
 
         self.rollout_engines = rollout_engines
+        self._engine_cell_ids = tuple(engine_cell_ids)
         self.cell_updaters_of_cell_id = {
             cell_id: _P2PRolloutCellUpdater(args=self.args, cell_id=cell_id, api_client=api_client)
             for api_client, cell_id in zip(rollout_engines, engine_cell_ids, strict=True)
