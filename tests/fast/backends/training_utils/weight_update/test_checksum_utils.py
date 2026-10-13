@@ -85,13 +85,21 @@ class TestVerifyTransferChecksums:
         with pytest.raises(AssertionError, match="engine reported failure"):
             _verify({"w": "h1"}, _body(_rank_record(0, {"w": "h1"}), success=False))
 
-    @pytest.mark.parametrize("ranks", [[1], [0, 0]], ids=["missing", "duplicated"])
-    def test_the_written_rank_must_appear_exactly_once(self, ranks: list[int]) -> None:
-        """No record or two records for one rank leaves no single answer to compare."""
-        body = _body(*[_rank_record(rank, {"w": "h1"}) for rank in ranks])
+    def test_the_written_rank_must_have_a_checksum_record(self) -> None:
+        """A receiver that reports only another rank has not verified the written shard."""
+        body = _body(_rank_record(1, {"w": "h1"}))
 
-        with pytest.raises(AssertionError, match="expected one checksum record for GPU rank 0"):
+        with pytest.raises(AssertionError, match="expected checksum records for GPU rank 0, got none"):
             _verify({"w": "h1"}, body)
+
+    def test_identical_repeated_records_for_the_written_rank_are_accepted(self) -> None:
+        """Repeated receiver records provide one unambiguous checksum only when all of them agree."""
+        _verify({"w": "h1"}, _body(_rank_record(0, {"w": "h1"}), _rank_record(0, {"w": "h1"})))
+
+    def test_conflicting_repeated_records_for_the_written_rank_are_rejected(self) -> None:
+        """Accepting the first matching record would conceal a later contradictory receiver checksum."""
+        with pytest.raises(AssertionError, match="conflicting checksum records for GPU rank 0"):
+            _verify({"w": "h1"}, _body(_rank_record(0, {"w": "h1"}), _rank_record(0, {"w": "bad"})))
 
     def test_roles_disagreeing_on_the_gpu_rank_are_rejected(self) -> None:
         """A record whose roles name two GPU ranks cannot be attributed to one written rank."""
