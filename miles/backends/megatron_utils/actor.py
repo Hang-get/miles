@@ -934,7 +934,6 @@ class MegatronTrainRayActor(TrainRayActor):
             return WeightUpdateOutput(weight_version=None, failed_cell_ids=())
 
         assert self.weight_updater is not None, "weight update requires a weight updater"
-        rollout_engines = info.rollout_engines
 
         process_groups_are_temporary = self.args.offload_train and self._asleep
         if process_groups_are_temporary:

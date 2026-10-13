@@ -1,17 +1,12 @@
 import logging
 from argparse import Namespace
 from concurrent.futures import Future, ThreadPoolExecutor
-from datetime import datetime, timezone
 from typing import Any
 
 from miles.backends.sglang_utils.sglang_api_client import SGLangApiClient
 from miles.backends.training_utils.weight_update import checksum_utils
 from miles.backends.training_utils.weight_update.protocols.p2p_transfer_utils import RemoteWeightInfo
 from miles.backends.training_utils.weight_update.rollout_cell_updater import _RolloutCellUpdater
-from miles.utils.audit_utils.event_logger.logger import get_event_logger, is_event_logger_initialized
-from miles.utils.audit_utils.event_logger.models import WeightTransferFailedEvent
-from miles.utils.test_utils.fault_injector.controller import fault_hook_controller, reach_fault_hook
-from miles.utils.test_utils.fault_injector.models import FaultHookName
 
 
 logger = logging.getLogger(__name__)
