@@ -3,7 +3,6 @@ import dataclasses
 import importlib
 import sys
 from argparse import Namespace
-from collections import Counter
 from contextlib import contextmanager
 from types import ModuleType
 

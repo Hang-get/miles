@@ -58,8 +58,6 @@ class TestConnectFiltersPeersWithoutMetadata:
         assert api.calls == []
 
 
-
-
 class TestSendBucket:
     def test_a_fused_parameter_is_loaded_and_written_only_once_every_shard_arrived(
         self, p2p_sender: Any, make_rollout_api: Any, make_bucket: Any

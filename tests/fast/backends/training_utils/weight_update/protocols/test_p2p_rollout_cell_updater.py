@@ -6,8 +6,6 @@ from argparse import Namespace
 from types import ModuleType
 from typing import Any
 
-import pytest
-
 
 class _RecordingTransferEngine:
     def __init__(self, return_code: int = 0, error: Exception | None = None, gate: threading.Event | None = None):
