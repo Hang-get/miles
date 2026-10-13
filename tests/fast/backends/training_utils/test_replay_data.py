@@ -159,7 +159,7 @@ def test_fill_replay_thd_preserves_packed_order(monkeypatch, sequence_first, tp_
 
 
 @pytest.mark.parametrize("dtype", [torch.uint8, torch.int16])
-def test_fill_replay_widens_narrow_rollout_ids_for_gather(monkeypatch, dtype):
+def test_fill_replay_stores_narrow_rollout_ids_as_int16_with_padding(monkeypatch, dtype):
     args = SimpleNamespace(qkv_format="thd", allgather_cp=False, sequence_parallel=False, data_pad_size_multiplier=1)
     state = SimpleNamespace(cp=SimpleNamespace(size=1, rank=0), tp=SimpleNamespace(size=1, rank=0))
     monkeypatch.setattr(parallel, "_parallel_state", state)
@@ -184,5 +184,5 @@ def test_fill_replay_widens_narrow_rollout_ids_for_gather(monkeypatch, dtype):
         register_replay_list_func=register_replay_list_sequential,
     )
     recorded = replay.recorded[0][:, 0]
-    assert recorded.dtype == torch.int32
-    torch.testing.assert_close(recorded, torch.tensor([0, 255, -1, 7, 9, -1], dtype=torch.int32))
+    assert recorded.dtype == torch.int16
+    torch.testing.assert_close(recorded, torch.tensor([0, 255, -1, 7, 9, -1], dtype=torch.int16))
