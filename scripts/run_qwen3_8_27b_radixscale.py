@@ -7,9 +7,11 @@ colocated by default, fully async with --fully-async. Expects the HF checkpoint 
 Args:
     --train-backend: radixscale or megatron.
     --model-name: Qwen3.8-27B, Qwen3.5-35B-A3B or Qwen3.6-35B-A3B.
-    --fsdp-size / --ep-size / --expert-rep: radixscale dense FSDP group, expert parallel and
-        expert replica sizes (0 = one NVLink domain / no replicas).
-    --cp-size: radixscale context parallel size (GDN layers run it as a head all_to_all).
+    --fsdp-size / --cp-size: radixscale dense FSDP group and context parallel size (GDN layers run
+        cp as a head all_to_all); the default fsdp 4 x cp 4 spans 16 GPUs and fits 128k samples.
+    --ep-size / --expert-rep: radixscale expert parallel and expert replica sizes.
+    --max-tokens-per-gpu: microbatch token budget; under radixscale cp it is split across the cp group,
+        and it must hold the longest sample.
     --tp-size: Megatron tensor parallel size.
     --recompute / --recompute-skip-layers: activation recompute, and the number of layers that
         keep their activations instead (radixscale).
@@ -19,11 +21,13 @@ Args:
 
 Examples:
     python3 scripts/run_qwen3_8_27b_radixscale.py --num-nodes 4 --model-name Qwen3.6-35B-A3B \
-        --fsdp-size 16 --ep-size 4 --max-tokens-per-gpu 65536 --recompute-skip-layers 16
-    python3 scripts/run_qwen3_8_27b_radixscale.py --num-nodes 4 --train-backend megatron --tp-size 2 --no-recompute
-    # 128k context on 2x8 H200 (100 s actor per 131072-token sample per GPU, peak 77/97 GB)
-    python3 scripts/run_qwen3_8_27b_radixscale.py --num-nodes 2 --num-gpus-per-node 8 \
-        --rollout-max-response-len 131072 --fsdp-size 16 --max-tokens-per-gpu 131072 --recompute-host-inputs
+        --fsdp-size 16 --cp-size 1 --ep-size 4 --max-tokens-per-gpu 65536 --recompute-skip-layers 16
+    python3 scripts/run_qwen3_8_27b_radixscale.py --num-nodes 4 --train-backend megatron --tp-size 2 --no-recompute \
+        --max-tokens-per-gpu 16384
+    # 128k context on 2x8 H200, 16 x 8 samples (fsdp 4 x cp 4 by default; peak 66/87 GB at one
+    # 131072-token sample per cp group; --fsdp-size 16 --cp-size 1 --recompute-host-inputs is 3%
+    # faster on uniform 128k samples: 812 s actor per step, peak 79/97 GB)
+    python3 scripts/run_qwen3_8_27b_radixscale.py --num-nodes 2 --num-gpus-per-node 8 --rollout-max-response-len 131072
 """
 
 from dataclasses import dataclass
@@ -44,15 +48,15 @@ _MEGATRON_MODEL_TYPE = {
 class ScriptArgs(command_utils.ExecuteTrainConfig):
     train_backend: Literal["radixscale", "megatron"] = "radixscale"
     model_name: Literal["Qwen3.8-27B", "Qwen3.5-35B-A3B", "Qwen3.6-35B-A3B"] = "Qwen3.8-27B"
-    fsdp_size: int = 0
-    cp_size: int = 1
+    fsdp_size: int = 4
+    cp_size: int = 4
     ep_size: int = 1
     expert_rep: int = 0
     tp_size: int = 4
     recompute: bool = True
     recompute_skip_layers: int = 0
     recompute_host_inputs: bool = False
-    max_tokens_per_gpu: int = 16384
+    max_tokens_per_gpu: int = 131072
     num_gpus_per_node: int = 4
     num_rollout: int = 20
     rollout_batch_size: int = 16
