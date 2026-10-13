@@ -47,7 +47,7 @@ def test_production_family_construction(tokenizer):
     }
 
 
-@pytest.mark.parametrize("effort", ["minimal", "low", "medium", "high", "xhigh"])
+@pytest.mark.parametrize("effort", ["low", "medium", "high", "xhigh"])
 @pytest.mark.parametrize("tool_prefix", [False, True])
 @pytest.mark.parametrize("role", ["tool", "user", "system", "assistant"])
 def test_fixed_append_roles(tokenizer, effort, tool_prefix, role):

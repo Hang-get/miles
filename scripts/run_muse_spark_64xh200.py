@@ -62,7 +62,7 @@ class ScriptArgs(U.ExecuteTrainConfig):
     log_probs_chunk_size: int = 4096
     use_rollout_routing_replay: bool = True
     update_weight_buffer_size: int = 2 * 1024**3
-    reasoning_effort: Literal["minimal", "low", "medium", "high", "xhigh"] | None = "xhigh"
+    reasoning_effort: Literal["low", "medium", "high", "xhigh"] | None = "xhigh"
     chat_template_path: str | None = None
     offload_train_disk_dir: str | None = None
     sglang_mem_fraction_static: float = 0.8
