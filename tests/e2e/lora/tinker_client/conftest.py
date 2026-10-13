@@ -2,13 +2,14 @@ import asyncio
 from types import SimpleNamespace
 
 import pytest
-import tinker
 from aiohttp.test_utils import TestServer
 from tinker_cookbook.capture import CaptureExporter, capture, instrument_tinker, uninstrument_tinker
 from tinker_cookbook.capture.store.app import make_app
 from tinker_cookbook.capture.store.client import CaptureSession, StoreSink
 from tinker_cookbook.capture.store.db import CaptureDB
 from tinker_cookbook.renderers.role_colon import RoleColonRenderer
+
+import tinker
 
 
 class Tokenizer:

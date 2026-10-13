@@ -2,11 +2,12 @@ import asyncio
 
 import httpx
 import pytest
-import tinker
 from tinker_agent.proxy import serve_proxy
 from tinker_agent.trajectory import flush_capture, read_samples, rows_to_trajectory
 from tinker_cookbook.capture import capture
 from tinker_cookbook.capture.store.client import StoreSink
+
+import tinker
 
 
 @pytest.mark.asyncio
@@ -26,9 +27,11 @@ async def test_capture_groups_are_isolated_and_ordered_by_call_time(capture_stor
     tasks = []
     for group, token in [(0, 10), (0, 20), (1, 30)]:
         with capture(run_id="test", group_idx=group, traj_idx=0):
-            tasks.append(asyncio.create_task(sampler.sample_async(
-                tinker.ModelInput.from_ints([token]), 1, tinker.SamplingParams(max_tokens=8)
-            )))
+            tasks.append(
+                asyncio.create_task(
+                    sampler.sample_async(tinker.ModelInput.from_ints([token]), 1, tinker.SamplingParams(max_tokens=8))
+                )
+            )
         assert await started.get() == token
     for index, token in [(1, 20), (2, 30), (0, 10)]:
         results[token].set_result(None)
@@ -91,12 +94,15 @@ async def test_proxy_shutdown_waits_for_accepted_samples(capture_store, sampler_
 
     sampler.complete = complete
     async with httpx.AsyncClient() as http:
+
         async def serve():
             async with serve_proxy(renderer, sampler, model_label="policy", default_max_tokens=8) as port:
-                request = asyncio.create_task(http.post(
-                    f"http://127.0.0.1:{port}/r/run/test/traj/0/v1/chat/completions",
-                    json={"messages": [{"role": "user", "content": "hi"}]},
-                ))
+                request = asyncio.create_task(
+                    http.post(
+                        f"http://127.0.0.1:{port}/r/run/test/traj/0/v1/chat/completions",
+                        json={"messages": [{"role": "user", "content": "hi"}]},
+                    )
+                )
                 await entered.wait()
                 closing.set()
             response = await request

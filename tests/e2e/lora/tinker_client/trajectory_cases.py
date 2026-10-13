@@ -4,8 +4,12 @@ from tinker_cookbook.rl.data_processing import trajectory_to_data
 
 
 def row(prompt, tokens, logprobs, stop_reason):
-    return {"prompt_tokens": list(prompt), "sampled_tokens": list(tokens), "logprobs": list(logprobs),
-            "metadata": {"status": "ok", "num_samples": 1, "stop_reason": stop_reason}}
+    return {
+        "prompt_tokens": list(prompt),
+        "sampled_tokens": list(tokens),
+        "logprobs": list(logprobs),
+        "metadata": {"status": "ok", "num_samples": 1, "stop_reason": stop_reason},
+    }
 
 
 @pytest.mark.parametrize(

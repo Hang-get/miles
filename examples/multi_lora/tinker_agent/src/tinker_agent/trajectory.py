@@ -1,10 +1,11 @@
 import asyncio
 
 import aiohttp
-import tinker
 from tinker_cookbook.capture.instrument import current_exporter
 from tinker_cookbook.completers import TokensWithLogprobs
 from tinker_cookbook.rl.types import Trajectory, Transition
+
+import tinker
 
 
 async def flush_capture():
@@ -42,22 +43,30 @@ def rows_to_trajectory(rows, stop_reason: str) -> Trajectory:
         assert row["metadata"]["status"] == "ok"
         assert row["metadata"]["num_samples"] == 1
         assert row["logprobs"] is not None and len(row["sampled_tokens"]) == len(row["logprobs"])
-        transitions.append(Transition(
-            ob=tinker.ModelInput.from_ints(row["prompt_tokens"]),
-            ac=TokensWithLogprobs(
-                tokens=row["sampled_tokens"], maybe_logprobs=row["logprobs"],
-                stop_reason=row["metadata"]["stop_reason"],
-            ),
-            reward=0.0,
-            episode_done=index == len(rows) - 1,
-        ))
+        transitions.append(
+            Transition(
+                ob=tinker.ModelInput.from_ints(row["prompt_tokens"]),
+                ac=TokensWithLogprobs(
+                    tokens=row["sampled_tokens"],
+                    maybe_logprobs=row["logprobs"],
+                    stop_reason=row["metadata"]["stop_reason"],
+                ),
+                reward=0.0,
+                episode_done=index == len(rows) - 1,
+            )
+        )
     if not transitions:
-        transitions = [Transition(
-            ob=tinker.ModelInput.empty(), ac=TokensWithLogprobs(tokens=[], maybe_logprobs=[]),
-            reward=0.0, episode_done=True,
-        )]
+        transitions = [
+            Transition(
+                ob=tinker.ModelInput.empty(),
+                ac=TokensWithLogprobs(tokens=[], maybe_logprobs=[]),
+                reward=0.0,
+                episode_done=True,
+            )
+        ]
     final_ob = (
         tinker.ModelInput.from_ints([*rows[-1]["prompt_tokens"], *rows[-1]["sampled_tokens"]])
-        if rows else tinker.ModelInput.empty()
+        if rows
+        else tinker.ModelInput.empty()
     )
     return Trajectory(transitions=transitions, final_ob=final_ob, stop_reason=stop_reason)

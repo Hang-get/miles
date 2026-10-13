@@ -58,7 +58,9 @@ async def test_capture_preserves_official_proxy_behavior(endpoint, extra, render
                     **extra,
                 }
                 path = f"/r/run/test/traj/0/v1/{endpoint}"
-                expected = await http.post(str(official.make_url(path.replace("/run/test/", "/run/official/"))), json=body)
+                expected = await http.post(
+                    str(official.make_url(path.replace("/run/test/", "/run/official/"))), json=body
+                )
                 actual = await http.post(f"http://127.0.0.1:{port}{path}", json=body)
                 assert actual.status_code == expected.status_code
                 assert response_payload(actual) == response_payload(expected)

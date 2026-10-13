@@ -5,12 +5,13 @@ import asyncio
 import tempfile
 
 import httpx
-import tinker
 from tinker_agent.proxy import serve_proxy
 from tinker_agent.trajectory import flush_capture, read_samples, rows_to_trajectory
 from tinker_cookbook import renderers
 from tinker_cookbook.capture.store import capture_to_store
 from tinker_cookbook.rl.data_processing import trajectory_to_data
+
+import tinker
 
 
 async def execute(base_url, base_model, store_url):
@@ -61,7 +62,9 @@ async def execute(base_url, base_model, store_url):
     trained = await (await training.save_weights_for_sampler_async(name="session-trained"))
     updated_sampler = await service.create_sampling_client_async(model_path=trained.path)
     response = await updated_sampler.sample_async(
-        prompt=sent[0].model_input, num_samples=1, sampling_params=tinker.SamplingParams(max_tokens=4),
+        prompt=sent[0].model_input,
+        num_samples=1,
+        sampling_params=tinker.SamplingParams(max_tokens=4),
     )
     assert response.sequences[0].tokens
     assert len(response.sequences[0].tokens) == len(response.sequences[0].logprobs)
@@ -74,6 +77,8 @@ if __name__ == "__main__":
     parser.add_argument("--base-model", required=True)
     args = parser.parse_args()
     with capture_to_store(
-        "acceptance", data_dir=tempfile.mkdtemp(prefix="tinker-capture-"), idle_shutdown_minutes=1,
+        "acceptance",
+        data_dir=tempfile.mkdtemp(prefix="tinker-capture-"),
+        idle_shutdown_minutes=1,
     ) as captured:
         asyncio.run(execute(args.base_url, args.base_model, captured.base_url))
