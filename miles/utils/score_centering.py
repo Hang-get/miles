@@ -25,19 +25,34 @@ def validate_score_centering_args(args: Namespace) -> None:
     if args.advantage_estimator != "grpo":
         raise ValueError("Score centering currently supports --advantage-estimator grpo (group-centered rewards)")
     incompatible = {
-        "use_tis": "use --score-centering-is instead",
-        "custom_tis_function_path": "only the built-in score-centering TIS/MIS weights are supported",
-        "use_opsm": "sequence masking changes the score-centering estimator",
-        "true_on_policy_mode": "score centering uses float32 probability arithmetic",
-        "recompute_logprobs_via_prefill": "sampler probabilities must be recorded at generation time",
-        "sglang_speculative_algorithm": "speculative candidate-logprob semantics are not verified",
-        "custom_pg_loss_reducer_function_path": "use the standard token/sample reducer",
-        "multi_lora": "per-sample Tinker losses bypass the score-centering loss",
-        "use_opd": "distillation composition is not supported",
-        "custom_convert_samples_to_train_data_path": "custom converters skip rollout top-k logprobs validation",
+        "use_tis": (args.use_tis, "use --score-centering-is instead"),
+        "custom_tis_function_path": (
+            args.custom_tis_function_path,
+            "only the built-in score-centering TIS/MIS weights are supported",
+        ),
+        "use_opsm": (args.use_opsm, "sequence masking changes the score-centering estimator"),
+        "true_on_policy_mode": (args.true_on_policy_mode, "score centering uses float32 probability arithmetic"),
+        "recompute_logprobs_via_prefill": (
+            args.recompute_logprobs_via_prefill,
+            "sampler probabilities must be recorded at generation time",
+        ),
+        "sglang_speculative_algorithm": (
+            args.sglang_speculative_algorithm,
+            "speculative candidate-logprob semantics are not verified",
+        ),
+        "custom_pg_loss_reducer_function_path": (
+            args.custom_pg_loss_reducer_function_path,
+            "use the standard token/sample reducer",
+        ),
+        "multi_lora": (args.multi_lora, "per-sample Tinker losses bypass the score-centering loss"),
+        "use_opd": (args.use_opd, "distillation composition is not supported"),
+        "custom_convert_samples_to_train_data_path": (
+            args.custom_convert_samples_to_train_data_path,
+            "custom converters skip rollout top-k logprobs validation",
+        ),
     }
-    for option, reason in incompatible.items():
-        if vars(args).get(option):
+    for option, (enabled, reason) in incompatible.items():
+        if enabled:
             raise ValueError(f"Score centering is incompatible with --{option.replace('_', '-')}: {reason}")
     if os.environ.get("SGLANG_RETURN_ORIGINAL_LOGPROB", "").lower() in ("1", "true"):
         raise ValueError("Score centering requires SGLANG_RETURN_ORIGINAL_LOGPROB=0 on rollout servers")
