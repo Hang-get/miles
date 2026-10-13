@@ -2,7 +2,6 @@ import socket
 from contextlib import asynccontextmanager
 
 from aiohttp import web
-from tinker_agent.recording import RecordingSampler
 from tinker_cookbook.capture.proxy.app import ProxyDeps, make_app
 from tinker_cookbook.capture.proxy.serve import validate_bind
 
@@ -10,7 +9,7 @@ from tinker_cookbook.capture.proxy.serve import validate_bind
 @asynccontextmanager
 async def serve_proxy(
     renderer,
-    recorder: RecordingSampler,
+    sampling_client,
     *,
     model_label: str,
     default_max_tokens: int,
@@ -21,7 +20,7 @@ async def serve_proxy(
     app = make_app(
         ProxyDeps(
             renderer=renderer,
-            sampling_client=recorder,
+            sampling_client=sampling_client,
             model_label=model_label,
             default_max_tokens=default_max_tokens,
         ),
