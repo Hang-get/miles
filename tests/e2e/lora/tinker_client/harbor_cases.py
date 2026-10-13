@@ -1,4 +1,5 @@
 import json
+import os
 import pickle
 import subprocess
 import sys
@@ -208,8 +209,10 @@ def test_installed_cli_help_lists_official_and_harbor_options():
         [sys.executable, "-I", "-m", "tinker_agent.train", "--help"],
         capture_output=True,
         text=True,
+        # chz re-raises CLI help under pytest; exercise its normal shell behavior.
+        env={key: value for key, value in os.environ.items() if key != "PYTEST_VERSION"},
     )
-    assert result.stderr == ""
+    assert result.stderr == "", result.stderr
     assert "config.rolling_save_every" in result.stdout
     assert "config.dataset_builder.tasks_dir" in result.stdout
     assert "harbor.trial_config" in result.stdout
