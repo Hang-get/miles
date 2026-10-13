@@ -6,10 +6,8 @@ trainer widens them before padding.
 """
 
 import numpy as np
+from sglang.srt.state_capturer.routed_experts_codec import ROUTED_EXPERTS_DTYPES  # noqa: F401  (re-exported)
 from sglang.srt.state_capturer.routed_experts_codec import decode_routed_experts as _decode_payload
-
-# The capturer's host dtypes: uint8 up to 256 experts, int16 beyond, int32 without expert metadata.
-ROUTED_EXPERTS_DTYPES = (np.dtype(np.uint8), np.dtype(np.int16), np.dtype(np.int32))
 
 
 def decode_routed_experts(

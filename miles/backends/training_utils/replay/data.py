@@ -82,8 +82,8 @@ def fill_replay_data(
         for a, b in zip(replay_data, tokens, strict=False):
             assert a.shape[0] == b.shape[0] - 1, f"{a.shape}, {b.shape}"
 
-        # rollout ships unsigned expert ids; the -1 padding needs a signed dtype
-        replay_data = [r if r.dtype.is_signed else r.to(torch.int32) for r in replay_data]
+        # rollout ships narrow expert ids (uint8/int16); gather takes int32/int64 indices
+        replay_data = [r if r.dtype in (torch.int32, torch.int64) else r.to(torch.int32) for r in replay_data]
         # Pad replay data to align with the token batch's final token. The padded token is masked from loss.
         # TODO: fuse this padding with the following slice_with_cp to reduce memory copy.
         replay_data = [pad_func(r, 1) for r in replay_data]
