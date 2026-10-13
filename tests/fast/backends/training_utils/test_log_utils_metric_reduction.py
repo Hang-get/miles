@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pytest
 import torch
 
-from miles.backends.training_utils import cp_utils
+from miles.backends.training_utils.data import context_parallel as cp_utils
 from miles.backends.training_utils.metrics import log_utils
 
 
