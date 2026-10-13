@@ -9,15 +9,21 @@ Args:
     --model-name: Qwen3.8-27B, Qwen3.5-35B-A3B or Qwen3.6-35B-A3B.
     --fsdp-size / --ep-size / --expert-rep: radixscale dense FSDP group, expert parallel and
         expert replica sizes (0 = one NVLink domain / no replicas).
+    --cp-size: radixscale context parallel size (GDN layers run it as a head all_to_all).
     --tp-size: Megatron tensor parallel size.
     --recompute / --recompute-skip-layers: activation recompute, and the number of layers that
         keep their activations instead (radixscale).
+    --recompute-host-inputs: park each recomputed layer's input in pinned host memory (radixscale,
+        long sequences).
     --debug-mode: rollout saves rollouts to --debug-data; train replays them without engines.
 
 Examples:
     python3 scripts/run_qwen3_8_27b_radixscale.py --num-nodes 4 --model-name Qwen3.6-35B-A3B \
         --fsdp-size 16 --ep-size 4 --max-tokens-per-gpu 65536 --recompute-skip-layers 16
     python3 scripts/run_qwen3_8_27b_radixscale.py --num-nodes 4 --train-backend megatron --tp-size 2 --no-recompute
+    # 128k context on 2x8 H200 (100 s actor per 131072-token sample per GPU, peak 77/97 GB)
+    python3 scripts/run_qwen3_8_27b_radixscale.py --num-nodes 2 --num-gpus-per-node 8 \
+        --rollout-max-response-len 131072 --fsdp-size 16 --max-tokens-per-gpu 131072 --recompute-host-inputs
 """
 
 from dataclasses import dataclass
@@ -39,11 +45,13 @@ class ScriptArgs(command_utils.ExecuteTrainConfig):
     train_backend: Literal["radixscale", "megatron"] = "radixscale"
     model_name: Literal["Qwen3.8-27B", "Qwen3.5-35B-A3B", "Qwen3.6-35B-A3B"] = "Qwen3.8-27B"
     fsdp_size: int = 0
+    cp_size: int = 1
     ep_size: int = 1
     expert_rep: int = 0
     tp_size: int = 4
     recompute: bool = True
     recompute_skip_layers: int = 0
+    recompute_host_inputs: bool = False
     max_tokens_per_gpu: int = 16384
     num_gpus_per_node: int = 4
     num_rollout: int = 20
@@ -107,7 +115,9 @@ def execute(args: ScriptArgs) -> None:
             f"--max-tokens-per-gpu {args.max_tokens_per_gpu} "
             f"{'--gradient-checkpointing ' if args.recompute else ''}"
             f"--radixscale-recompute-skip-layers {args.recompute_skip_layers} "
+            f"{'--radixscale-recompute-host-inputs ' if args.recompute_host_inputs else ''}"
             f"--radixscale-fsdp-size {args.fsdp_size} "
+            f"--radixscale-cp-size {args.cp_size} "
             f"--expert-model-parallel-size {args.ep_size} "
             f"--radixscale-expert-rep {args.expert_rep} "
             "--log-probs-chunk-size 4096 "

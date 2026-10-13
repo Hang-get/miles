@@ -36,6 +36,21 @@ def get_gloo_group():
     return GLOO_GROUP
 
 
+def gloo_subgroup(my_ranks: list[int]):
+    """Gloo group over my_ranks; every rank must call it, since each distinct rank list is created collectively."""
+    if len(my_ranks) == dist.get_world_size():
+        return get_gloo_group()
+
+    all_lists: list = [None] * dist.get_world_size()
+    dist.all_gather_object(all_lists, my_ranks)
+    my_group = None
+    for ranks in sorted({tuple(lst) for lst in all_lists}):
+        group = dist.new_group(list(ranks), backend="gloo")
+        if dist.get_rank() in ranks:
+            my_group = group
+    return my_group
+
+
 @contextmanager
 def one_rank_at_a_time():
     for rank in range(dist.get_world_size()):

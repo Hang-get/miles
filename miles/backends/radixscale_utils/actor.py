@@ -3,9 +3,9 @@ from pathlib import Path
 
 import torch
 import torch.distributed as dist
-from radixscale.mesh import build_mesh
+from radixscale.mesh import RadixMesh, build_mesh
 from radixscale.models.registry import build_model
-from radixscale.packing import IGNORE_LABEL, CpShard, PackedBatch
+from radixscale.packing import IGNORE_LABEL, CpShard, PackedBatch, split_for_cp
 from radixscale.spec import ParallelSpec
 from radixscale.train import checkpoint
 from radixscale.train.trainer import clip_grad_norm
@@ -69,6 +69,48 @@ def _cp1_shard(batch: dict) -> CpShard:
     )
 
 
+def _cp_shard(batch: dict, mesh: RadixMesh) -> tuple[CpShard, torch.Tensor]:
+    """This rank's zig-zag shard of the microbatch, and the rows of the cp all_gather that
+    restore miles' unpadded token order."""
+    tokens = batch["tokens"][0]
+    on_host = torch.stack([tokens, _next_token_labels(batch), batch["position_ids"][0]]).cpu()
+    bounds = batch["cu_seqlens_host"]
+    pack = PackedBatch(
+        input_ids=on_host[0],
+        labels=on_host[1],
+        position_ids=on_host[2],
+        cu_seqlens=torch.tensor(bounds, dtype=torch.int32),
+        max_seqlen=int(batch["max_seqlen"]),
+    )
+    shard = split_for_cp(pack, mesh.spec.cp)[mesh.cp_rank]
+    starts = torch.tensor(bounds[:-1], dtype=torch.long)
+    lengths = torch.tensor(bounds[1:], dtype=torch.long) - starts
+    pad_offsets = shard.global_cu_seqlens[:-1].long() - starts
+    real_rows = torch.arange(bounds[-1]) + torch.repeat_interleave(pad_offsets, lengths)
+    take = shard.gather_index[real_rows]
+    return shard.to(tokens.device), take.to(tokens.device)
+
+
+class _CpGather(torch.autograd.Function):
+    """All-gather per-token outputs over the cp group into miles' token order. Every cp rank
+    computes the same loss on the gathered tensor, so backward keeps only this rank's rows."""
+
+    @staticmethod
+    def forward(ctx, local: torch.Tensor, take: torch.Tensor, mesh: RadixMesh) -> torch.Tensor:
+        parts = [torch.empty_like(local) for _ in range(mesh.spec.cp)]
+        dist.all_gather(parts, local.contiguous(), group=mesh.cp_group)
+        ctx.save_for_backward(take)
+        ctx.local_rows, ctx.mesh = local.shape[0], mesh
+        return torch.cat(parts)[take]
+
+    @staticmethod
+    def backward(ctx, grad: torch.Tensor) -> tuple[torch.Tensor, None, None]:
+        (take,) = ctx.saved_tensors
+        gathered = grad.new_zeros(ctx.mesh.spec.cp * ctx.local_rows)
+        gathered[take] = grad
+        return gathered.view(ctx.mesh.spec.cp, ctx.local_rows)[ctx.mesh.cp_rank], None, None
+
+
 def _next_token_labels(batch: dict) -> torch.Tensor:
     tokens = batch["tokens"][0]
     sample_ends = torch.tensor(batch["cu_seqlens_host"][1:], dtype=torch.long) - 1
@@ -113,12 +155,14 @@ class RadixscaleTrainRayActor(TorchNativeTrainRayActor):
 
         world = dist.get_world_size()
         nvlink = int(os.environ.get("LOCAL_WORLD_SIZE", args.actor_num_gpus_per_node))
-        fsdp = args.radixscale_fsdp_size or nvlink
+        cp = args.radixscale_cp_size
+        fsdp = args.radixscale_fsdp_size or nvlink // cp
         spec = ParallelSpec.create(
             world_size=world,
-            nvlink_size=max(nvlink, fsdp),
+            nvlink_size=max(nvlink, fsdp * cp),
+            cp=cp,
             ep=args.expert_model_parallel_size,
-            d_rep=max(world // fsdp, 1),
+            d_rep=max(world // (fsdp * cp), 1),
             e_rep=args.radixscale_expert_rep or 1,
         )
         self.mesh = build_mesh(spec, "cuda")
@@ -127,6 +171,8 @@ class RadixscaleTrainRayActor(TorchNativeTrainRayActor):
             return 0
 
         self._fused_logprobs = _fused_logprobs_supported(args)
+        if self.mesh.spec.cp > 1 and not self._fused_logprobs:
+            raise ValueError("--radixscale-cp-size > 1 needs the fused per-token log-prob path (policy_loss, thd)")
         self.prof = TrainProfiler(args)
         self.load_hf_assets()
         built = build_model(
@@ -135,6 +181,7 @@ class RadixscaleTrainRayActor(TorchNativeTrainRayActor):
             self.mesh,
             recompute=args.gradient_checkpointing,
             recompute_skip_last_layers=args.radixscale_recompute_skip_layers,
+            recompute_host_inputs=args.radixscale_recompute_host_inputs,
         )
         self.model = built.model
         self.grad_sum_factors = built.grad_sum_factors
@@ -150,7 +197,7 @@ class RadixscaleTrainRayActor(TorchNativeTrainRayActor):
         self.optimizers = [self.optimizer]
         self.lr_scheduler = get_lr_scheduler(args, self.optimizer)
 
-        if get_parallel_state().is_metrics_rank:
+        if get_parallel_state().is_metrics_rank and self.mesh.cp_rank == 0:
             init_tracking(args, primary=False)
 
         start_rollout_id = 0
@@ -172,18 +219,26 @@ class RadixscaleTrainRayActor(TorchNativeTrainRayActor):
         return LinearStepRunner(self._forward, self._zero_grad, self._apply_step)
 
     def _forward(self, batch: dict) -> torch.Tensor | TokenLogProbs:
-        shard = _cp1_shard(batch)
-        if not self._fused_logprobs:
-            return self.model(shard).unsqueeze(0)
+        if self.mesh.spec.cp > 1:
+            shard, take = _cp_shard(batch, self.mesh)
+            labels = shard.local.labels
+        else:
+            shard, take = _cp1_shard(batch), None
+            if not self._fused_logprobs:
+                return self.model(shard).unsqueeze(0)
+            labels = _next_token_labels(batch)
         args = self.args
         with_entropy = not torch.is_grad_enabled() or args.entropy_coef != 0 or args.observe_training_entropy
         out = self.model(
             shard,
-            logprob_labels=_next_token_labels(batch),
+            logprob_labels=labels,
             temperature=args.rollout_temperature if args.rollout_temperature > 0 else 1.0,
             with_entropy=with_entropy,
         )
         log_probs, entropy = out if with_entropy else (out, None)
+        if take is not None:
+            log_probs = _CpGather.apply(log_probs, take, self.mesh)
+            entropy = None if entropy is None else _CpGather.apply(entropy, take, self.mesh)
         return TokenLogProbs(log_probs.unsqueeze(0), None if entropy is None else entropy.unsqueeze(0))
 
     def _zero_grad(self) -> None:
@@ -202,7 +257,7 @@ class RadixscaleTrainRayActor(TorchNativeTrainRayActor):
     def _mean_reduce_grads(self) -> None:
         """Bring every grad to the data-parallel mean miles' losses assume."""
         world = dist.get_world_size()
-        ep = self.mesh.spec.ep
+        ep, cp = self.mesh.spec.ep, self.mesh.spec.cp
         for name, param in self.model.named_parameters():
             if param.grad is None:
                 continue
@@ -212,6 +267,8 @@ class RadixscaleTrainRayActor(TorchNativeTrainRayActor):
                 param.grad.div_(world)
             elif ".experts." in name and ep > 1:
                 param.grad.div_(ep)
+            if cp > 1:
+                param.grad.mul_(cp)
 
     def _move_to(self, device: str) -> None:
         print_memory(f"before moving the model to {device}")

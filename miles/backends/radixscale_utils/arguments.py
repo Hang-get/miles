@@ -8,7 +8,9 @@ class RadixscaleArgs(FSDPArgs):
     radixscale_family: str = "auto"
     radixscale_fused_logprobs: bool = True
     radixscale_recompute_skip_layers: int = 0
+    radixscale_recompute_host_inputs: bool = False
     radixscale_fsdp_size: int = 0
+    radixscale_cp_size: int = 1
     radixscale_expert_rep: int = 0
     expert_model_parallel_size: int = 1
 
@@ -23,7 +25,7 @@ def load_radixscale_args(extra_args_provider=None):
 
 def validate_radixscale_args(args) -> None:
     if args.context_parallel_size != 1:
-        raise ValueError("the radixscale backend runs context parallelism through its own packing, not wired up yet")
+        raise ValueError("the radixscale backend runs context parallelism itself; use --radixscale-cp-size")
     if args.use_kl_loss or args.kl_coef:
         raise ValueError("the radixscale backend builds no reference model yet; drop --use-kl-loss / --kl-coef")
     if args.fp16:
