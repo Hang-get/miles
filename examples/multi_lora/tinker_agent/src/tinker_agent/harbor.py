@@ -21,7 +21,6 @@ from tinker_cookbook.rl.types import Env, EnvGroupBuilder, RLDataset, RLDatasetB
 class HarborEnv(Env):
     task_path: Path
     reward: float | None = None
-    stop_reason: str | None = None
 
     async def initial_observation(self):
         raise NotImplementedError("Harbor drives the agent through the official proxy")
@@ -39,8 +38,11 @@ class HarborGroup(EnvGroupBuilder):
         return [HarborEnv(self.task_path) for _ in range(self.group_size)]
 
     async def compute_group_rewards(self, trajectory_group, env_group):
-        assert all(env.reward is not None and env.stop_reason is not None for env in env_group)
-        return [(env.reward, {f"stop/{env.stop_reason}": 1.0}) for env in env_group]
+        assert all(env.reward is not None for env in env_group)
+        return [
+            (env.reward, {f"stop/{trajectory.stop_reason}": 1.0})
+            for trajectory, env in zip(trajectory_group, env_group, strict=True)
+        ]
 
     def logging_tags(self):
         return ["harbor", self.task_path.name]
@@ -104,34 +106,40 @@ def trial_outcome(result, reward_key):
     return reward, str(stop_reason)
 
 
+@chz.chz
+class HarborConfig:
+    trial_config: str
+    reward_key: str = "reward"
+    advertised_host: str = "127.0.0.1"
+    listen_host: str = "127.0.0.1"
+    max_parallel_trials_per_group: int = 4
+
+
 @dataclass(frozen=True)
 class HarborRolloutStrategy(RolloutStrategy):
     renderer_name: str
     trial_template: str
     store_url: str
     run_id: str
+    harbor: HarborConfig
     _groups: count = field(default_factory=count, init=False, repr=False)
-    reward_key: str = "reward"
-    advertised_host: str = "127.0.0.1"
-    listen_host: str = "127.0.0.1"
-    max_parallel_trials_per_group: int = 4
 
     async def execute(self, env_group_builder, policy):
         assert isinstance(policy, TinkerTokenCompleter)
-        if self.max_parallel_trials_per_group < 1:
+        if self.harbor.max_parallel_trials_per_group < 1:
             raise ValueError("trial concurrency must be positive")
         tokenizer = await asyncio.to_thread(policy.sampling_client.get_tokenizer)
         renderer = renderers.get_renderer(self.renderer_name, tokenizer)
         envs = await env_group_builder.make_envs()
         group_idx = next(self._groups)
-        semaphore = asyncio.Semaphore(self.max_parallel_trials_per_group)
+        semaphore = asyncio.Semaphore(self.harbor.max_parallel_trials_per_group)
         auth_token = secrets.token_urlsafe(32)
         async with serve_proxy(
             renderer,
             policy.sampling_client,
             model_label="policy",
             default_max_tokens=policy.max_tokens,
-            host=self.listen_host,
+            host=self.harbor.listen_host,
             auth_token=auth_token,
         ) as port:
 
@@ -140,22 +148,22 @@ class HarborRolloutStrategy(RolloutStrategy):
                     config = trial_config(
                         self.trial_template,
                         env.task_path,
-                        f"http://{self.advertised_host}:{port}/r/run/{self.run_id}/group/{group_idx}/traj/{index}",
+                        f"http://{self.harbor.advertised_host}:{port}/r/run/{self.run_id}/group/{group_idx}/traj/{index}",
                         auth_token,
                     )
                     trial = await Trial.create(config)
                     result = await trial.run()
-                    env.reward, env.stop_reason = trial_outcome(result, self.reward_key)
+                    env.reward, stop_reason = trial_outcome(result, self.harbor.reward_key)
+                    return stop_reason
 
             async with asyncio.TaskGroup() as tasks:
-                for index, env in enumerate(envs):
-                    tasks.create_task(one(index, env))
+                trials = [tasks.create_task(one(index, env)) for index, env in enumerate(envs)]
         await flush_capture()
         trajectories = [
             rows_to_trajectory(
                 await read_samples(self.store_url, self.run_id, group_idx=group_idx, traj_idx=index),
-                env.stop_reason,
+                trial.result(),
             )
-            for index, env in enumerate(envs)
+            for index, trial in enumerate(trials)
         ]
         return RolloutResult(trajectories=trajectories, envs=envs, errors=[])
