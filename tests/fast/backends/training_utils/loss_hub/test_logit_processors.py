@@ -49,6 +49,7 @@ class TestTokenLogProbs:
         """A backend's per-token log-probs, sliced by TokenLogProbs, equal what miles derives from full logits."""
         parallel_state = SimpleNamespace(tp=SimpleNamespace(rank=0, group=None), cp=SimpleNamespace(rank=0, size=1))
         monkeypatch.setattr(logit_processors, "get_parallel_state", lambda: parallel_state)
+        monkeypatch.setattr(context_parallel, "get_parallel_state", lambda: parallel_state)
         args = Namespace(qkv_format="thd", rollout_temperature=1.0, true_on_policy_mode=False, allgather_cp=False)
         torch.manual_seed(0)
         samples = [torch.randint(0, 11, (n,)) for n in (5, 7, 4)]
