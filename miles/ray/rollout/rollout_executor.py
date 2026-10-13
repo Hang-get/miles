@@ -47,6 +47,7 @@ from miles.utils.simple_checkpointer import atomic_save_folder
 from miles.utils.timer import timer
 from miles.utils.tracking_utils.tracking import init_tracking
 from miles.utils.weight_version import assert_samples_weight_version_sane, assert_weight_version_is_published
+from miles.utils.workers.rpc.common.metadata import DedicatedRpcLoopWorker
 from miles.utils.workers.worker_provider.base import BaseWorkerProvider
 
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -61,7 +62,7 @@ _EVAL_GENERATE_ROLLOUT_DIRNAME = "eval_generate_rollout"
 _EXECUTOR_DIRNAME = "executor"
 
 
-class RolloutExecutor:
+class RolloutExecutor(DedicatedRpcLoopWorker):
     """The class to run rollout and convert rollout data to training data."""
 
     def __init__(
