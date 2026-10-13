@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+import uvicorn
 from fastapi import FastAPI
 from tests.fast.ray.rollout.conftest import make_args as make_rollout_args
 
@@ -421,7 +422,7 @@ class TestStartApiServerRegistration:
 
 
 class TestStartApiServerRaw:
-    def test_uvicorn_serves_the_registry_app_on_a_daemon_thread(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_uvicorn_serves_the_registry_app_on_a_daemon_thread(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A foreground server blocks the training driver, and a non-loopback bind exposes unauthenticated cell control."""
         serving_threads: list[threading.Thread] = []
         start_and_wait_thread = server._start_and_wait_thread
@@ -439,12 +440,13 @@ class TestStartApiServerRaw:
         try:
             [thread] = serving_threads
             assert thread.daemon is True
-            assert isinstance(running.config.app, FastAPI)
-            assert (running.config.host, running.config.port) == ("127.0.0.1", port)
+            assert isinstance(running.server.config.app, FastAPI)
+            assert (running.server.config.host, running.server.config.port) == ("127.0.0.1", port)
         finally:
-            running.should_exit = True
+            await running.dispose()
+        assert not running.thread.is_alive()
 
-    def test_a_caller_supplied_host_overrides_the_loopback_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_a_caller_supplied_host_overrides_the_loopback_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Remote FT controllers are opted into by passing a wider bind host explicitly."""
         serving_threads: list[threading.Thread] = []
         start_and_wait_thread = server._start_and_wait_thread
@@ -460,11 +462,12 @@ class TestStartApiServerRaw:
         running = server._start_api_server_raw(registry=_CellRegistry([]), port=port, host="0.0.0.0")
 
         try:
-            assert (running.config.host, running.config.port) == ("0.0.0.0", port)
+            assert (running.server.config.host, running.server.config.port) == ("0.0.0.0", port)
         finally:
-            running.should_exit = True
+            await running.dispose()
+        assert not running.thread.is_alive()
 
-    def test_a_bound_port_serves_and_can_be_reached(self) -> None:
+    async def test_a_bound_port_serves_and_can_be_reached(self) -> None:
         """The happy path must still return once uvicorn is actually accepting connections."""
         port = find_available_port(21000)
 
@@ -473,7 +476,8 @@ class TestStartApiServerRaw:
             resp = httpx.get(f"http://127.0.0.1:{port}/api/v1/health", timeout=10.0)
             assert resp.status_code == 200
         finally:
-            running.should_exit = True
+            await running.dispose()
+        assert not running.thread.is_alive()
 
     def test_a_port_already_taken_fails_the_caller(self) -> None:
         """A second job silently losing the port would then poll the first job's cell registry."""
@@ -485,6 +489,28 @@ class TestStartApiServerRaw:
 
             with pytest.raises(RuntimeError, match=f"port {port} failed during startup"):
                 server._start_api_server_raw(registry=_CellRegistry([]), port=port, host="127.0.0.1")
+
+
+class TestApiServerHandle:
+    async def test_a_server_thread_that_does_not_stop_fails_disposal(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Disposal requests shutdown but refuses to report success while its bounded join leaves a live thread."""
+        release = threading.Event()
+        thread = threading.Thread(target=release.wait, kwargs={"timeout": 5.0}, daemon=True)
+        running = server.ApiServerHandle(server=uvicorn.Server(uvicorn.Config(FastAPI())), thread=thread)
+        monkeypatch.setattr(server, "_API_SERVER_SHUTDOWN_TIMEOUT_SECONDS", 0.01)
+        thread.start()
+
+        try:
+            with pytest.raises(TimeoutError, match="API server did not stop"):
+                await running.dispose()
+            assert running.server.should_exit is True
+            assert thread.is_alive()
+        finally:
+            release.set()
+            thread.join(timeout=5)
+        assert not thread.is_alive()
 
 
 class TestDynamicCells:
