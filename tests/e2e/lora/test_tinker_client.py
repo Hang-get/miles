@@ -17,15 +17,30 @@ def test_cookbook_client():
         python = str(Path(environment) / "bin/python")
         subprocess.run(
             [
-                "uv", "pip", "install", "--python", python, "--torch-backend", "cpu",
-                "-r", "examples/multi_lora/requirements.txt",
-                "./examples/multi_lora/tinker_agent[harbor]", "pytest", "pytest-asyncio",
+                "uv",
+                "pip",
+                "install",
+                "--python",
+                python,
+                "--torch-backend",
+                "cpu",
+                "-r",
+                "examples/multi_lora/requirements.txt",
+                "./examples/multi_lora/tinker_agent[harbor]",
+                "pytest",
+                "pytest-asyncio",
             ],
             check=True,
         )
         subprocess.run(
             [
-                python, "-I", "-m", "pytest", "--import-mode=importlib", "--confcutdir", str(cases),
+                python,
+                "-I",
+                "-m",
+                "pytest",
+                "--import-mode=importlib",
+                "--confcutdir",
+                str(cases),
                 *map(str, sorted(cases.glob("*_cases.py"))),
             ],
             check=True,

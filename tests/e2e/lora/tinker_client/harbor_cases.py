@@ -26,7 +26,9 @@ TEMPLATE = json.dumps(
 
 
 @pytest.mark.asyncio
-async def test_harbor_http_calls_become_unmodified_training_data(monkeypatch, renderer, sampler_factory, capture_store):
+async def test_harbor_http_calls_become_unmodified_training_data(
+    monkeypatch, renderer, sampler_factory, capture_store
+):
     sampler = sampler_factory()
     sampler.get_tokenizer = lambda: renderer.tokenizer
     policy = TinkerTokenCompleter(sampler, max_tokens=32)
@@ -50,7 +52,9 @@ async def test_harbor_http_calls_become_unmodified_training_data(monkeypatch, re
         return SimpleNamespace(run=run)
 
     monkeypatch.setattr(harbor.Trial, "create", create)
-    strategy = harbor.HarborRolloutStrategy("role_colon", TEMPLATE, capture_store.base_url, "test", max_parallel_trials_per_group=1)
+    strategy = harbor.HarborRolloutStrategy(
+        "role_colon", TEMPLATE, capture_store.base_url, "test", max_parallel_trials_per_group=1
+    )
     strategy = pickle.loads(pickle.dumps(strategy))
     group = harbor.HarborGroup(Path("/tasks/task"), 2)
     first = await strategy.execute(group, policy)
@@ -107,7 +111,9 @@ def test_recipe_uses_public_sdk_configuration_and_harbor_defaults(tmp_path):
             renderer_name="role_colon",
             tasks_dir=str(tmp_path),
             trial_config=str(config_path),
-        ), "http://store", "test",
+        ),
+        "http://store",
+        "test",
     )
     assert config.base_url is None
     assert config.ttl_seconds is None
