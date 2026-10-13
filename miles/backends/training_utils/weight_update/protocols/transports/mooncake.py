@@ -1,3 +1,4 @@
+import os
 from collections.abc import Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
@@ -153,7 +154,12 @@ def _create_transfer_engine() -> Any:
     from mooncake.engine import TransferEngine
 
     transfer_engine = TransferEngine()
-    transfer_engine.initialize(ray._private.services.get_node_ip_address(), "P2PHANDSHAKE", "rdma", "")
+    transfer_engine.initialize(
+        ray._private.services.get_node_ip_address(),
+        "P2PHANDSHAKE",
+        os.environ.get("MOONCAKE_PROTOCOL", "rdma"),
+        os.environ.get("MOONCAKE_DEVICE", ""),
+    )
     return transfer_engine
 
 
