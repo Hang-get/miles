@@ -27,6 +27,7 @@ The head and record encoder in `joint_schema_model.py` are taken unchanged from
 | `train.py` | `torchrun` entrypoint: FSDP2, head warmup then joint training, validation, checkpoints |
 | `joint_schema_model.py` | Cloudflare's head, record encoder, and release loader |
 | `model.py` | Builds the Qwen backbone plus head and shards it with FSDP2 |
+| `check_data.py` | Checks that a data directory follows the format below |
 | `data.py` | Loads, validates, augments, and encodes labeled records |
 | `objective.py` | Brier loss and validation metrics |
 | `checkpoint.py`, `state.py`, `resume.py` | Resumable checkpoints and a serving export |
@@ -62,6 +63,16 @@ The head and record encoder in `joint_schema_model.py` are taken unchanged from
 
 Record IDs must be unique, and train/validation IDs must not overlap. Records
 longer than `--max-length` tokens are rejected rather than truncated.
+
+Check a data directory before training:
+
+```bash
+python -m examples.experimental.clef.check_data --data-dir /data/clef --model-dir /models/Qwen3.8-27B
+```
+
+It reports format errors by file and line, then runs the trainer's own validation
+(target distributions, duplicate and overlapping IDs). With `--model-dir`, it also
+tokenizes every record and checks it fits `--max-length` (default 65,536).
 
 During training, options of a single `answer` question are shuffled together with
 their targets at every visit. With probability `--multi-field-fraction` (default

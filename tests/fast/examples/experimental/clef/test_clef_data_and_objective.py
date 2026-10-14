@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 import torch
 
+from examples.experimental.clef.check_data import check_row
 from examples.experimental.clef.data import DecisionExample, LabeledRecord, augment_example, read_examples
 from examples.experimental.clef.objective import decision_loss, prediction_rows, summarize
 
@@ -79,3 +80,30 @@ def test_read_examples_validates_targets(tmp_path: Path) -> None:
     duplicate.write_text((json.dumps(row) + "\n") * 2)
     with pytest.raises(ValueError, match="duplicate"):
         read_examples(duplicate)
+
+
+def test_check_row_accepts_all_question_types_and_reports_errors() -> None:
+    example = _choice_example()
+    row = {"record": example.record, "targets": example.targets, "source": example.source}
+    assert check_row(row) == []
+
+    multi = json.loads(json.dumps(row))
+    multi["record"]["questions"]["urgent"] = {"type": "noul", "instructions": "Is it urgent?"}
+    multi["record"]["questions"]["severity"] = {
+        "type": "score",
+        "instructions": "Rate it.",
+        "criteria": ["low", "mid", "high"],
+    }
+    multi["targets"]["urgent"] = {"true": 0.2, "false": 0.8}
+    multi["targets"]["severity"] = {"0": 0.1, "1": 0.6, "2": 0.3}
+    assert check_row(multi) == []
+
+    assert check_row({"record": example.record}) == [
+        "missing top-level key 'targets'",
+        "missing top-level key 'source'",
+    ]
+    wrong_keys = {**row, "targets": {"answer": {"A": 1.0, "C": 0.0}}}
+    assert check_row(wrong_keys) == ["question 'answer': target keys must be exactly ['A', 'B']"]
+    missing_target = json.loads(json.dumps(multi))
+    del missing_target["targets"]["severity"]
+    assert check_row(missing_target) == ["targets must have exactly one entry per question"]
