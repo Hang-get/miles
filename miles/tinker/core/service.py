@@ -471,7 +471,11 @@ class TinkerService:
         # the shared sampling/training window takes precedence over the requested generation maximum
         payload = payload | {
             "sampling_params": params
-            | {"max_tokens": min(params["max_tokens"], self.config.max_tokens_per_datum - len(payload["prompt_tokens"]))}
+            | {
+                "max_tokens": min(
+                    params["max_tokens"], self.config.max_tokens_per_datum - len(payload["prompt_tokens"])
+                )
+            }
         }
         lora_name, lora_path = (
             resolve_sampler_checkpoint(self.config.checkpoint_root, tenant, model_path, self.config.base_model)
