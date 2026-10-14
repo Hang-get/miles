@@ -1,3 +1,4 @@
+import sys
 from types import ModuleType, SimpleNamespace
 from typing import Any
 
@@ -156,3 +157,24 @@ class TestNativeFailure:
             (future,) = transport.write([shard], {"w": tensor}, run_write=lambda shard, write: write())
         with pytest.raises(RuntimeError, match="returned -1"):
             future.result(timeout=10)
+
+
+@pytest.mark.parametrize("protocol,device", [(None, None), ("tcp", "mlx5_0")])
+def test_transfer_engine_uses_the_receiver_transport_environment(
+    mooncake_module: ModuleType, monkeypatch: pytest.MonkeyPatch, protocol: str | None, device: str | None
+) -> None:
+    """Trainer and receiver must initialize Mooncake with matching protocol and device settings."""
+    calls = []
+    engine = SimpleNamespace(initialize=lambda *args: calls.append(args))
+    sdk = ModuleType("mooncake.engine")
+    sdk.TransferEngine = lambda: engine
+    monkeypatch.setitem(sys.modules, "mooncake.engine", sdk)
+    monkeypatch.setattr(mooncake_module.ray._private.services, "get_node_ip_address", lambda: "127.0.0.1")
+    for name, value in (("MOONCAKE_PROTOCOL", protocol), ("MOONCAKE_DEVICE", device)):
+        if value is None:
+            monkeypatch.delenv(name, raising=False)
+        else:
+            monkeypatch.setenv(name, value)
+
+    assert mooncake_module._create_transfer_engine() is engine
+    assert calls == [("127.0.0.1", "P2PHANDSHAKE", protocol or "rdma", device or "")]
