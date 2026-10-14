@@ -304,6 +304,15 @@ class TorchNativeTrainRayActor(TrainRayActor):
         if self.weight_updater.update_weights(weight_version=next_version):
             self._published_weight_version = next_version
         print_memory("after update_weights")
+
+        failed_cell_ids = tuple(
+            cell_id
+            for cell_id, updater in self.weight_updater.protocol.cell_updaters_of_cell_id.items()
+            if updater.is_errored
+        )
+        if failed_cell_ids:
+            raise RuntimeError(f"TorchNative weight update failed for cells: {failed_cell_ids}")
+
         if self.args.ci_test and self._published_weight_version > 0:
             self.weight_updater.verify_engine_version(
                 info.rollout_engines, weight_version=self._published_weight_version
