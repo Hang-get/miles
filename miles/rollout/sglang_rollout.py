@@ -451,8 +451,9 @@ async def abort(args: Namespace, rollout_id: int) -> list[list[Sample]]:
         done, state.pendings = await asyncio.wait(state.pendings, return_when=asyncio.FIRST_COMPLETED)
 
         if not args.partial_rollout:
-            groups = [task.result() for task in done]
-            SampleOwnershipRecorder.log_dropped_groups(args=args, before=groups, after=[], reason="aborted")
+            if args.enable_sample_ownership_checker:
+                groups = [task.result() for task in done]
+                SampleOwnershipRecorder.log_dropped_groups(args=args, before=groups, after=[], reason="aborted")
             continue
 
         # for partial rollout, collect the partial samples into the data buffer
