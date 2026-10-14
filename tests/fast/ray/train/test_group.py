@@ -2,6 +2,7 @@ import asyncio
 import time
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
@@ -1409,6 +1410,40 @@ class TestTrainRunsFaultHooks:
         await group.train(rollout_id=4, rollout_data_pack=_DUMMY_DATA_PACK)
 
         group._cell_operations.suspend.assert_awaited_once_with(cell_id="trainer-engine-actor-00002")
+
+
+class TestTrainRunsStepStartFaultHooks:
+    async def test_a_step_start_hook_runs_before_the_rollout_refreshes_its_cells(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A wait armed at step start must hold the rollout before it snapshots which cells are alive."""
+        _isolate_fault_hook_controller(monkeypatch)
+        requests = render_fault_hooks(
+            [
+                FaultHookRequest(
+                    request_id="stop-cell-2",
+                    hook_name=FaultHookName.TRAINER_CONTROLLER_STEP_START,
+                    rollout_id=4,
+                    action=StopCellAction(cell_id="trainer-engine-actor-00002"),
+                )
+            ]
+        )
+        group = await _make_alive_controller(num_cells=3, ci_fault_hooks=requests)
+        order: list[str] = []
+        group._cell_operations.suspend.side_effect = lambda **_: order.append("hook")
+        refresh_cells = group._refresh_cells
+
+        async def _recording_refresh(**kwargs: Any) -> None:
+            order.append("refresh")
+            await refresh_cells(**kwargs)
+
+        monkeypatch.setattr(group, "_refresh_cells", _recording_refresh)
+
+        await group.train(rollout_id=3, rollout_data_pack=_DUMMY_DATA_PACK)
+        assert order == ["refresh"]
+
+        await group.train(rollout_id=4, rollout_data_pack=_DUMMY_DATA_PACK)
+        assert order == ["refresh", "hook", "refresh"]
 
 
 def _isolate_fault_hook_controller(monkeypatch: pytest.MonkeyPatch) -> None:

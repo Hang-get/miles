@@ -10,6 +10,7 @@ from tests.utils.soak.ft.checkers.reconfigure import ReconfigureInfo
 
 from miles.ray.specs.train import compute_trainer_pool_id
 from miles.utils.external_utils.command_utils.base_backend import ExecuteTrainConfig
+from miles.utils.test_utils.fault_injector.actions.frozen import SleepAction
 from miles.utils.test_utils.fault_injector.actions.process import (
     DeadlockThreadAction,
     KillProcessAction,
@@ -22,6 +23,7 @@ from miles.utils.workers.naming import compute_cell_id
 TEST_NAME: str = "trainer_all_gather_fault"
 NUM_ROLLOUTS: int = 8
 UPDATE_WEIGHTS_TIMEOUT_SECONDS: float = 120.0
+HEAL_WAIT_SECONDS: float = 90.0
 FAULT_ACTION_OF_ROLLOUT_ID: dict[int, FaultAction] = {
     1: KillProcessAction(),
     3: StopProcessAction(),
@@ -31,7 +33,7 @@ FAULT_ACTION_OF_ROLLOUT_ID: dict[int, FaultAction] = {
 
 def _build_fault_hooks(mode: FTTestMode, config: ExecuteTrainConfig) -> list[FaultHookRequest]:
     target_cell_id: str = compute_cell_id(pool_id=compute_trainer_pool_id("actor"), cell_index=mode.num_cells - 1)
-    return [
+    faults = [
         FaultHookRequest(
             request_id=f"{action.kind}_before_all_gather_at_{rollout_id}",
             hook_name=FaultHookName.TRAINER_WEIGHT_UPDATE_BEFORE_ALL_GATHER,
@@ -41,6 +43,16 @@ def _build_fault_hooks(mode: FTTestMode, config: ExecuteTrainConfig) -> list[Fau
         )
         for rollout_id, action in FAULT_ACTION_OF_ROLLOUT_ID.items()
     ]
+    heal_waits = [
+        FaultHookRequest(
+            request_id=f"wait_for_heal_at_{rollout_id + 1}",
+            hook_name=FaultHookName.TRAINER_CONTROLLER_STEP_START,
+            action=SleepAction(seconds=HEAL_WAIT_SECONDS),
+            rollout_id=rollout_id + 1,
+        )
+        for rollout_id in FAULT_ACTION_OF_ROLLOUT_ID
+    ]
+    return faults + heal_waits
 
 
 def _expected_reconfigures(mode: FTTestMode) -> list[ReconfigureInfo]:
