@@ -1843,7 +1843,7 @@ class TestFaultToleranceResolutionOrder:
         """A file-only opt-in must reach the same defaults the flag would have produced."""
         args = self._validate(tmp_path, [], "use_fault_tolerance: true\n")
 
-        assert (args.ft_components, args.mini_ft_controller_enable) == (["rollout"], True)
+        assert (args.ft_components, args.mini_ft_controller_enable) == (["rollout", "weight_update"], True)
 
     def test_the_config_file_can_select_the_train_component(self, tmp_path):
         """Picking the component list after the derivations left a train-side run without the state it needs."""
@@ -1866,7 +1866,11 @@ class TestFaultToleranceResolutionOrder:
         """The implicit healing defaults must follow the port the file asks for, not the one the flag implied."""
         args = self._validate(tmp_path, [], "use_fault_tolerance: true\napi_server_port: 0\n")
 
-        assert (args.ft_components, args.api_server_port, args.mini_ft_controller_enable) == (["rollout"], 0, False)
+        assert (args.ft_components, args.api_server_port, args.mini_ft_controller_enable) == (
+            ["rollout", "weight_update"],
+            0,
+            False,
+        )
 
 
 class TestCustomConfigAppliedBeforeDerivedArgs:
@@ -2783,19 +2787,19 @@ class TestResolveFtComponents:
         )
 
     def test_enabled_with_no_components_returns_default(self) -> None:
-        """use_fault_tolerance on with no ft_components falls back to the default ['rollout']."""
+        """use_fault_tolerance on with no ft_components enables rollout and weight-update fault tolerance by default."""
         args = SimpleNamespace(use_fault_tolerance=True, ft_components=None)
         result = _resolve_ft_components(args)
 
-        assert result == ["rollout"]
+        assert result == ["rollout", "weight_update"]
 
-    def test_enabled_with_components_returns_distinct_copy(self) -> None:
+    @pytest.mark.parametrize("components", [["train"], ["rollout"], ["weight_update"], ["train", "rollout"]])
+    def test_enabled_with_components_returns_distinct_copy(self, components: list[str]) -> None:
         """use_fault_tolerance on with ft_components returns an equal but distinct list copy."""
-        components = ["train", "rollout"]
         args = SimpleNamespace(use_fault_tolerance=True, ft_components=components)
         result = _resolve_ft_components(args)
 
-        assert result == ["train", "rollout"]
+        assert result == components
         assert result is not components
 
 

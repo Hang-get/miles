@@ -164,7 +164,10 @@ def get_debug_dump_args(*, dump_dir: str, enable_dumper: bool) -> str:
 
 
 def get_ft_args(mode: FTTestMode) -> str:
-    return f"--use-fault-tolerance --ft-components {' '.join(mode.ft_components)} --api-server-port 0 "
+    ft_components = list(mode.ft_components)
+    if "rollout" in ft_components:
+        ft_components.append("weight_update")
+    return f"--use-fault-tolerance --ft-components {' '.join(ft_components)} --api-server-port 0 "
 
 
 def get_api_server_args(config: command_utils.ExecuteTrainConfig | None = None) -> str:
