@@ -74,6 +74,7 @@ class FullyAsyncRolloutFn(BaseRolloutFn):
     def __init__(self, input: RolloutFnConstructorInput):
         super().__init__(input)
         self.args = input.args
+        assert self.args.buffer_filter_path is None, "fully-async rollout does not support buffer_filter_path"
         self.data_source = input.data_source
         self.state = GenerateState(input.args)
         # default to sample level backfill for fully async rollout
