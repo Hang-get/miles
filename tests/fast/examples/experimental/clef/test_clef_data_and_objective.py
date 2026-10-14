@@ -107,3 +107,15 @@ def test_check_row_accepts_all_question_types_and_reports_errors() -> None:
     missing_target = json.loads(json.dumps(multi))
     del missing_target["targets"]["severity"]
     assert check_row(missing_target) == ["targets must have exactly one entry per question"]
+
+
+def test_augment_leaves_named_fields_unchanged() -> None:
+    record = {
+        "id": "ticket",
+        "state": "My card was charged twice.",
+        "questions": {
+            "team": {"type": "choice", "instructions": "Route it.", "criteria": {"billing": "Charges", "tech": "Bugs"}}
+        },
+    }
+    example = DecisionExample(record, {"team": {"billing": 1.0, "tech": 0.0}}, "unit")
+    assert augment_example(example, random.Random(0), multi_field_fraction=1.0) == example

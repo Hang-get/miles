@@ -59,12 +59,8 @@ def augment_example(example: DecisionExample, rng: random.Random, multi_field_fr
     record = copy.deepcopy(example.record)
     targets = copy.deepcopy(example.targets)
     if "answer" not in record["questions"] or record["questions"]["answer"]["type"] != "choice":
-        # Named workflow fields keep their identities; order is independent of labels.
-        for question in record["questions"].values():
-            if question["type"] == "choice":
-                items = list(question["criteria"].items())
-                rng.shuffle(items)
-                question["criteria"] = dict(items)
+        # Named option keys are part of the input, and the encoder orders options
+        # by key, so other fields keep their canonical order and are not augmented.
         return DecisionExample(record, targets, example.source)
     options = record["questions"]["answer"]["criteria"]
     old_keys = list(options)

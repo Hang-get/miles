@@ -74,11 +74,13 @@ It reports format errors by file and line, then runs the trainer's own validatio
 (target distributions, duplicate and overlapping IDs). With `--model-dir`, it also
 tokenizes every record and checks it fits `--max-length` (default 65,536).
 
-During training, options of a single `answer` question are shuffled together with
-their targets at every visit. With probability `--multi-field-fraction` (default
-0.25), a second true/false question asks whether a random option is the answer;
-its target is that option's probability. Loss is averaged over questions within a
-record, then over records.
+During training, a `choice` question named `answer` has its options relabeled and
+shuffled together with their targets at every visit. With probability
+`--multi-field-fraction` (default 0.25), a second true/false question asks whether a
+random option is the answer; its target is that option's probability. Other
+questions are not augmented: their option keys are part of the input, and the
+encoder orders options by key. Loss is averaged over questions within a record,
+then over records.
 
 ## Launch
 

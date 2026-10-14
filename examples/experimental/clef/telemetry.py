@@ -21,7 +21,8 @@ class Telemetry:
         self.store = MetricStore(output_dir / "dashboard")
         self.store.write_meta(Meta(run_name=run_name, start_ts=started, args=config))
         self.registry = CollectorRegistry()
-        self.gauges: dict[str, Gauge] = {}
+        self.gauges: dict[str, tuple[str, Gauge]] = {}
+        self.collisions: set[tuple[str, str]] = set()
         self.run_name = run_name
         self.server, self.thread = start_http_server(port, registry=self.registry)
         self.run = (
@@ -46,10 +47,17 @@ class Telemetry:
         if self.run is not None:
             self.run.log(values, step=step)
         for key, value in values.items():
-            if key not in self.gauges:
-                safe = "miles_metric_" + re.sub(r"[^a-zA-Z0-9_]", "_", key)
-                self.gauges[key] = Gauge(safe, key, ["run_name"], registry=self.registry)
-            self.gauges[key].labels(self.run_name).set(value)
+            safe = "miles_metric_" + re.sub(r"[^a-zA-Z0-9_]", "_", key)
+            if safe not in self.gauges:
+                self.gauges[safe] = (key, Gauge(safe, key, ["run_name"], registry=self.registry))
+            owner, gauge = self.gauges[safe]
+            if owner != key:
+                # Distinct keys can sanitize to one Prometheus name; keep the first.
+                if (safe, key) not in self.collisions:
+                    self.collisions.add((safe, key))
+                    print(f"Prometheus name {safe} already exports {owner!r}; skipping {key!r}", flush=True)
+                continue
+            gauge.labels(self.run_name).set(value)
         print("METRICS", json.dumps({"step": step, **metrics}), flush=True)
 
     def close(self) -> None:

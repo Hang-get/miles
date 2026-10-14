@@ -310,8 +310,14 @@ def _prepare(args: Args) -> tuple[list[DecisionExample], list[DecisionExample], 
         }
     )
     output = Path(args.output_dir)
+    # The output directory may be node-local or shared, so each node's local
+    # rank 0 prepares it. Global rank 0 alone decides whether it is reused,
+    # before any node writes, so a shared directory cannot race with itself.
+    if dist.get_rank() == 0 and not args.resume and (output / "config.json").exists():
+        raise FileExistsError(f"{output} already holds a run; pass --resume or choose a new --output-dir")
+    dist.barrier()
     if int(os.environ["LOCAL_RANK"]) == 0:
-        output.mkdir(parents=True, exist_ok=bool(args.resume))
+        output.mkdir(parents=True, exist_ok=True)
         (output / "config.json").write_text(json.dumps(config, indent=2))
         (output / "traces").mkdir(exist_ok=True)
     dist.barrier()
@@ -368,15 +374,14 @@ def main() -> None:
             telemetry,
             forecast_labels,
         )
+        if telemetry is not None:
+            telemetry.close()
     except BaseException:
         # Collective shutdown can deadlock after one rank fails. Print the
         # original error and exit so torchrun can terminate the other ranks.
         traceback.print_exc()
         os._exit(1)
-    else:
-        if telemetry is not None:
-            telemetry.close()
-        dist.destroy_process_group()
+    dist.destroy_process_group()
 
 
 def _run(
