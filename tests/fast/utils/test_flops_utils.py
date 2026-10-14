@@ -412,6 +412,7 @@ def test_deepseek_v4_sizes_the_same_from_transformers_per_type_compress_rates():
     transformers_config = {k: v for k, v in checkpoint_config.items() if k != "compress_ratios"} | {
         "compress_rates": {"compressed_sparse_attention": 4, "heavily_compressed_attention": 128},
         "layer_types": [layer_type[ratio] for ratio in ratios],
+        "mlp_layer_types": ["hash_moe"] * 3 + ["moe"] * (len(ratios) - 3),
         "first_k_dense_replace": 3,
     }
     assert model_flops_from_hf_config(transformers_config) == model_flops_from_hf_config(checkpoint_config)

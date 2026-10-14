@@ -358,7 +358,7 @@ def _num_experts(config: Any) -> int | None:
 def _is_moe_layer(config: Any, layer: int) -> bool:
     mlp_layer_types = _first(config, "mlp_layer_types")
     if mlp_layer_types is not None:
-        return mlp_layer_types[layer] == "sparse"
+        return mlp_layer_types[layer] != "dense"
     if not _num_experts(config):
         return False
     if _first(config, "compress_ratios", "compress_rates") is not None:
