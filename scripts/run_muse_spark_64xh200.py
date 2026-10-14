@@ -3,7 +3,7 @@
 Requires storage shared by all eight nodes under model_dir (and under output_dir to save weights), and
 Muse-enabled Megatron/SGLang on every node. Join the Ray cluster before running with MILES_SCRIPT_EXTERNAL_RAY=1;
 the first run downloads the HF checkpoint and converts it into an adjacent _torch_dist release on that cluster.
-Adam streams optimizer state to local disk; Muon keeps state/master weights on CPU and computes
+Adam streams optimizer state to node-local NVMe; Muon keeps state/master weights on CPU and computes
 updates in GPU chunks. Each rollout performs one update.
 
 Args:
@@ -12,6 +12,8 @@ Args:
     data_dir / output_dir: Dataset root and run output root.
     training_layout: tp8_pp8_cp1, tp4_pp8_cp2, or tp4_pp4_cp4_ep16.
     optimizer / learning_rate: adam or muon, with learning rate 1e-6.
+    offload_train_disk_dir: Node-local NVMe for Adam's streamed optimizer state; unset keeps the Miles
+        default under $SCRATCH (/scratch).
     num_rollout / rollout_batch_size / n_samples_per_prompt: Rollouts, prompts per rollout, samples per prompt.
     use_dynamic_sampling_filter: Keep only nonconstant-reward groups.
     rollout_max_response_len / rollout_max_context_len: Response and prompt-plus-response token limits.
@@ -104,8 +106,6 @@ class ScriptArgs(U.ExecuteTrainConfig):
                 if self.vlm
                 else f"{self.model_dir}/{self.model_name}/chat_template.jinja"
             )
-        if self.optimizer == "adam" and self.offload_train_disk_dir is None:
-            self.offload_train_disk_dir = f"{self.run_dir}/offload"
 
     @property
     def run_dir(self) -> str:
@@ -255,9 +255,10 @@ def execute(args: ScriptArgs):
         optimizer_args += (
             "--stream-optimizer-state-to-disk "
             "--stream-optimizer-state-moment-dtype fp32 "
-            f"--offload-train-disk-dir {shlex.quote(args.offload_train_disk_dir)} "
             "--offload-train-disk-chunk-mb 256 "
         )
+        if args.offload_train_disk_dir is not None:
+            optimizer_args += f"--offload-train-disk-dir {shlex.quote(args.offload_train_disk_dir)} "
     else:
         optimizer_args += (
             "--muon-momentum 0.9 "
