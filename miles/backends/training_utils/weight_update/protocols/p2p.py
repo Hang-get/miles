@@ -27,7 +27,7 @@ from miles.backends.training_utils.weight_update.protocols.utils.model_replica i
 from miles.backends.training_utils.weight_update.protocols.utils.rollout_engine_rank_assignment import (
     assign_rollout_engine_ranks,
 )
-from miles.backends.training_utils.weight_update.protocols.utils.transfer_buffers import TransferBuffers
+from miles.backends.training_utils.weight_update.protocols.utils.transfer_buffers import PendingWrite, TransferBuffers
 from miles.utils.distributed_utils import get_gloo_group
 
 logger = logging.getLogger(__name__)
@@ -136,7 +136,11 @@ class UpdateWeightP2P(WeightTransferProtocol):
                 buffer = self._transfer_buffers.acquire()
                 param_bytes_by_name = target.model_replica.load_into(buffer, param_names, hf_tensors)
                 writes = self._transport.write(target.remote_shards, param_bytes_by_name)
-                self._transfer_buffers.release_after(buffer, list(zip(target.remote_shards, writes, strict=True)))
+                pending_writes = [
+                    PendingWrite(remote_shard=shard, future=write)
+                    for shard, write in zip(target.remote_shards, writes, strict=True)
+                ]
+                self._transfer_buffers.release_after(buffer, pending_writes)
 
     def connect(
         self,
