@@ -117,3 +117,31 @@ def test_each_buffer_is_registered_once_over_its_whole_allocation(make_transfer_
         transfer_buffers.release_after(buffer, [])
 
     assert sorted(registered) == sorted({(buffer.data_ptr(), 64) for buffer in buffers})
+
+
+def test_release_waits_for_every_cell_even_if_another_write_has_failed(make_transfer_buffers) -> None:
+    """A failed completed write cannot hide another cell that is still reading the allocation."""
+    buffers, registered = make_transfer_buffers(num_buffers=1, write_timeout=0.01)
+    buffer = buffers.acquire()
+    failed, running = Future(), Future()
+    failed.set_exception(RuntimeError("failed"))
+    buffers.release_after(buffer, [(_remote_shard("failed"), failed), (_remote_shard("running"), running)])
+
+    with pytest.raises(RuntimeError, match="still running"):
+        buffers.release()
+    assert registered == [(buffer.data_ptr(), buffer.numel())]
+    running.set_result(None)
+    buffers.release()
+    assert registered == []
+
+
+def test_cancelled_queued_writes_do_not_prevent_releasing_memory(make_transfer_buffers) -> None:
+    """A cancelled task never reads the buffer and must not be mistaken for a running native write."""
+    buffers, registered = make_transfer_buffers(num_buffers=1, write_timeout=0)
+    buffer = buffers.acquire()
+    cancelled = Future()
+    cancelled.cancel()
+    buffers.release_after(buffer, [(_remote_shard("cancelled"), cancelled)])
+
+    buffers.release()
+    assert registered == []
