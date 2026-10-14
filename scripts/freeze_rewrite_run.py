@@ -3,6 +3,7 @@
 import hashlib
 import importlib.metadata
 import json
+import shlex
 import socket
 import subprocess
 from pathlib import Path
@@ -35,7 +36,11 @@ def main(args: Args) -> None:
                 "mask_source_sha256": hashlib.sha256(Path(
                     "/scratch/17832556/pilot/code/experiments/shi/data_dashboard/viewer/sft_loss_mask.py"
                 ).read_bytes()).hexdigest(),
-                "launch_command": "env PATH=/opt/sglang/bin:$PATH PYTHONPATH=/scratch/261013-abac3131/src/miles:/root/Megatron-LM:/scratch/17832556/pilot/code /opt/sglang/bin/python /scratch/261013-abac3131/src/miles/scripts/run_rewrite_sft.py --config /scratch/261013-abac3131/config.json",
+                "launch_command": "env PATH=/opt/sglang/bin:$PATH CUDA_DEVICE_MAX_CONNECTIONS=1 "
+                    + "PYTHONPATH=" + shlex.quote(config["runtime_env"]["PYTHONPATH"])
+                    + " /opt/sglang/bin/python "
+                    + shlex.quote(str(Path(config["miles_path"]) / "scripts/run_rewrite_sft.py"))
+                    + " --config " + shlex.quote(str(path)),
                 "notes": "Fresh HF weights, no optimizer restore; exact two epochs with two partial batches."}
     (path.parent / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     freeze = subprocess.check_output(["/opt/sglang/bin/uv", "pip", "freeze", "--python", "/opt/sglang/bin/python"], text=True)
