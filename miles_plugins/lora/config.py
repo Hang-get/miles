@@ -37,5 +37,5 @@ class LoRAConfig:
             alpha=args.lora_alpha,
             dropout=args.lora_dropout,
             target_modules=None if select_all else tuple(args.hf_lora_targets),
-            a_init_method=getattr(args, "lora_A_init_method", "xavier"),
+            a_init_method=args.lora_A_init_method,
         )

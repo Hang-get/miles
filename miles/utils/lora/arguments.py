@@ -39,6 +39,13 @@ def add_lora_arguments(parser):
         help="LoRA dropout rate (default: 0.0)",
     )
     parser.add_argument(
+        "--lora-A-init-method",
+        type=str,
+        default="xavier",
+        choices=["xavier", "kaiming", "normal"],
+        help="LoRA A initialization; B is zero-initialized (default: xavier)",
+    )
+    parser.add_argument(
         "--lora-type",
         type=str,
         default="lora",

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import functools
+import math
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 
@@ -38,6 +40,14 @@ class ProjectionExport:
     fused_group: SGLangFusedGroup | None = None
 
 
+# kaiming/normal follow Megatron-Bridge's tensor-derived inits so --lora-A-init-method means the same on both paths.
+_LORA_A_INITS = {
+    "xavier": nn.init.xavier_uniform_,
+    "kaiming": functools.partial(nn.init.kaiming_uniform_, a=math.sqrt(5)),
+    "normal": functools.partial(nn.init.normal_, std=0.2),
+}
+
+
 def new_lora_parameter(
     reference: torch.Tensor,
     shape,
@@ -51,7 +61,7 @@ def new_lora_parameter(
     if init == "zero":
         tensor.zero_()
     else:
-        nn.init.xavier_uniform_(tensor)
+        _LORA_A_INITS[init](tensor)
     parameter = nn.Parameter(tensor)
     parameter.tensor_model_parallel = partition_dim is not None
     parameter.partition_dim = partition_dim if partition_dim is not None else -1

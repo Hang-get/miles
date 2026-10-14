@@ -143,7 +143,7 @@ def create_lora_instance(args: Namespace, *, target_modules):
         dim=args.lora_rank,
         alpha=args.lora_alpha,
         dropout=args.lora_dropout,
-        lora_A_init_method=getattr(args, "lora_A_init_method", "xavier"),
+        lora_A_init_method=args.lora_A_init_method,
         lora_B_init_method=getattr(args, "lora_B_init_method", "zero"),
     )
     if "share_expert_adapters" in getattr(lora_cls, "__dataclass_fields__", {}):

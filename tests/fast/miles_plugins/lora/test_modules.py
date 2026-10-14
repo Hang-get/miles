@@ -1,12 +1,16 @@
 """Unit tests for the native-LoRA adapter modules and forward hooks — no GPU."""
 
+import argparse
+import math
 from types import SimpleNamespace
 
+import pytest
 import torch
 
+from miles.utils.lora.arguments import add_lora_arguments
 from miles_plugins.lora.distributed import rmsnorm
 from miles_plugins.lora.lora import _require_grad_on_first_activation
-from miles_plugins.lora.modules.linear import build_qkv_permutation
+from miles_plugins.lora.modules.linear import build_qkv_permutation, new_lora_parameter
 
 
 class TestBuildQkvPerm:
@@ -97,3 +101,31 @@ class TestFirstActivationGrad:
 
     def test_stage_without_an_embedding_is_a_noop(self):
         assert _require_grad_on_first_activation(SimpleNamespace()) is None
+
+
+class TestLoRAInitMethod:
+    def test_cli_accepts_only_implemented_methods(self, capsys):
+        parser = argparse.ArgumentParser()
+        add_lora_arguments(parser)
+        assert parser.parse_args([]).lora_A_init_method == "xavier"
+        assert parser.parse_args(["--lora-A-init-method", "kaiming"]).lora_A_init_method == "kaiming"
+        with pytest.raises(SystemExit):
+            parser.parse_args(["--lora-A-init-method", "orthogonal"])
+        assert "invalid choice" in capsys.readouterr().err
+
+    def test_each_method_draws_its_own_distribution(self):
+        """A silently substituted method would leave kaiming/normal at xavier's scale."""
+        reference = torch.empty(0)
+        rank, fan_in = 64, 4096
+
+        def draw(init):
+            torch.manual_seed(0)
+            return new_lora_parameter(reference, (rank, fan_in), init=init)
+
+        xavier, kaiming, normal = draw("xavier"), draw("kaiming"), draw("normal")
+        assert xavier.abs().max() <= math.sqrt(6 / (rank + fan_in))
+        assert kaiming.abs().max() <= 1 / math.sqrt(fan_in)
+        assert kaiming.abs().max() > 0.9 / math.sqrt(fan_in)
+        torch.testing.assert_close(normal.std().item(), 0.2, atol=5e-3, rtol=0)
+        with pytest.raises(KeyError):
+            draw("orthogonal")
