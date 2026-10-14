@@ -21,7 +21,6 @@ from miles.backends.megatron_utils.megatron_config import (
 )
 from miles.backends.sglang_utils.arguments import add_sglang_arguments, collect_eval_sglang_overrides
 from miles.backends.sglang_utils.arguments import validate_args as sglang_validate_args
-from miles.backends.training_utils.weight_update.session import weight_update_selector
 from miles.dashboard.args import add_dashboard_arguments, validate_dashboard_args
 from miles.ray.specs.train import compute_trainer_ids, external_trainer_controller_addrs
 from miles.rollout.checkpoint_eval import is_checkpoint_eval_fn
@@ -3408,6 +3407,8 @@ def _resolve_sample_ownership_check(args: argparse.Namespace) -> None:
 
 
 def miles_validate_args(args):
+    from miles.backends.training_utils.weight_update.session import weight_update_selector
+
     if args.custom_config_path:
         data = yaml.safe_load(resolve_file_arg(args.custom_config_path)) or {}
         for k, v in data.items():
