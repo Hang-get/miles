@@ -12,6 +12,7 @@ except ImportError:
 
 from miles.utils.pydantic_utils import FrozenStrictBaseModel
 from miles.utils.test_utils.fault_injector.actions.base import FaultHookContext, FaultHookResources
+from miles.utils.test_utils.fault_injector.actions.cell import StartCellAction, StopCellAction
 from miles.utils.test_utils.fault_injector.models import (
     FaultHookName,
     FaultHookOwner,
@@ -158,7 +159,17 @@ class _FaultHookController:
                 return
             del self._executors[executor.record.request.request_id]
 
-        _run_blocking(executor.execute(resources=self._resources))
+        if isinstance(executor.record.request.action, (StartCellAction, StopCellAction)):
+            loop = self._require_owner_loop()
+            asyncio.run_coroutine_threadsafe(executor.execute(resources=self._resources), loop).result()
+        else:
+            _run_blocking(executor.execute(resources=self._resources))
+
+    def _require_owner_loop(self) -> asyncio.AbstractEventLoop:
+        loop = self._resources.owner_loop
+        if loop is None or loop.is_closed() or not loop.is_running():
+            raise RuntimeError("Delayed cell fault actions require a running cell-operations owner loop")
+        return loop
 
     def _drop_expired(self) -> None:
         for request_id, executor in list(self._executors.items()):
