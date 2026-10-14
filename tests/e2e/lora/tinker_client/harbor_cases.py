@@ -134,6 +134,28 @@ def test_harbor_config_uses_native_defaults(tmp_path):
     assert "max_turns" not in trial.agent.kwargs
 
 
+@pytest.mark.parametrize("suffix", ["", "\nConnection refused"])
+def test_official_proxy_context_error_is_scored_only_when_it_is_the_terminal_failure(suffix):
+    message = (
+        "Command failed (exit 1): mini-swe-agent\nstdout: traceback\n"
+        "BadRequestError: litellm.BadRequestError: OpenAIException - prompt is too long: \n"
+        "66070 prompt tokens plus 8192 max_tokens exceed the model's context window\n\n"
+        f"stderr: None{suffix}"
+    )
+    result = SimpleNamespace(
+        exception_info=SimpleNamespace(exception_type="NonZeroAgentExitCodeError", exception_message=message),
+        verifier_result=SimpleNamespace(rewards={"reward": 0}),
+    )
+    if suffix:
+        with pytest.raises(RuntimeError, match="Harbor trial failed"):
+            harbor.trial_outcome(result, "reward")
+    else:
+        assert harbor.trial_outcome(result, "reward") == (0, "context_overflow")
+        result.verifier_result = None
+        with pytest.raises(RuntimeError, match="no verifier reward"):
+            harbor.trial_outcome(result, "reward")
+
+
 @pytest.mark.parametrize(
     "overrides",
     [

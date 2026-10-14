@@ -1,6 +1,7 @@
 import asyncio
 import json
 import math
+import re
 import secrets
 from dataclasses import dataclass, field
 from itertools import count
@@ -95,7 +96,15 @@ def trial_outcome(result, reward_key):
         stop_reason = StopReason.COMPLETED
     elif failure.exception_type == "AgentTimeoutError":
         stop_reason = StopReason.ROLLOUT_TIMEOUT
-    elif failure.exception_type == "ContextWindowExceededError":
+    elif failure.exception_type == "ContextWindowExceededError" or (
+        failure.exception_type == "NonZeroAgentExitCodeError"
+        # Harbor misses the official proxy's wording; match only the terminal CLI error.
+        and re.search(
+            r"\nBadRequestError:[^\n]*prompt is too long:\s*\d+ prompt tokens plus \d+ max_tokens "
+            r"exceed the model's context window\s*\nstderr: None\Z",
+            failure.exception_message,
+        )
+    ):
         stop_reason = StopReason.CONTEXT_OVERFLOW
     elif failure.exception_type == "OutputTokenExceededError":
         stop_reason = StopReason.MAX_TOKENS
