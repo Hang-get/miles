@@ -43,6 +43,7 @@ class TestRunCellSoak:
 
         assert recorded["forms"] == {"actor": [actor_form]}
         assert recorded["runner_config"] is runner_config
+        assert recorded["observation_ends_with_sut"] is True
         assert recorded["config"] is config
         observer = recorded["observer"]
         assert isinstance(observer, CellObserver)

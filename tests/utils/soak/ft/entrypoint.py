@@ -35,4 +35,5 @@ async def run_cell_soak(
         event_log=event_log,
         observer=create_cell_observer(base_url=base_url, cell_types=cell_types, forms=forms, config=config),
         evidence_dir=evidence_dir,
+        observation_ends_with_sut=True,
     )
