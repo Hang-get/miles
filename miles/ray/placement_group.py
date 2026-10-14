@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import socket
+from argparse import Namespace
 from typing import NamedTuple
 
 import ray
@@ -31,7 +32,7 @@ from miles.utils.audit_utils.checksum_utils import InferenceEngineChecksumSnapsh
 from miles.utils.audit_utils.event_logger import checkpoint as event_logger_checkpoint
 from miles.utils.audit_utils.event_logger.logger import get_event_logger, is_event_logger_initialized
 from miles.utils.audit_utils.event_logger.models import InferenceEngineWeightChecksumEvent
-from miles.utils.ft_utils.api_server.server import start_api_server
+from miles.utils.ft_utils.api_server.server import ApiServerHandle, start_api_server
 from miles.utils.hot_restart import (
     init_or_reset_inference_controller,
     trainer_init_or_load_state,
@@ -400,12 +401,12 @@ async def _check_weights_until_answered(
 
 # TODO: move (when reorganizing files)
 def maybe_start_api_server(
-    args, *, trainer_models: dict[str, BaseWorkerHandle], inference_controller: BaseWorkerHandle
-) -> None:
+    args: Namespace, *, trainer_models: dict[str, BaseWorkerHandle], inference_controller: BaseWorkerHandle
+) -> ApiServerHandle | None:
     if not args.api_server_port:
         return
 
-    start_api_server(
+    return start_api_server(
         args=args,
         trainer_models=trainer_models,
         inference_controller=inference_controller,
