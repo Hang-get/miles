@@ -25,11 +25,7 @@ register_ci_gate(
     metric_key="rollout/raw_reward",
     constraint={"rel_up": 0.5, "abs_floor_up": 0.12, "rel_down": 0.2, "abs_floor_down": 0.12},
 )
-register_ci_gate(
-    metric_key="perf/actor_train_mfu",
-    enforce=False,
-    allowlist_reason="Healthy runs swing MFU by more than 40%; recorded until the history shows a stable band.",
-)
+register_ci_gate(metric_key="perf/actor_train_mfu")
 
 CASE = CaseConfig(
     model_name="GLM-4.7-Flash",

@@ -13,11 +13,7 @@ register_ci_gate(
 )
 register_ci_gate(metric_key="train/ppo_kl")
 register_ci_gate(metric_key="rollout/raw_reward")
-register_ci_gate(
-    metric_key="perf/actor_train_mfu",
-    enforce=False,
-    allowlist_reason="Healthy runs swing MFU by more than 40%; recorded until the history shows a stable band.",
-)
+register_ci_gate(metric_key="perf/actor_train_mfu")
 
 CASE = CaseConfig(
     model_name="Qwen3-30B-A3B",

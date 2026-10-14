@@ -7,7 +7,8 @@
 * A gate composes `steps` (which value(s) to pull from a metric's series:
   `"last"` | `"all"` | a non-empty list of step indices) and a `constraint`
   (the pass/fail rule).
-* `constraint` is a literal dict of the two-sided band params (`rel_up` /
+* `constraint` is None (track: record and compare to its own history, never
+  judge) or a literal dict of the two-sided band params (`rel_up` /
   `abs_floor_up` / `rel_down` / `abs_floor_down`), validated against the
   schema in :mod:`constraints`.
 * For the captured standard metrics, :data:`GATE_DEFAULTS` supplies `steps`
@@ -55,7 +56,8 @@ def register_ci_gate(
     metric. `steps` picks the
     comparison value(s): `"last"` (the series' last point), `"all"` (every
     step present, fanned out), or a non-empty list of step indices.
-    `constraint` is a literal dict of the two-sided band params -- see
+    `constraint` is None to track the metric without judging it, or a literal
+    dict of the two-sided band params -- see
     :data:`constraints.CONSTRAINT_SCHEMA`; each side needs at least one of its
     `rel` / `abs_floor` written. An omitted `steps` / `constraint` is filled from
     :data:`GATE_DEFAULTS` when `metric_key` has an entry there; the Python
@@ -119,12 +121,11 @@ GATE_DEFAULTS: dict[str, dict] = {
         "steps": "last",
         "constraint": {"rel_up": 1.0, "abs_floor_up": 0.1, "rel_down": 1.0},
     },
-    # Step 0 pays compile and allocator warm-up, so judge the last step. Over
-    # 30 days of CI runs, rel_down 0.4 never failed the median gated test;
-    # 0.25 failed a quarter of all runs.
+    # Tracked, not judged: CI-sized runs swing MFU too far between healthy
+    # runs for a band. Step 0 pays compile and allocator warm-up.
     "perf/actor_train_mfu": {
         "steps": "last",
-        "constraint": {"rel_up": 1.0, "rel_down": 0.4},
+        "constraint": None,
     },
 }
 
@@ -135,7 +136,8 @@ class CiGateSpec:
 
     `steps` is the validated selection literal (`"last"` | `"all"` | a list of
     step indices); `constraint` is a normalized dict (name + validated params
-    + filled defaults); both drive execution. `steps_key` / `constraint_key` are
+    + filled defaults), or None for a tracked metric that is recorded and
+    compared to its own history but never judged; both drive execution. `steps_key` / `constraint_key` are
     canonical JSON of the same literals as written, stored beside each value as
     provenance; history is keyed by `metric_key` and step. `filename` is the
     test file the spec governs; run identity comes from its CIRegistry.
@@ -144,7 +146,7 @@ class CiGateSpec:
     filename: str
     metric_key: str
     steps: str | list[int]
-    constraint: dict
+    constraint: dict | None
     steps_key: str
     constraint_key: str
     enforce: bool = True
@@ -216,11 +218,13 @@ def _validate_param(validator: str, value: object) -> object:
     raise _ParseError(f"internal: unknown validator {validator!r}")
 
 
-def _normalize_constraint(raw: object) -> dict:
+def _normalize_constraint(raw: object) -> dict | None:
     """Validate the constraint literal against `CONSTRAINT_SCHEMA` and return
     a normalized dict (validated params + filled defaults). Each side needs at
     least one written band param -- an all-default side has band 0 and would
-    fail on any deviation."""
+    fail on any deviation. None marks a tracked metric."""
+    if raw is None:
+        return None
     if not isinstance(raw, dict):
         raise _ParseError("constraint must be a dict")
     for key in raw:
@@ -332,7 +336,7 @@ def _parse_ci_gate_call(call: ast.Call, filename: str) -> CiGateSpec:
             constraint=_normalize_constraint(raw["constraint"]),
             steps_key=_canonical_key(raw["steps"]),
             constraint_key=_canonical_key(raw["constraint"]),
-            enforce=_require_bool(raw["enforce"], "enforce"),
+            enforce=_require_bool(raw["enforce"], "enforce") and raw["constraint"] is not None,
             allowlist_reason=_require_opt_str(raw["allowlist_reason"], "allowlist_reason"),
         )
     except _ParseError as e:
