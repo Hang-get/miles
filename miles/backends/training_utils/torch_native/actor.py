@@ -10,7 +10,13 @@ import torch.distributed as dist
 from tqdm import tqdm
 from transformers import PretrainedConfig, PreTrainedTokenizerBase
 
-from miles.backends.training_utils.data.rollout import DataIterator, get_batch, get_data_iterator, get_rollout_data
+from miles.backends.training_utils.data.rollout import (
+    DataIterator,
+    get_batch,
+    get_data_iterator,
+    get_num_rollouts,
+    get_rollout_data,
+)
 from miles.backends.training_utils.data.sampling_mask import get_rollout_sampling_masks
 from miles.backends.training_utils.loss.objective import (
     compute_advantages_and_returns,
@@ -86,7 +92,16 @@ class TorchNativeTrainRayActor(TrainRayActor):
 
     @property
     def train_parallel_config(self) -> dict:
-        return {"dp_size": get_parallel_state().intra_dp.size}
+        # Advertise every field build_dp_schedule needs so the rollout side can precompute the
+        # micro-batch schedule; it keeps all samples of one rollout in the same step and counts
+        # rollouts (not samples) against the global batch size.
+        state = get_parallel_state()
+        return {
+            "dp_size": state.intra_dp.size,
+            "cp_size": state.cp.size,
+            "vpp_size": state.vpp_size,
+            "microbatch_group_size_per_vp_stage": state.microbatch_group_size_per_vp_stage or 1,
+        }
 
     def _build_weight_updater(self, model, iterator_factory: Callable) -> WeightUpdater:
         model_name = self.args.model_name
@@ -244,11 +259,16 @@ class TorchNativeTrainRayActor(TrainRayActor):
         state = get_parallel_state()
         keys = TRAIN_KEYS + SAMPLING_MASK_KEYS if args.use_sampling_support_replay else TRAIN_KEYS
 
-        for step_id, microbatches in enumerate(num_microbatches):
+        num_rollouts = get_num_rollouts(args, data_iterator.rollout_data, len(num_microbatches))
+        assert len(num_rollouts) == len(num_microbatches), f"{num_rollouts=} vs {num_microbatches=}"
+
+        for step_id, (microbatches, step_num_rollouts) in enumerate(zip(num_microbatches, num_rollouts, strict=True)):
             runner.zero_grad()
             progress = tqdm(range(microbatches), desc="actor_train", disable=dist.get_rank() != 0)
             batches = self._fetch_batches(self.prof.iterate_train_actor(progress), data_iterator, keys)
-            losses_reduced = runner.forward_backward_step(batches, partial(_step_loss, args, microbatches))
+            losses_reduced = runner.forward_backward_step(
+                batches, partial(_step_loss, args, microbatches, num_rollouts=step_num_rollouts)
+            )
             metrics = runner.apply_step()
 
             if args.ci_test:
@@ -262,7 +282,9 @@ class TorchNativeTrainRayActor(TrainRayActor):
                 )
             log_train_step(
                 args=args,
-                loss_dict=aggregate_train_losses(losses_reduced),
+                loss_dict=aggregate_train_losses(
+                    losses_reduced, None if args.calculate_per_token_loss else step_num_rollouts
+                ),
                 grad_norm=metrics.grad_norm,
                 rollout_id=rollout_id,
                 step_id=step_id,
@@ -296,12 +318,15 @@ class TorchNativeTrainRayActor(TrainRayActor):
         return self.weight_updater.weight_version
 
 
-def _step_loss(args, num_microbatches: int, logits: torch.Tensor, batch: dict) -> tuple[torch.Tensor, dict]:
+def _step_loss(
+    args, num_microbatches: int, logits: torch.Tensor, batch: dict, *, num_rollouts: int
+) -> tuple[torch.Tensor, dict]:
     loss, _normalizer, log_dict = loss_function(
         args=args,
         batch=batch,
         num_microbatches=num_microbatches,
         logits=logits,
         apply_megatron_loss_scaling=False,
+        num_rollouts=num_rollouts,
     )
     return loss, log_dict
