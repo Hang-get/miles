@@ -18,7 +18,7 @@ from miles.backends.megatron_utils.lora.native.spec.attention import (
 from miles.backends.megatron_utils.lora.native.spec.base import FixedTargets, LoRAArchSpec
 from miles.backends.megatron_utils.lora.native.spec.layout import AttentionSpecBase
 from miles.backends.megatron_utils.lora.native.spec.lm_head import InklingLMHeadSpec
-from miles.backends.megatron_utils.lora.native.spec.mlp import FusedGatedMLPSpec, FusedGateUpMLPSpec
+from miles.backends.megatron_utils.lora.native.spec.mlp import SplitGateUpMLPSpec, FusedGateUpMLPSpec
 from miles.backends.megatron_utils.lora.native.spec.moe import GroupedExpertsSpec
 from miles.utils.lora.hf_lora_targets import resolve_hf_lora_targets
 from miles.utils.lora.utils import lora_rollout_enabled, matches_lora_target
@@ -27,14 +27,14 @@ logger = logging.getLogger(__name__)
 
 
 def _arch_spec(
-    attention: AttentionSpecBase, *, mlp=None, allows_mixer_only_adapter_chunks: bool = False
+    attention: AttentionSpecBase, *, mlp=None, has_linear_attention_layers: bool = False
 ) -> LoRAArchSpec:
     return LoRAArchSpec(
         name=attention.name,
         model_family=attention.family,
         attention=attention,
-        mlp=mlp or FusedGatedMLPSpec(),
-        allows_mixer_only_adapter_chunks=allows_mixer_only_adapter_chunks,
+        mlp=mlp or SplitGateUpMLPSpec(),
+        has_linear_attention_layers=has_linear_attention_layers,
     )
 
 
@@ -68,7 +68,7 @@ def _kimi_k3_arch_spec() -> LoRAArchSpec:
         name=attention.name,
         model_family=attention.family,
         attention=attention,
-        mlp=FusedGatedMLPSpec(),
+        mlp=SplitGateUpMLPSpec(),
         experts=GroupedExpertsSpec(),
         # the routed-expert down-proj may be omitted: its EP-shared w2_lora_B dominates adapter growth (#1559)
         fixed_targets=FixedTargets(
@@ -87,7 +87,7 @@ def _build_model_specs() -> dict[str, LoRAArchSpec]:
     # HF GLM-4 keeps gate/up fused in one gate_up_proj module
     glm4 = _arch_spec(GQAAttentionSpec(), mlp=FusedGateUpMLPSpec())
     mla = _arch_spec(MLAAttentionSpec())
-    hybrid = _arch_spec(HybridGQAGDNAttentionSpec(), allows_mixer_only_adapter_chunks=True)
+    hybrid = _arch_spec(HybridGQAGDNAttentionSpec(), has_linear_attention_layers=True)
     inkling = _inkling_arch_spec()
     return {
         "llama": gqa,
@@ -158,7 +158,7 @@ def resolve_adapter_targets(
         spec.experts is None or experts_shared_outer_loras
     ), f"native {spec.name} LoRA trains shared-outer expert adapters; pass --experts-shared-outer-loras"
     if spec.fixed_targets is not None:
-        _check_fixed_targets(spec, hf_config, hf_targets)
+        _assert_fixed_target_layout(spec, hf_config, hf_targets)
         return spec.fixed_targets.serving(hf_targets)
 
     selected = [module for module in hf_modules if any(matches_lora_target(module, t) for t in hf_targets)]
@@ -166,9 +166,9 @@ def resolve_adapter_targets(
     assert not unattachable, (
         f"native LoRA ({spec.name} spec) does not implement adapters for {unattachable[:8]}"
         f"{' ...' if len(unattachable) > 8 else ''}. Select supported projections (e.g. "
-        f"--target-modules {default_target_modules(hf_config)}) or use --megatron-to-hf-mode bridge."
+        f"--target-modules {attention_target_modules_csv(hf_config)}) or use --megatron-to-hf-mode bridge."
     )
-    _check_gate_with_up(hf_targets)
+    _assert_up_proj_has_gate_proj(hf_targets)
     return hf_targets
 
 
@@ -196,7 +196,7 @@ def validate_native_lora_args(args) -> None:
     ), f"native {spec.name} expert LoRA assumes --expert-tensor-parallel-size 1"
 
 
-def _check_fixed_targets(spec: LoRAArchSpec, hf_config: dict, hf_targets: list[str]) -> None:
+def _assert_fixed_target_layout(spec: LoRAArchSpec, hf_config: dict, hf_targets: list[str]) -> None:
     layout = resolve_hf_lora_targets(hf_config)
     optional = {t for t in layout if any(t.endswith(f".{suffix}") for suffix in spec.fixed_targets.optional)}
     missing = sorted(set(layout) - set(hf_targets) - optional)
@@ -207,22 +207,24 @@ def _check_fixed_targets(spec: LoRAArchSpec, hf_config: dict, hf_targets: list[s
     )
 
 
-def _check_gate_with_up(hf_targets: list[str]) -> None:
+def _assert_up_proj_has_gate_proj(hf_targets: list[str]) -> None:
     """SGLang zero-fills an untrained up_proj next to gate_proj, but serves a lone up_proj only for
     non-gated MLPs, so a gated MLP's up_proj adapter needs its gate_proj selected too."""
     leaves_by_block: dict[str, set[str]] = {}
     for target in hf_targets:
         block, _, leaf = target.rpartition(".")
         leaves_by_block.setdefault(block, set()).add(leaf)
-    lone_up = sorted(
+    lone_up_projs = sorted(
         f"{block}.up_proj" if block else "up_proj"
         for block, leaves in leaves_by_block.items()
         if "up_proj" in leaves and "gate_proj" not in leaves
     )
-    assert not lone_up, f"native LoRA needs gate_proj selected with {lone_up}: SGLang drops a gated MLP's lone up_proj"
+    assert (
+        not lone_up_projs
+    ), f"native LoRA needs gate_proj selected with {lone_up_projs}: SGLang drops a gated MLP's lone up_proj"
 
 
-def default_target_modules(hf_config: dict) -> str:
+def attention_target_modules_csv(hf_config: dict) -> str:
     """Attention-only ``--target-modules`` for the checkpoint's native spec, in declaration order."""
     _model_type, spec = resolve_config_spec(hf_config)
     return spec.attention.canonical_targets_csv

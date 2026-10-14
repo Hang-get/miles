@@ -44,7 +44,7 @@ def _build_split_qkv(
 
 def _replicated_guard(host: nn.Module, _context: AttachContext, projection: ProjectionSpec, full_out: int) -> None:
     assert _is_replicated_linear(host, full_out), (
-        f"native MLA LoRA expects a replicated {projection.hf} (TELinear parallel_mode='duplicated'); "
+        f"native MLA LoRA expects a replicated {projection.hf_leaf} (TELinear parallel_mode='duplicated'); "
         f"this build shards it ({tuple(host.weight.shape)} vs full out {full_out}). "
         "Use --megatron-to-hf-mode bridge for this variant."
     )
@@ -75,7 +75,7 @@ class GQAAttentionSpec(AttentionSpecBase):
                 projection=ProjectionSpec("o_proj", "o", ShardLayout.ROW),
                 module_attr="linear_proj",
                 in_dim=L.gqa_o_in_local,
-                out_dim=L.hidden,
+                out_dim=L.hidden_size,
                 adapter_attr="lora_o_adapter",
             ),
         ),
@@ -103,22 +103,22 @@ class MLAAttentionSpec(AttentionSpecBase):
             ProjectionBinding(
                 projection=ProjectionSpec("q_a_proj", "a", ShardLayout.REPLICATED),
                 module_attr="linear_q_down_proj",
-                in_dim=L.hidden,
-                out_dim=L.cfg("q_lora_rank"),
+                in_dim=L.hidden_size,
+                out_dim=L.config_dim("q_lora_rank"),
                 adapter_attr="lora_mla_q_a_adapter",
                 guard=_replicated_guard,
             ),
             ProjectionBinding(
                 projection=ProjectionSpec("q_b_proj", "b", ShardLayout.COLUMN),
                 module_attr="linear_q_up_proj",
-                in_dim=L.cfg("q_lora_rank"),
+                in_dim=L.config_dim("q_lora_rank"),
                 out_dim=L.mla_q_up_out_local,
                 adapter_attr="lora_mla_q_b_adapter",
             ),
             ProjectionBinding(
                 projection=ProjectionSpec("kv_a_proj_with_mqa", "a", ShardLayout.REPLICATED),
                 module_attr="linear_kv_down_proj",
-                in_dim=L.hidden,
+                in_dim=L.hidden_size,
                 out_dim=L.mla_kv_down_out,
                 adapter_attr="lora_mla_kv_a_adapter",
                 guard=_replicated_guard,
@@ -126,7 +126,7 @@ class MLAAttentionSpec(AttentionSpecBase):
             ProjectionBinding(
                 projection=ProjectionSpec("kv_b_proj", "b", ShardLayout.COLUMN),
                 module_attr="linear_kv_up_proj",
-                in_dim=L.cfg("kv_lora_rank"),
+                in_dim=L.config_dim("kv_lora_rank"),
                 out_dim=L.mla_kv_up_out_local,
                 adapter_attr="lora_mla_kv_b_adapter",
             ),
@@ -134,7 +134,7 @@ class MLAAttentionSpec(AttentionSpecBase):
                 projection=ProjectionSpec("o_proj", "o", ShardLayout.ROW),
                 module_attr="linear_proj",
                 in_dim=L.mla_o_in_local,
-                out_dim=L.hidden,
+                out_dim=L.hidden_size,
                 adapter_attr="lora_o_adapter",
             ),
         ),
@@ -167,15 +167,15 @@ class KimiK3AttentionSpec(AttentionSpecBase):
             ProjectionBinding(
                 projection=ProjectionSpec("q_a_proj", "q_a", ShardLayout.REPLICATED),
                 module_attr="q_a_proj",
-                in_dim=L.hidden,
-                out_dim=L.cfg("q_lora_rank"),
+                in_dim=L.hidden_size,
+                out_dim=L.config_dim("q_lora_rank"),
                 adapter_attr="lora_mla_q_a_adapter",
                 guard=_replicated_guard,
             ),
             ProjectionBinding(
                 projection=ProjectionSpec("kv_a_proj_with_mqa", "kv_a", ShardLayout.REPLICATED),
                 module_attr="kv_a_proj_with_mqa",
-                in_dim=L.hidden,
+                in_dim=L.hidden_size,
                 out_dim=L.mla_kv_down_out,
                 adapter_attr="lora_mla_kv_a_adapter",
                 guard=_replicated_guard,
@@ -184,7 +184,7 @@ class KimiK3AttentionSpec(AttentionSpecBase):
                 projection=ProjectionSpec("o_proj", "o", ShardLayout.ROW),
                 module_attr="o_proj",
                 in_dim=L.host_in_local("o_proj"),
-                out_dim=L.hidden,
+                out_dim=L.hidden_size,
                 adapter_attr="lora_o_adapter",
             ),
         ),
@@ -197,7 +197,7 @@ class KimiK3AttentionSpec(AttentionSpecBase):
                 projection=ProjectionSpec("o_proj", "o", ShardLayout.ROW),
                 module_attr="out_proj",
                 in_dim=L.host_in_local("out_proj"),
-                out_dim=L.hidden,
+                out_dim=L.hidden_size,
                 adapter_attr="lora_o_adapter",
                 adapter_class=LoRAUnreducedRowLinear,
             ),
@@ -234,7 +234,7 @@ def _build_split_qkvr(
         reference=attention.linear_qkv.weight,
         context=context,
         projections=active,
-        rows={
+        rows_by_param_prefix={
             "q": attention.nh_l * attention.hd,
             "k": attention.nkv_l * attention.hd,
             "v": attention.nkv_l * attention.hd,
@@ -274,7 +274,7 @@ class InklingAttentionSpec(AttentionSpecBase):
                 projection=ProjectionSpec("wo_ud", "o", ShardLayout.ROW),
                 module_attr="linear_proj",
                 in_dim=L.inkling_o_in_local,
-                out_dim=L.hidden,
+                out_dim=L.hidden_size,
                 adapter_attr="lora_o_adapter",
             ),
         ),

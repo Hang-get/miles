@@ -13,7 +13,7 @@ from miles.backends.megatron_utils.lora.native.registry import resolve_checkpoin
 from miles.backends.megatron_utils.lora.native.spec.base import AttachContext, LoRAArchSpec
 from miles.backends.megatron_utils.megatron_to_hf import converter_model_name
 from miles.utils.hf_utils.config import load_hf_config
-from miles.utils.hf_utils.weight_mapping import hf_namespace_contains
+from miles.utils.hf_utils.weight_mapping import build_hf_namespace_predicate
 
 logger = logging.getLogger(__name__)
 
@@ -39,9 +39,9 @@ def apply_native_lora(model, args):
         "trainable %s / %s params (%.4f%%), input-grad hook=%s",
         model_type,
         arch_spec.name,
-        context.rank,
+        context.lora.rank,
         context.lora.alpha,
-        context.dropout,
+        context.lora.dropout,
         "all" if context.lora.target_modules is None else list(context.lora.target_modules),
         wrapped,
         f"{trainable:,}",
@@ -69,7 +69,7 @@ def _resolve_attach_context(args, transformer_config, arch_spec: LoRAArchSpec) -
         args,
         converter_model_name(args, load_hf_config(args.hf_checkpoint)),
         tp_size,
-        hf_namespace_contains(args.hf_checkpoint),
+        build_hf_namespace_predicate(args.hf_checkpoint),
     )
     return AttachContext(
         lora=LoRAConfig.from_args(
@@ -85,7 +85,7 @@ def _resolve_attach_context(args, transformer_config, arch_spec: LoRAArchSpec) -
 def _attach_layer(layer: nn.Module, arch_spec: LoRAArchSpec, context: AttachContext) -> int:
     attention = layer.self_attention
     # Hybrid GDN mixer layers have no fused qkv; any other miss means the registry disagrees with the model.
-    assert arch_spec.allows_mixer_only_adapter_chunks or arch_spec.attention.applies_to(attention), (
+    assert arch_spec.has_linear_attention_layers or arch_spec.attention.applies_to(attention), (
         f"native LoRA's {arch_spec.name} spec does not apply to layer {layer.layer_number - 1}'s "
         f"{type(attention).__name__}; the built attention module does not match the registered architecture."
     )
