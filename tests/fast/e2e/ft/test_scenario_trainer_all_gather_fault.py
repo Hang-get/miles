@@ -9,13 +9,14 @@ from tests.fast.e2e.scenario_harness import ScenarioHarness, parse_fault_toleran
 from tests.utils.soak.ft.checkers.reconfigure import ReconfigureInfo
 
 from miles.utils.external_utils.command_utils.base_backend import ExecuteTrainConfig
+from miles.utils.test_utils.fault_injector.actions.frozen import SleepAction
 from miles.utils.test_utils.fault_injector.actions.process import (
     DeadlockThreadAction,
     KillProcessAction,
     StopProcessAction,
 )
 from miles.utils.test_utils.fault_injector.controller import _filter_fault_hooks
-from miles.utils.test_utils.fault_injector.models import FaultHookName, FaultHookOwner
+from miles.utils.test_utils.fault_injector.models import DeclaredFaultHookTarget, FaultHookName, FaultHookOwner
 from miles.utils.test_utils.fault_injector.static_source import read_declared_fault_hooks
 
 _MODE = "kill_train__dp2_tp2"
@@ -36,7 +37,11 @@ def harness(scenario_harness: ScenarioHarness, monkeypatch: pytest.MonkeyPatch) 
 class TestTheAllGatherFaultPlan:
     def test_three_faults_hit_the_last_trainer_cells_first_rank_before_the_all_gather(self) -> None:
         """Kill, stop and deadlock must each strike rank 0 of the last cell at its own rollout."""
-        requests = scenario_trainer_all_gather_fault._build_fault_hooks(MODES[_MODE], ExecuteTrainConfig())
+        requests = [
+            r
+            for r in scenario_trainer_all_gather_fault._build_fault_hooks(MODES[_MODE], ExecuteTrainConfig())
+            if r.hook_name is FaultHookName.TRAINER_WEIGHT_UPDATE_BEFORE_ALL_GATHER
+        ]
 
         assert [(r.rollout_id, r.action) for r in requests] == [
             (1, KillProcessAction()),
@@ -53,6 +58,19 @@ class TestTheAllGatherFaultPlan:
                 None,
             )
         assert len({r.request_id for r in requests}) == 3
+
+    def test_the_controller_waits_for_each_heal_before_the_next_rollout_refreshes(self) -> None:
+        """The heal takes longer than a step, so the rollout after each fault must hold before it snapshots cells."""
+        requests = [
+            r
+            for r in scenario_trainer_all_gather_fault._build_fault_hooks(MODES[_MODE], ExecuteTrainConfig())
+            if r.hook_name is FaultHookName.TRAINER_CONTROLLER_STEP_START
+        ]
+
+        assert [(r.rollout_id, r.action) for r in requests] == [
+            (r, SleepAction(seconds=scenario_trainer_all_gather_fault.HEAL_WAIT_SECONDS)) for r in (2, 4, 6)
+        ]
+        assert all(r.target == DeclaredFaultHookTarget() for r in requests)
 
     def test_each_fault_heals_the_victim_at_the_next_rollout(self) -> None:
         """The victim cell must rejoin from cell 0 right after each faulted update, with every cell alive."""
@@ -73,7 +91,7 @@ class TestTheAllGatherFaultPlan:
             (FaultHookOwner.TRAINER_ACTOR, _LAST_CELL, 0, 3),
             (FaultHookOwner.TRAINER_ACTOR, _LAST_CELL, 1, 0),
             (FaultHookOwner.TRAINER_ACTOR, "trainer-engine-actor-00000", 0, 0),
-            (FaultHookOwner.TRAINER_CONTROLLER, None, None, 0),
+            (FaultHookOwner.TRAINER_CONTROLLER, None, None, 3),
         ],
     )
     def test_the_launched_plan_arms_only_the_victim_rank(
@@ -114,6 +132,9 @@ class TestTheAllGatherFaultRun:
             "kill_process_before_all_gather_at_1",
             "stop_process_before_all_gather_at_3",
             "deadlock_thread_before_all_gather_at_5",
+            "wait_for_heal_at_2",
+            "wait_for_heal_at_4",
+            "wait_for_heal_at_6",
         ]
         ((published_args, published_kwargs),) = harness.calls_of("published")
         assert published_args[0] == Path(compare_kwargs["target_dir"]) / "events"
