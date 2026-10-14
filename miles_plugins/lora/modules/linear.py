@@ -64,6 +64,8 @@ def new_lora_parameter(
 class NativeLoRAAdapter(nn.Module):
     """Base class for a self-describing native-LoRA delta module."""
 
+    host_returns_bias = True
+
     def __init__(
         self,
         hf_prefix: str,
@@ -222,6 +224,25 @@ class LoRALinear(NativeLoRAAdapter):
         a = getattr(self, f"{self.attr}_A")
         b = getattr(self, f"{self.attr}_B")
         yield host.weight, lambda: self.context.scale * (b.float() @ a.float())
+
+
+class LoRAUnreducedRowLinear(LoRALinear):
+    """Row-parallel adapter on a plain local ``nn.Linear`` whose caller reduces the TP partial sums.
+
+    The delta joins the host's partial output before that reduce, so it stays a partial sum too
+    and each rank's ``B`` gradient is a partial that must be summed over TP.
+    """
+
+    host_returns_bias = False
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        assert self.layout == ShardLayout.ROW, f"{type(self).__name__} requires a row-parallel projection"
+        getattr(self, f"{self.attr}_B")._lora_grad_sum_group = "tp"
+
+    def forward(self, x: torch.Tensor, base_module: nn.Module, *_host_args) -> torch.Tensor:
+        x = apply_lora_dropout(x, self.context, base_module.training)
+        return F.linear(F.linear(x, getattr(self, f"{self.attr}_A")), getattr(self, f"{self.attr}_B"))
 
 
 class LoRASplitAdapter(NativeLoRAAdapter):
@@ -390,7 +411,9 @@ class LoRASplitFC1(LoRASplitAdapter):
         self.inter_local = inter_local
 
 
-def attach_delta_forward(module: nn.Module, delta: Callable[..., torch.Tensor], scale: float) -> None:
+def attach_delta_forward(
+    module: nn.Module, delta: Callable[..., torch.Tensor], scale: float, *, host_returns_bias: bool = True
+) -> None:
     """Add ``scale * delta(x, module, *host_args)`` to a host linear while preserving ``(out, bias)``.
 
     Extra host-forward positionals (e.g. grouped GEMM's ``tokens_per_expert``)
@@ -398,16 +421,23 @@ def attach_delta_forward(module: nn.Module, delta: Callable[..., torch.Tensor], 
     """
     original = module.forward
 
-    def forward(x, *args, **kwargs):
-        out, bias = original(x, *args, **kwargs)
-        return torch.add(out, delta(x, module, *args), alpha=scale), bias
+    if host_returns_bias:
+
+        def forward(x, *args, **kwargs):
+            out, bias = original(x, *args, **kwargs)
+            return torch.add(out, delta(x, module, *args), alpha=scale), bias
+
+    else:
+
+        def forward(x, *args, **kwargs):
+            return torch.add(original(x, *args, **kwargs), delta(x, module, *args), alpha=scale)
 
     module.forward = forward
 
 
 def attach_adapter_forward(module: nn.Module, adapter: NativeLoRAAdapter, scale: float) -> None:
     """Make a single-host adapter's forward the delta of ``module``."""
-    attach_delta_forward(module, adapter, scale)
+    attach_delta_forward(module, adapter, scale, host_returns_bias=adapter.host_returns_bias)
     adapter.bind_host(module)
 
 

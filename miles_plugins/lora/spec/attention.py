@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import torch.nn as nn
 
-from miles_plugins.lora.modules.linear import LoRASplitAdapter, LoRASplitQKV
+from miles_plugins.lora.modules.linear import LoRASplitAdapter, LoRASplitQKV, LoRAUnreducedRowLinear
 from miles_plugins.lora.spec import layout as L
 from miles_plugins.lora.spec.base import AttachContext, AttentionFamily, ProjectionSpec, ShardLayout
 from miles_plugins.lora.spec.layout import (
@@ -13,6 +13,7 @@ from miles_plugins.lora.spec.layout import (
     ModuleLayout,
     ProjectionBinding,
     ServingGroup,
+    attach_layout,
 )
 
 
@@ -157,7 +158,8 @@ class KimiK3AttentionSpec(AttentionSpecBase):
     """Kimi K3's HF-named attention: ``o_proj`` on every layer, the duplicated MLA down projections on MLA layers.
 
     The block gathers the sequence-parallel input once, so its linears run without SP. KDA
-    layers have no ``q_a_proj``/``kv_a_proj_with_mqa`` and keep only the ``o_proj`` adapter.
+    layers have no ``q_a_proj``/``kv_a_proj_with_mqa``; their ``o_proj`` is the head-sharded
+    linear-attention layer's ``out_proj``, whose partial sums the layer reduces itself.
     """
 
     name = "kimi_k3"
@@ -191,6 +193,28 @@ class KimiK3AttentionSpec(AttentionSpecBase):
             ),
         ),
     )
+    kda_layout = ModuleLayout(
+        name="kimi_k3_kda_attention",
+        full_sequence=True,
+        singles=(
+            ProjectionBinding(
+                projection=ProjectionSpec("o_proj", "o", ShardLayout.ROW),
+                module_attr="out_proj",
+                in_dim=L.host_in_local("out_proj"),
+                out_dim=L.hidden,
+                adapter_attr="lora_o_adapter",
+                adapter_class=LoRAUnreducedRowLinear,
+            ),
+        ),
+    )
+
+    def attach(self, block: nn.Module, hf_prefix: str, context: AttachContext) -> int:
+        block, layout = (block.linear_attn, self.kda_layout) if block.is_kda else (block, self.layout)
+        attached = attach_layout(block, layout, hf_prefix, context)
+        # attach_layout skips absent hosts; on K3 every selected projection exists, so a skip is a renamed host.
+        selected = sum(context.selects(f"{hf_prefix}{target}") for target in layout.targets)
+        assert attached == selected, f"Kimi K3 {layout.name}: attached {attached} of {selected} selected projections"
+        return attached
 
 
 class HybridGQAGDNAttentionSpec(GQAAttentionSpec):

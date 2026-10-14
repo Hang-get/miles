@@ -42,10 +42,16 @@ class _GroupedLinear(nn.Module):
         return _grouped_linear(x, weights, tokens_per_expert), None
 
 
-def _attention(is_kda):
+def _attention(is_kda, *, tp_size=1):
+    """Mirrors KimiK3Attention / KimiK3KDAAttention: KDA's o_proj is the linear-attention layer's
+    head-sharded plain ``nn.Linear`` ``out_proj``, returning a bare TP partial sum."""
     attention = nn.Module()
-    attention.o_proj = _Linear(HIDDEN, 12)
-    if not is_kda:
+    attention.is_kda = is_kda
+    if is_kda:
+        attention.linear_attn = nn.Module()
+        attention.linear_attn.out_proj = nn.Linear(12 // tp_size, HIDDEN, bias=False)
+    else:
+        attention.o_proj = _Linear(HIDDEN, 12)
         attention.q_a_proj = _Linear(4, HIDDEN)
         attention.kv_a_proj_with_mqa = _Linear(6, HIDDEN)
     return attention
@@ -71,7 +77,7 @@ def _moe(num_experts=3, intermediate=5):
     return moe
 
 
-def _context(targets=None, *, sequence_parallel=False):
+def _context(targets=None, *, sequence_parallel=False, tp_size=1, tp_rank=0):
     return AttachContext(
         lora=LoRAConfig(rank=RANK, alpha=4, dropout=0.0, target_modules=targets),
         transformer_config=SimpleNamespace(
@@ -81,8 +87,8 @@ def _context(targets=None, *, sequence_parallel=False):
             kv_lora_rank=5,
             qk_pos_emb_head_dim=1,
         ),
-        tp_size=1,
-        tp_rank=0,
+        tp_size=tp_size,
+        tp_rank=tp_rank,
         layer_prefix=PREFIX,
         shared_expert="block_sparse_moe.shared_experts.",
     )
@@ -147,7 +153,7 @@ def _resolve(targets, **overrides):
 def test_k3_is_built_from_the_shared_tables():
     """Kimi K3 adds no modules of its own: every adapter is one the other architectures use."""
     adapters = {type(module).__name__ for module in _model().modules() if hasattr(module, "hf_prefix")}
-    assert adapters == {"LoRALinear", "LoRASplitFC1", "LoRAGroupedFC1", "LoRAGroupedFC2"}
+    assert adapters == {"LoRALinear", "LoRAUnreducedRowLinear", "LoRASplitFC1", "LoRAGroupedFC1", "LoRAGroupedFC2"}
 
 
 @pytest.mark.parametrize("include_fc2", [True, False])
@@ -205,10 +211,12 @@ def test_merged_weights_reproduce_the_adapter_forward():
         ("mla.o_proj.weight", model.mla.o_proj),
         ("mla.q_a_proj.weight", model.mla.q_a_proj),
         ("dense.linear_fc1.weight", model.dense.linear_fc1),
-        ("kda.o_proj.weight", model.kda.o_proj),
+        ("kda.linear_attn.out_proj.weight", model.kda.linear_attn.out_proj),
     ):
         inputs = torch.randn(4, host.weight.shape[1])
-        torch.testing.assert_close(host(inputs)[0], inputs @ merged[name].t(), msg=name)
+        output = host(inputs)
+        output = output[0] if isinstance(output, tuple) else output
+        torch.testing.assert_close(output, inputs @ merged[name].t(), msg=name)
     tokens = [2, 1, 1]
     latent = torch.randn(4, LATENT)
     merged_fc1 = torch.stack([merged[f"moe.experts.linear_fc1.weight{i}"] for i in range(3)])
@@ -271,3 +279,35 @@ def test_expert_grad_flags():
     assert experts.lora_fc1_adapter.w1_A._lora_grad_sum_group == "ep"
     assert experts.lora_fc2_adapter.w2_B._lora_grad_sum_group == "ep"
     assert experts.lora_fc1_adapter.w1_B.allreduce is False
+
+
+def test_kda_o_proj_delta_stays_a_partial_sum(monkeypatch):
+    """KDA's out_proj output is reduced by the layer after the adapter adds its delta: a reduce inside
+    the adapter would apply it tp_size times. Summing the per-rank outputs must give W + s*B@A."""
+    from megatron.core.tensor_parallel import mappings
+
+    def _no_collective(*_args, **_kwargs):
+        raise AssertionError("KDA o_proj LoRA must not reduce; the linear-attention layer does")
+
+    monkeypatch.setattr(mappings, "reduce_from_tensor_model_parallel_region", _no_collective)
+    monkeypatch.setattr(mappings, "reduce_scatter_to_sequence_parallel_region", _no_collective)
+    tp_size, scale = 2, 4 / RANK
+    torch.manual_seed(0)
+    weight, lora_a, lora_b = torch.randn(HIDDEN, 12), torch.randn(RANK, 12), torch.randn(HIDDEN, RANK)
+    inputs = torch.randn(4, 12)
+
+    output = 0
+    for tp_rank in range(tp_size):
+        columns = slice(tp_rank * 12 // tp_size, (tp_rank + 1) * 12 // tp_size)
+        attention = _attention(True, tp_size=tp_size)
+        context = _context((f"{PREFIX}*.self_attn.o_proj",), tp_size=tp_size, tp_rank=tp_rank)
+        assert K3.attention.attach(attention, f"{PREFIX}4.self_attn.", context) == 1
+        adapter = attention.linear_attn.lora_o_adapter
+        assert adapter.o_B._lora_grad_sum_group == "tp"
+        with torch.no_grad():
+            attention.linear_attn.out_proj.weight.copy_(weight[:, columns])
+            adapter.o_A.copy_(lora_a[:, columns])
+            adapter.o_B.copy_(lora_b)
+        output = output + attention.linear_attn.out_proj(inputs[:, columns])
+
+    torch.testing.assert_close(output, inputs @ (weight + scale * lora_b @ lora_a).t())
