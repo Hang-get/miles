@@ -52,7 +52,7 @@ from miles.utils.memory_utils import clear_memory
 from miles.utils.test_utils.ft_test_actions import FTTestActionActorExecutor
 from miles.utils.tracking_utils.structured_log import log_structured
 from miles.utils.types import SampleLineage
-from miles_plugins.lora import load_lora_adapter_hf, wrap_model_provider_with_lora
+from miles_plugins.lora import wrap_model_provider_with_lora
 
 from ...utils.misc import filter_keys
 from ..training_utils.parallel import get_parallel_state
@@ -64,7 +64,12 @@ from .ci_utils import (
     save_model_hashes,
 )
 from .initialize import is_first_replica_megatron_main_rank
-from .lora.utils import is_lora_enabled, is_lora_model, patch_param_grad_buffer_for_colocate_mode_lora
+from .lora.utils import (
+    is_lora_enabled,
+    is_lora_model,
+    patch_param_grad_buffer_for_colocate_mode_lora,
+    restore_lora_adapter,
+)
 from .model_provider import get_model_provider_func
 from .parallel import get_packed_seq_params
 
@@ -1007,11 +1012,10 @@ def load_model_state(
         load_ctx = nullcontext()
 
     load_dir = getattr(args, "load", None)
-    native_optimizer_restored = False
     # --load may be unset: setup_model_and_optimizer already asserted pretrained_checkpoint covers it.
     if load_dir is None or _has_loadable_ckpt(load_dir):
         with load_ctx:
-            iteration, restored_trained_iteration, native_optimizer_restored = load_checkpoint(
+            iteration, restored_trained_iteration = load_checkpoint(
                 model,
                 optimizer,
                 opt_param_scheduler,
@@ -1024,18 +1028,13 @@ def load_model_state(
         iteration = 0
         restored_trained_iteration = not args.finetune
 
-    if (
-        is_lora_enabled(args)
-        and role == "actor"
-        and args.megatron_to_hf_mode != "bridge"
-        and getattr(args, "lora_adapter_path", None)
-    ):
-        if (Path(args.lora_adapter_path) / "adapter_model.safetensors").exists() and not native_optimizer_restored:
-            load_lora_adapter_hf(model, args.lora_adapter_path)
-            if optimizer is not None:
-                # refresh the fp32 masters, or the first step() restores the
-                # pre-load init values over the adapter we just wrote
-                optimizer.reload_model_params()
+    if is_lora_enabled(args) and role == "actor" and args.lora_adapter_path is not None:
+        adapter_iteration = restore_lora_adapter(
+            model, args, optimizer=optimizer, opt_param_scheduler=opt_param_scheduler
+        )
+        if adapter_iteration is not None:
+            iteration = adapter_iteration
+            restored_trained_iteration = True
 
     check_peak_gpu_memory_after_load(args)
     clear_memory()
