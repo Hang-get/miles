@@ -82,6 +82,8 @@ def test_score_centering_enables_fp32_lm_head(loss_type: str | None, explicit_fp
     args.true_on_policy_mode = False
     args.recompute_logprobs_via_prefill = False
     args.use_session_server = False
+    args.sglang_router_policy = None
+    args.sglang_router_ip = None
 
     validate_args(args)
 
