@@ -28,6 +28,7 @@ from miles.utils.ft_utils.api_server.models import CellStatus
 from miles.utils.init_once import InitOnce, init_once
 from miles.utils.logging_utils import configure_logger
 from miles.utils.misc import SimpleTicker, partition
+from miles.utils.retry_utils import retry
 from miles.utils.workers.registration.hub import RegistrationHub
 from miles.utils.workers.registration.models import RegistrationSnapshot
 from miles.utils.workers.worker_provider.base import BaseWorkerProvider, CellInfo, StopWatchFn
@@ -239,8 +240,23 @@ class InferenceController:
 
     @releases_lock
     async def end_update_weights(
-        self, snapshot_cell_id_to_hashes: dict[str, str], failed_cell_ids: Sequence[str]
-    ) -> None:
+        self,
+        snapshot_cell_id_to_hashes: dict[str, str],
+        failed_cell_ids: Sequence[str],
+        checksum_model_id: str | None = None,
+        collect_checksums: bool = False,
+    ) -> list[tuple[ServerCellMetadata, Any]]:
+        checksum_results = []
+        if collect_checksums:
+            try:
+                async with asyncio.timeout(self.args.update_weight_engine_request_timeout):
+                    checksum_results = await self._collect_update_checksums(
+                        model_id=checksum_model_id,
+                        cell_ids=sorted(set(snapshot_cell_id_to_hashes) - set(failed_cell_ids)),
+                    )
+            except Exception:
+                logger.exception("Could not collect inference engine checksum observation")
+
         cells = [
             (cell_id, cell)
             for srv in self.servers.values()
@@ -250,6 +266,21 @@ class InferenceController:
         failed_cells, updated_cells = partition(cells, lambda kv: kv[0] not in failed_cell_ids)
         await asyncio.gather(*[cell.mark_errored() for _, cell in failed_cells])
         await asyncio.gather(*[cell.mark_weights_ready() for _, cell in updated_cells if cell.is_pending_weights])
+
+        return checksum_results
+
+    @requires_lock
+    async def _collect_update_checksums(
+        self, *, model_id: str | None, cell_ids: list[str]
+    ) -> list[tuple[ServerCellMetadata, Any]]:
+        srv = self._get_updatable_server(model_id=model_id)
+        if srv is None:
+            return []
+        return await retry(
+            lambda _: srv.check_weights(action="checksum", cell_ids=cell_ids),
+            initial_delay=2.0,
+            max_delay=2.0,
+        )
 
     @requires_lock
     async def _ensure_cells_ready(self, model_id: str | None = None) -> None:
