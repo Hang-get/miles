@@ -681,9 +681,7 @@ class TestMaybeApplyDumperOverrides:
     def test_no_healing_loop_survives_dumper_mode(self) -> None:
         """It is resolved from ft_components, which dumper mode clears, so resolving it first
         would leave the loop polling a registry with nothing in it for the whole run."""
-        args = _parse_megatron_args(
-            ["--dumper-enable", "--use-fault-tolerance", "--ft-components", "rollout"]
-        )
+        args = _parse_megatron_args(["--dumper-enable", "--use-fault-tolerance", "--ft-components", "rollout"])
 
         miles_validate_args(args)
 

@@ -75,8 +75,14 @@ def test_kimi_yarn_flags_propagate_to_megatron(monkeypatch, model_type, beta_fas
         sys,
         "argv",
         [
-            "pytest", "--train-backend", "megatron", "--rollout-batch-size", "1",
-            "--cp-comm-type", "p2p", *expand_model_args(model_type),
+            "pytest",
+            "--train-backend",
+            "megatron",
+            "--rollout-batch-size",
+            "1",
+            "--cp-comm-type",
+            "p2p",
+            *expand_model_args(model_type),
         ],
     )
 
