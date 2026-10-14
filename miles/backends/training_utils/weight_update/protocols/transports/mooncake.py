@@ -20,6 +20,7 @@ from miles.utils.test_utils.fault_injector.actions.base import FaultHookContext
 from miles.utils.test_utils.fault_injector.controller import fault_hook_controller, reach_fault_hook
 from miles.utils.test_utils.fault_injector.models import FaultHookName
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -77,7 +78,7 @@ class MooncakeTransport:
         writes of the one it replaced.
         """
         for write_executor in self._write_executors_by_rollout_engine_ind.values():
-            write_executor.shutdown(wait=False)
+            write_executor.shutdown(wait=False, cancel_futures=True)
         self._write_executors_by_rollout_engine_ind = {}
         return {
             runner_role: {
