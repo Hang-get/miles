@@ -256,6 +256,7 @@ class ServerCell:
             logger.warning(
                 f"Unregistering cell {self.meta.cell_id} from the router failed, disposing anyway", exc_info=True
             )
+            self._health_checker.stop()
         self._change_state(
             "dispose",
             (StateUninitialized, StateInitializing, StatePendingWeights, StateServing, StateErrored, StateDisposed),
@@ -263,9 +264,9 @@ class ServerCell:
         )
 
     async def _leave_service(self) -> None:
-        self._health_checker.stop()
         if self.is_serving:
             await self._unregister_from_router()
+        self._health_checker.stop()
 
     async def _unregister_from_router(self) -> None:
         await retry_until_deadline(
