@@ -66,7 +66,7 @@ def _args(**overrides: object) -> Namespace:
     backend = MegatronArgsNamespace(
         **{name: values.pop(name) for name in ("vocab_size", "calculate_per_token_loss", "global_batch_size")}
     )
-    sglang = SglangConfig(models=[], base_args={"speculative_algorithm": values.pop("sglang_speculative_algorithm")})
+    sglang = SglangConfig(models=[], base_args={"speculative_algorithm": values["sglang_speculative_algorithm"]})
     return Namespace(**values, train_backend="megatron", backend=backend, sglang=sglang)
 
 
