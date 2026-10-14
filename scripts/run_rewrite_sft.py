@@ -39,6 +39,7 @@ def main(cli: Args) -> None:
         assert not args.enable_mtp_training
         assert args.accumulate_allreduce_grads_in_fp32 and args.use_dynamic_global_batch_size
         assert args.seq_length == 262144 and args.debug_train_only
+        assert args.pretrained_checkpoint == args.hf_checkpoint
         audit = json.loads((path.parent / "data/mask-audit.json").read_text())
         assert audit["sessions"] == 3870 and audit["max_tokens"] <= 262144
         for repo, expected in config["source_commits"].items():
