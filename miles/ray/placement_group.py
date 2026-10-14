@@ -47,8 +47,6 @@ from miles.utils.workers.worker_provider.static import wait_static_addrs_ready
 
 logger = logging.getLogger(__name__)
 
-_CHECKSUM_RETRY_INTERVAL_SECONDS: float = 2.0
-
 
 @ray.remote(num_gpus=1)
 class InfoActor:
@@ -318,13 +316,21 @@ async def update_weights(
     except BaseException:
         await inference_controller.abort_update_weights()
         raise
-    await inference_controller.end_update_weights(
-        snapshot_cell_id_to_hashes=info.snapshot_cell_id_to_hashes, failed_cell_ids=output.failed_cell_ids
+    checksum_results = await inference_controller.end_update_weights(
+        snapshot_cell_id_to_hashes=info.snapshot_cell_id_to_hashes,
+        failed_cell_ids=output.failed_cell_ids,
+        checksum_model_id=trainer_model_id,
+        collect_checksums=(
+            args.log_inference_engine_weight_checksums
+            and is_event_logger_initialized()
+            and not args.debug_train_only
+            and not args.debug_rollout_only
+            and output.weight_version is not None
+        ),
     )
-
-    await _maybe_log_inference_engine_weight_checksums(
+    _log_inference_engine_weight_checksums(
         args,
-        inference_controller=inference_controller,
+        checksum_results=checksum_results,
         rollout_id=rollout_id,
         trainer_model_id=trainer_model_id,
         output=output,
@@ -335,22 +341,16 @@ async def update_weights(
         await rollout_executor.set_weight_version(output.weight_version, trainer_model_id=trainer_model_id)
 
 
-async def _maybe_log_inference_engine_weight_checksums(
+def _log_inference_engine_weight_checksums(
     args,
     *,
-    inference_controller: BaseWorkerHandle,
+    checksum_results: list,
     rollout_id: int | None,
     trainer_model_id: str | None,
     output: WeightUpdateOutput,
     snapshot_cell_id_to_hashes: dict[str, str],
 ) -> None:
-    if not args.log_inference_engine_weight_checksums:
-        return
-    if not is_event_logger_initialized():
-        return
-    if args.debug_train_only or args.debug_rollout_only:
-        return
-    if output.weight_version is None:
+    if not checksum_results:
         return
 
     published = {
@@ -359,12 +359,6 @@ async def _maybe_log_inference_engine_weight_checksums(
         if cell_id not in output.failed_cell_ids
     }
     try:
-        checked = await asyncio.wait_for(
-            _check_weights_until_answered(inference_controller, model_id=trainer_model_id, cell_ids=sorted(published)),
-            timeout=args.update_weight_engine_request_timeout,
-        )
-        if not checked:
-            return
         get_event_logger().log(
             InferenceEngineWeightChecksumEvent,
             dict(
@@ -379,24 +373,13 @@ async def _maybe_log_inference_engine_weight_checksums(
                         workers_hash=meta.workers_hash,
                         tensor_checksums=merge_inference_engine_ranks(body),
                     )
-                    for meta, body in checked
+                    for meta, body in checksum_results
                     if published.get(meta.cell_id) == meta.workers_hash
                 ],
             ),
         )
     except Exception:
         logger.exception("Could not record inference engine checksum observation")
-
-
-async def _check_weights_until_answered(
-    inference_controller: BaseWorkerHandle, *, model_id: str | None, cell_ids: list[str]
-) -> list:
-    while True:
-        try:
-            return await inference_controller.check_weights(action="checksum", model_id=model_id, cell_ids=cell_ids)
-        except Exception:
-            logger.warning("Inference engine checksum observation failed, retrying", exc_info=True)
-            await asyncio.sleep(_CHECKSUM_RETRY_INTERVAL_SECONDS)
 
 
 # TODO: move (when reorganizing files)
