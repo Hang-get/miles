@@ -20,9 +20,11 @@ NUM_STEPS: int = 2
 def _build_baseline_args(
     mode: FTTestMode, dump_dir: str, enable_dumper: bool = True, config: ExecuteTrainConfig | None = None
 ) -> str:
-    return get_common_train_args(
-        mode, dump_dir=dump_dir, num_steps=NUM_STEPS, enable_dumper=enable_dumper
-    ) + get_train_env_vars_arg(mode, deterministic=False)
+    return (
+        get_common_train_args(mode, dump_dir=dump_dir, num_steps=NUM_STEPS, enable_dumper=enable_dumper)
+        + get_train_env_vars_arg(mode, deterministic=False)
+        + _get_live_rollout_args(mode)
+    )
 
 
 def _build_target_args(
@@ -32,7 +34,14 @@ def _build_target_args(
         get_common_train_args(mode, dump_dir=dump_dir, num_steps=NUM_STEPS, enable_dumper=enable_dumper)
         + get_ft_args(mode)
         + get_train_env_vars_arg(mode, deterministic=False)
+        + _get_live_rollout_args(mode)
     )
+
+
+def _get_live_rollout_args(mode: FTTestMode) -> str:
+    if not mode.has_real_rollout:
+        return ""
+    return "--debug-deterministic-collective --clip-grad 10.0 "
 
 
 def _compare(dump_dir: str, mode: FTTestMode) -> None:
