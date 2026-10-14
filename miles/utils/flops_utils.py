@@ -258,7 +258,7 @@ def _compressed_attention(config: Any, layer: int) -> LayerFlops:
     hidden, heads, head_dim = config.hidden_size, config.num_attention_heads, config.head_dim
     q_lora, o_lora = config.q_lora_rank, config.o_lora_rank
     window = _first(config, "sliding_window", "window_size", default=128)
-    ratio = _first(config, "compress_ratios", "compress_rates")[layer]
+    ratio = _compress_ratio(config, layer)
     projections = 2 * hidden * q_lora + 2 * q_lora * heads * head_dim + 2 * hidden * head_dim
     projections += 2 * heads * head_dim * o_lora + 2 * _first(config, "o_groups", default=1) * o_lora * hidden
     per_key = 4 * heads * head_dim
@@ -275,6 +275,13 @@ def _compressed_attention(config: Any, layer: int) -> LayerFlops:
         8 * hidden * head_dim + indexer,
         (KeyTerm(per_key, pool=ratio, cap=config.index_topk), KeyTerm(2 * index_heads * index_dim, pool=ratio)),
     )
+
+
+def _compress_ratio(config: Any, layer: int) -> int:
+    ratios = _first(config, "compress_ratios", "compress_rates")
+    if isinstance(ratios, dict):
+        return ratios.get(config.layer_types[layer], 0)
+    return ratios[layer]
 
 
 def _shared_compressed_attention(config: Any, layer: int, ratio: int) -> LayerFlops:
@@ -354,6 +361,8 @@ def _is_moe_layer(config: Any, layer: int) -> bool:
         return mlp_layer_types[layer] == "sparse"
     if not _num_experts(config):
         return False
+    if _first(config, "compress_ratios", "compress_rates") is not None:
+        return True
     freq = _first(config, "moe_layer_freq", default=1)
     if isinstance(freq, list):
         return bool(freq[layer])
