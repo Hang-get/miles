@@ -32,6 +32,7 @@ from miles.backends.training_utils.weight_update.session import (
 )
 from miles.backends.training_utils.weight_update.utils import record_lora_checksums
 from miles.utils import async_utils
+from miles.utils.arguments import supports_partial_target_weight_update
 from miles.utils.distributed_utils import get_gloo_group
 from miles.utils.lora.utils import LORA_ADAPTER_NAME
 from miles.utils.timer import timer
@@ -140,7 +141,9 @@ class WeightUpdater:
             maybe_pause_engines(self.args, cell_updaters)
             self._register_new_lora_adapters(protocol.rollout_engines, adapters)
             begin_weight_update(cell_updaters, weight_update_selector(self.args), sync_base=sync_base)
-        _mark_cells_errored_on_any_rank(cell_updaters)
+        failed_cell_ids = _mark_cells_errored_on_any_rank(cell_updaters)
+        if failed_cell_ids and not supports_partial_target_weight_update(self.args):
+            raise RuntimeError(f"Weight update preparation failed for cells: {sorted(failed_cell_ids)}")
         dist.barrier(group=get_gloo_group())
 
         checksums = {name: {} for name, _ in adapters} if self.is_lora and self.args.check_lora_weight_equal else None
@@ -199,7 +202,7 @@ class WeightUpdater:
             self._registered_adapters.add(lora_name)
 
 
-def _mark_cells_errored_on_any_rank(cell_updaters: Sequence[_RolloutCellUpdater]) -> None:
+def _mark_cells_errored_on_any_rank(cell_updaters: Sequence[_RolloutCellUpdater]) -> set[str]:
     group = get_gloo_group()
     errored_cell_ids_per_rank: list[list[str] | None] = [None] * dist.get_world_size(group=group)
     dist.all_gather_object(errored_cell_ids_per_rank, [u.cell_id for u in cell_updaters if u.is_errored], group=group)
@@ -210,3 +213,4 @@ def _mark_cells_errored_on_any_rank(cell_updaters: Sequence[_RolloutCellUpdater]
             cell_updater.mark_errored(
                 RuntimeError(f"another trainer rank failed to update cell {cell_updater.cell_id}")
             )
+    return errored_cell_ids
