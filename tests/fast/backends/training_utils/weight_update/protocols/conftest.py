@@ -135,6 +135,7 @@ class _FakeTransferEngine:
         self.writes: list[tuple[str, dict[int, list[float]]]] = []
         self.holds: dict[str, _WriteHold] = {}
         self.failing_sessions: set[str] = set()
+        self.errors_by_session: dict[str, Exception] = {}
 
     def hold(self, session_id: str) -> _WriteHold:
         return self.holds.setdefault(session_id, _WriteHold())
@@ -168,6 +169,8 @@ class _FakeTransferEngine:
         }
         self._log.append(("write", session_id))
         self.writes.append((session_id, payload))
+        if session_id in self.errors_by_session:
+            raise self.errors_by_session[session_id]
         return -1 if session_id in self.failing_sessions else 0
 
     def _is_registered(self, address: int, length: int) -> bool:
