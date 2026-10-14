@@ -232,11 +232,11 @@ class TestWitnessSnapshotParamEventWithStaleIds:
             rollout_id=5,
             instance_id="actor_cell0_rank0",
             nonzero_witness_ids=[10, 11, 12],
-            stale_ids=[0, 1, 2, 3, 4, 5, 6, 7],
+            stale_id_ranges=[(0, 8)],
         )
         parsed = _event_adapter.validate_json(event.model_dump_json())
         assert isinstance(parsed, WitnessSnapshotParamEvent)
-        assert parsed.stale_ids == [0, 1, 2, 3, 4, 5, 6, 7]
+        assert parsed.stale_id_ranges == [(0, 8)]
         assert parsed.nonzero_witness_ids == [10, 11, 12]
 
 
