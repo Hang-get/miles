@@ -14,13 +14,13 @@ from sglang_router.launch_router import RouterArgs
 from miles.backends.megatron_utils.megatron_config import (
     ACTOR_ROLE,
     CRITIC_ROLE,
+    has_megatron_checkpoint,
     resolve_args_checkpoint_load,
     resolve_megatron_config,
     resolve_mtp_num_layers,
 )
 from miles.backends.sglang_utils.arguments import add_sglang_arguments, collect_eval_sglang_overrides
 from miles.backends.sglang_utils.arguments import validate_args as sglang_validate_args
-from miles.backends.training_utils.weight_update.session import weight_update_selector
 from miles.dashboard.args import add_dashboard_arguments, validate_dashboard_args
 from miles.ray.specs.train import compute_trainer_ids, external_trainer_controller_addrs
 from miles.rollout.checkpoint_eval import is_checkpoint_eval_fn
@@ -2661,6 +2661,11 @@ def get_miles_extra_args_provider(add_custom_arguments=None):
 
         def add_ci_arguments(parser):
             parser.add_argument(
+                "--ci-inject-missing-prefetched-batch-bug",
+                action="store_true",
+                help="Discard the restored prefetched batch to test sample ownership failure detection.",
+            )
+            parser.add_argument(
                 "--ci-test",
                 action="store_true",
             )
@@ -3402,6 +3407,8 @@ def _resolve_sample_ownership_check(args: argparse.Namespace) -> None:
 
 
 def miles_validate_args(args):
+    from miles.backends.training_utils.weight_update.session import weight_update_selector
+
     if args.custom_config_path:
         data = yaml.safe_load(resolve_file_arg(args.custom_config_path)) or {}
         for k, v in data.items():
@@ -3826,6 +3833,12 @@ def miles_validate_args(args):
             "--update-weight-transfer-mode=disk-delta requires --hf-checkpoint to be a local directory: "
             "the baseline snapshot is seeded from its safetensors bytes."
         )
+        if has_megatron_checkpoint(args.requested_load):
+            raise ValueError(
+                "--update-weight-transfer-mode=disk-delta cannot resume from a training checkpoint: "
+                "the first sync only captures a baseline from --hf-checkpoint and never transfers the "
+                f"weights restored from --load={args.requested_load}."
+            )
 
     if args.colocate:
         if args.offload_train is None:
