@@ -12,6 +12,7 @@ from miles.utils.test_utils.fault_injector.actions.base import FaultHookContext,
 from miles.utils.test_utils.fault_injector.actions.frozen import (
     PARKABLE_TRAIN_SCRIPT,
     SLEEP_FOREVER_INTERVAL_SECONDS,
+    SleepAction,
     SleepForeverAction,
     read_frozen_rollout_id,
     write_frozen_sentinel,
@@ -28,6 +29,27 @@ from miles.utils.test_utils.fault_injector.static_source import write_fault_hook
 _SLEEP = FaultHookRequest(
     request_id="sleep", hook_name=FaultHookName.ORCHESTRATOR_STEP_END, action=SleepForeverAction(), rollout_id=2
 )
+
+
+class TestSleepAction:
+    async def test_it_yields_the_loop_for_exactly_its_seconds(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A controller-side wait must not block the event loop that keeps observing cells."""
+        slept: list[float] = []
+
+        async def _record(seconds: float) -> None:
+            slept.append(seconds)
+
+        monkeypatch.setattr(asyncio, "sleep", _record)
+
+        await SleepAction(seconds=90.0)(context=FaultHookContext(rollout_id=2), resources=FaultHookResources())
+
+        assert slept == [90.0]
+
+    @pytest.mark.parametrize("seconds", [0.0, -1.0])
+    def test_a_non_positive_duration_is_rejected(self, seconds: float) -> None:
+        """A zero or negative wait would silently arm nothing."""
+        with pytest.raises(ValidationError):
+            SleepAction(seconds=seconds)
 
 
 class TestSleepForeverHook:

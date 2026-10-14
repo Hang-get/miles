@@ -170,6 +170,7 @@ class TestFaultHookRequestValidation:
             {"kind": "segfault_process"},
             {"kind": "exit_process"},
             {"kind": "start_cell", "cell_id": "c"},
+            {"kind": "sleep", "seconds": 1.5},
             {"kind": "sleep_forever"},
             {
                 "kind": "api_server_fault",
