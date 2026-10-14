@@ -44,6 +44,8 @@ class _Run:
     @property
     def megatron_args(self) -> Namespace:
         return Namespace(
+            train_backend="megatron",
+            finetune=False,
             save=str(self.checkpoint_dir),
             load=str(self.checkpoint_dir),
             requested_load=str(self.checkpoint_dir),

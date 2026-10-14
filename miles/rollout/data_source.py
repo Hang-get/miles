@@ -26,12 +26,6 @@ class DataSource(abc.ABC):
         """
 
     @abc.abstractmethod
-    def add_samples(self, samples: list[list[Sample]]):
-        """
-        Add samples to the data source
-        """
-
-    @abc.abstractmethod
     def save(self, rollout_id):
         """
         Save the state of the data source
@@ -122,9 +116,6 @@ class RolloutDataSource(DataSource):
             samples.append(group)
         return samples
 
-    def add_samples(self, samples: list[list[Sample]]):
-        raise RuntimeError(f"Cannot add samples to {self.__class__.__name__}. This is a read-only data source.")
-
     def save(self, rollout_id):
         if not self.args.rollout_global_dataset:
             return
@@ -167,7 +158,7 @@ class RolloutDataSource(DataSource):
             self.dataset.shuffle(self.epoch_id)
 
 
-class RolloutDataSourceWithBuffer(RolloutDataSource):
+class LegacyRolloutDataSourceWithBuffer(RolloutDataSource):
     def __init__(self, args):
         super().__init__(args)
         self.buffer = []

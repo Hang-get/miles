@@ -62,10 +62,35 @@ class TestDispose:
         executor._metric_checker = None
         monkeypatch.setattr(rollout_executor_module, "CheckpointEvalFn", _SynchronousDisposable)
         monkeypatch.setattr(rollout_executor_module.event_analyzer, "run_analysis_from_args", lambda _args: None)
+        monkeypatch.setattr(
+            rollout_executor_module.event_analyzer, "run_sample_ownership_analysis", lambda *, args: None
+        )
 
         await executor.dispose()
 
         assert disposed == ["train", "eval"]
+
+    async def test_the_final_ownership_check_runs_before_the_run_ends(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Violations that only mature after the last get would otherwise never be checked."""
+        checked: list[Namespace] = []
+        executor = RolloutExecutor.__new__(RolloutExecutor)
+        executor.use_legacy_rollout_v1 = False
+        executor.generate_rollout = None
+        executor.eval_generate_rollout = None
+        executor.data_source = object()
+        executor.args = Namespace()
+        executor._metric_checker = None
+        monkeypatch.setattr(rollout_executor_module, "CheckpointEvalFn", _SynchronousDisposable)
+        monkeypatch.setattr(rollout_executor_module.event_analyzer, "run_analysis_from_args", lambda _args: None)
+        monkeypatch.setattr(
+            rollout_executor_module.event_analyzer,
+            "run_sample_ownership_analysis",
+            lambda *, args: checked.append(args),
+        )
+
+        await executor.dispose()
+
+        assert checked == [executor.args]
 
 
 class TestSetEvalFleetInfo:
@@ -105,7 +130,7 @@ class TestSetEvalFleetInfo:
         executor._eval_fleet = None
         executor._eval_lock = asyncio.Lock()
         executor.eval_generate_rollout = eval_function
-        executor.rollout_id = 9
+        executor.last_get_rollout_id_of_model_id = {None: 9}
         executor._metric_checker = None
         info = EvalFleetInfo(
             router=HostAndPort(host="10.0.0.2", port=31000),

@@ -24,6 +24,8 @@ def _args(
         load=str(load) if load else None,
         requested_load=str(one) if (one := requested_load or load) else None,
         megatron_config=megatron_config,
+        train_backend="megatron",
+        finetune=False,
     )
 
 
