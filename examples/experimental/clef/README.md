@@ -128,10 +128,19 @@ python -m miles.dashboard.serve --dump-details <output-dir> --follow --port 7788
 
 ## Serving
 
-Recent SGLang versions serve Clef checkpoints natively: they detect
-`joint_head_config.json`, load the head, and expose `/v1/systemone`. Launch the
-`hf/` export like the released model; see the
+Training does not use SGLang; it only needs PyTorch and Transformers.
+
+Upstream SGLang serves Clef checkpoints natively since
+[sgl-project/sglang#42721](https://github.com/sgl-project/sglang/pull/42721): it detects
+`joint_head_config.json`, loads the head, and exposes `/v1/systemone`. The `hf/`
+export has the same layout as the released Clef checkpoints, so it launches like
+them; see the
 [SGLang Clef cookbook](https://github.com/sgl-project/sglang/blob/main/docs/cookbook/autoregressive/Cloudflare/clef.mdx).
 
+The `sglang-miles` branch used by the Miles Docker image does not include that
+change yet. Until it does, serve the export from a separate environment with an
+upstream SGLang build that contains it (the cookbook pins a nightly wheel and the
+`lmsysorg/sglang:dev-clef` image).
+
 `joint_schema_model.py` also provides `load_release_model` and `systemone` for
-direct inference with Transformers.
+direct inference with Transformers, without SGLang.
