@@ -71,6 +71,18 @@ def _iter_response_chunks(
 
     parallel_state = get_parallel_state()
     cp_size = parallel_state.cp.size
+    if cp_size == 1 and qkv_format == "thd":
+        # Split once so backward assembles the packed gradient once, not once per sample.
+        split_sizes = []
+        offset = previous_end = 0
+        for total_length, response_length in zip(total_lengths, response_lengths, strict=True):
+            offset += total_length
+            start, stop, _ = slice(offset - response_length - 1, offset - 1).indices(logits.size(0))
+            start = min(start, stop)
+            split_sizes.extend((start - previous_end, stop - start))
+            previous_end = stop
+        split_sizes.append(logits.size(0) - previous_end)
+        response_logits = logits.split(split_sizes)[1::2]
     end = 0
     seq_start = 0
     for i, (tokens, total_length, response_length) in enumerate(
@@ -84,9 +96,7 @@ def _iter_response_chunks(
                 start = end - response_length
                 logits_chunk = logits[start - 1 : end - 1]
             else:
-                end += total_length
-                start = end - response_length
-                logits_chunk = logits[start - 1 : end - 1]
+                logits_chunk = response_logits[i]
             tokens_chunk = tokens[-response_length:] if response_length else tokens[0:0]
             response_indices = range(response_length) if include_response_indices else ()
         elif args.allgather_cp:
