@@ -12,6 +12,7 @@ except ImportError:
 
 from miles.utils.pydantic_utils import FrozenStrictBaseModel
 from miles.utils.test_utils.fault_injector.actions.base import FaultHookContext, FaultHookResources
+from miles.utils.test_utils.fault_injector.actions.cell import StartCellAction, StopCellAction
 from miles.utils.test_utils.fault_injector.models import (
     FaultHookName,
     FaultHookOwner,
@@ -93,7 +94,7 @@ class _FaultHookController:
                 else None
             )
         if fired is not None:
-            _run_blocking(fired.execute(resources=self._resources))
+            self._execute_blocking(fired)
         return executor.record
 
     def _set(self, request: FaultHookRequest) -> FaultHookRequestExecutor:
@@ -113,8 +114,8 @@ class _FaultHookController:
         return executor.clear()
 
     def _reach(self, hook_name: FaultHookName, context: dict[str, int | str | None]) -> None:
-        if fired := self._dispatch_reached(hook_name, context):
-            _run_blocking(self._execute(fired))
+        for executor in self._dispatch_reached(hook_name, context):
+            self._execute_blocking(executor)
 
     async def _reach_async(self, hook_name: FaultHookName, context: dict[str, int | str | None]) -> None:
         await self._execute(self._dispatch_reached(hook_name, context))
@@ -158,7 +159,27 @@ class _FaultHookController:
                 return
             del self._executors[executor.record.request.request_id]
 
-        _run_blocking(executor.execute(resources=self._resources))
+        self._execute_blocking(executor)
+
+    def _execute_blocking(self, executor: FaultHookRequestExecutor) -> None:
+        if isinstance(executor.record.request.action, (StartCellAction, StopCellAction)):
+            loop = self._require_owner_loop()
+            asyncio.run_coroutine_threadsafe(executor.execute(resources=self._resources), loop).result()
+        else:
+            _run_blocking(executor.execute(resources=self._resources))
+
+    def _require_owner_loop(self) -> asyncio.AbstractEventLoop:
+        loop = self._resources.owner_loop
+        if loop is None or loop.is_closed() or not loop.is_running():
+            raise RuntimeError("Cell fault actions require a running cell-operations owner loop")
+
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            current_loop = None
+        assert current_loop is not loop, "Use asynchronous fault hooks on the cell-operations owner loop"
+
+        return loop
 
     def _drop_expired(self) -> None:
         for request_id, executor in list(self._executors.items()):
