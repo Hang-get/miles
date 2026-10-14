@@ -473,7 +473,7 @@ class TinkerService:
             "sampling_params": params
             | {
                 "max_tokens": min(
-                    params["max_tokens"], self.config.max_tokens_per_datum - len(payload["prompt_tokens"])
+                    params["max_tokens"], self.config.max_tokens_per_sample - len(payload["prompt_tokens"])
                 )
             }
         }
