@@ -234,6 +234,39 @@ def test_kda_layers_are_one_indexed_and_mla_fills_the_rest():
     assert per_layer(flops, 0).per_token == kda + 6 * hidden * 9216
 
 
+def test_compressed_attention_layers_read_window_plus_compressed_history():
+    deepseek_v4 = config(
+        model_type="deepseek_v4",
+        hidden_size=4096,
+        num_attention_heads=64,
+        head_dim=512,
+        q_lora_rank=1024,
+        o_lora_rank=1024,
+        o_groups=8,
+        sliding_window=128,
+        compress_ratios=[0, 4, 128, 0],
+        index_topk=512,
+        index_n_heads=64,
+        index_head_dim=128,
+        moe_intermediate_size=2048,
+        n_routed_experts=256,
+        n_shared_experts=1,
+        num_experts_per_tok=6,
+        num_hidden_layers=3,
+        vocab_size=129280,
+    )
+    flops = model_flops_from_hf_config(deepseek_v4)
+    per_key = 4 * 64 * 512
+    assert per_layer(flops, 0).key_terms == (KeyTerm(per_key, cap=128),)
+    assert per_layer(flops, 1).key_terms == (
+        KeyTerm(per_key, cap=128),
+        KeyTerm(per_key, pool=4, cap=512),
+        KeyTerm(2 * 64 * 128, pool=4),
+    )
+    assert per_layer(flops, 2).key_terms == (KeyTerm(per_key, cap=128), KeyTerm(per_key, pool=128))
+    assert len(flops.layers) == 3
+
+
 NEMOTRON_NANO = dict(
     model_type="nemotron_h",
     hidden_size=2688,
@@ -276,26 +309,63 @@ def test_latent_moe_runs_routed_experts_in_the_latent_width():
     assert per_layer(flops, 1) == LayerFlops(expected)
 
 
+def test_block_sparse_layers_cap_attention_and_add_the_index_scores():
+    minimax_m3 = config(
+        model_type="minimax_m3",
+        hidden_size=6144,
+        num_attention_heads=64,
+        num_key_value_heads=4,
+        head_dim=128,
+        intermediate_size=3072,
+        dense_intermediate_size=12288,
+        moe_layer_freq=[0, 1],
+        num_local_experts=128,
+        num_experts_per_tok=4,
+        shared_intermediate_size=3072,
+        num_hidden_layers=2,
+        vocab_size=200064,
+        sparse_attention_config={
+            "sparse_attention_freq": [0, 1],
+            "sparse_num_index_heads": 4,
+            "sparse_index_dim": 128,
+            "sparse_block_size": 128,
+            "sparse_topk_blocks": 16,
+        },
+    )
+    flops = model_flops_from_hf_config(minimax_m3)
+    assert per_layer(flops, 0).key_terms == (KeyTerm(4 * 64 * 128),)
+    assert per_layer(flops, 1).key_terms == (KeyTerm(4 * 64 * 128, cap=2048), KeyTerm(2 * 4 * 128))
+    assert per_layer(flops, 0).per_token - per_layer(flops, 1).per_token == pytest.approx(
+        6 * 6144 * 12288 - (2 * 6144 * 128 + 6 * 4 * 6144 * 3072 + 6 * 6144 * 3072) - 2 * 6144 * 128 * 5
+    )
+
+
 # (per-token FLOPs without attention keys, forward FLOPs of one 131072-token sequence) of released configs
 RELEASED_MODEL_FLOPS = {
     "deepseek_v3": (73249193984, 52526179793502208),
     "deepseek_v3_2": (74952212480, 19740118264840192),
+    "deepseek_v4_1_flash": (32181125120, 5096652402589696),
+    "deepseek_v4_flash": (26468679680, 4661701693669376),
     "glm4_5_air": (25604653056, 22777974654763008),
     "glm4_7_flash": (7158628352, 9206686258561024),
     "glm5": (81663885312, 17554128204988416),
     "glm5_2": (80595517440, 13403046071500800),
     "glm5_3_flash": (33626390528, 4792992309182464),
     "gpt_oss_120b": (10262200320, 3883326643372032),
+    "inkling": (79719383040, 13665937857183744),
+    "inkling_small": (22371270656, 3955825013948416),
     "kimi_k2_5": (63372132352, 29768942851457024),
     "kimi_k3": (209019699200, 40063100602286080),
     "kimi_linear": (6276415488, 2054124749193216),
     "llama3_1_8b": (15009316864, 6470935167107072),
     "minimax_m2_5": (20830224384, 15818945445494784),
+    "minimax_m3": (49464999936, 8326751176359936),
     "nemotron_3_nano": (6502973440, 1696789107310592),
     "nemotron_3_super": (24632229888, 4354504132657152),
     "qwen3_30b_a3b": (6083313664, 7552803069231104),
     "qwen3_5_35b_a3b": (5986713600, 2192076145950720),
     "qwen3_5_397b_a17b": (32945438720, 8540381406822400),
+    "qwen3_8_flash_next": (13497024512, 1874016537149440),
     "qwen3_8b": (15136194560, 7050519528865792),
     "qwen3_next_80b_a3b": (7240155136, 2637844359151616),
 }
@@ -311,3 +381,30 @@ def test_released_config_flops(name):
     per_token, at_128k = RELEASED_MODEL_FLOPS[name]
     assert flops.per_token == pytest.approx(per_token, rel=1e-9)
     assert flops.fwd_flops([131072]) == pytest.approx(at_128k, rel=1e-9)
+
+
+def test_deepseek_v4_1_shares_compressed_kv_and_index_scores_from_source_layers():
+    flops = released_model_flops("deepseek_v4_1_flash")
+    window = KeyTerm(4 * 64 * 512, cap=128)
+    top_k = KeyTerm(4 * 64 * 512, pool=2, cap=512)
+    index_scores = KeyTerm(2 * 32 * 128, pool=2)
+    assert per_layer(flops, 0).key_terms == (window,)
+    assert per_layer(flops, 2).key_terms == (window, top_k, index_scores)
+    assert per_layer(flops, 3).key_terms == (window, top_k)
+    compressor = 2 * 5120 * 512 * 2
+    indexer = 2 * 1280 * 32 * 128 + 2 * 5120 * 32 + 2 * 512 * 128 / 2
+    assert per_layer(flops, 2).per_token - per_layer(flops, 3).per_token == pytest.approx(compressor + indexer)
+    engram = 2 * 3 * 8 * 256 * 5120 * 5
+    assert per_layer(flops, 1).per_token - per_layer(flops, 0).per_token == pytest.approx(engram)
+
+
+def test_inkling_windows_local_layers():
+    flops = released_model_flops("inkling")
+    assert per_layer(flops, 0).key_terms == (KeyTerm(4 * 64 * 128, cap=512),)
+    assert per_layer(flops, 5).key_terms == (KeyTerm(4 * 64 * 128),)
+
+
+def test_qwen3_8_next_full_attention_layers_are_sparse_when_the_config_has_an_indexer_budget():
+    flops = released_model_flops("qwen3_8_flash_next")
+    assert per_layer(flops, 0).key_terms == ()
+    assert per_layer(flops, 3).key_terms == (KeyTerm(4 * 24 * 256, cap=2048), KeyTerm(2 * 4 * 128, pool=4))

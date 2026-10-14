@@ -17,7 +17,17 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
-_GATED_QUERY_MODEL_TYPES = ("qwen3_next", "qwen3_5", "qwen3_5_text", "qwen3_5_moe", "qwen3_5_moe_text")
+_GATED_QUERY_MODEL_TYPES = (
+    "qwen3_next",
+    "qwen3_5",
+    "qwen3_5_text",
+    "qwen3_5_moe",
+    "qwen3_5_moe_text",
+    "qwen4_exp",
+    "qwen4_exp_text",
+)
+# DeepSeek V4 attends all compressed entries at this ratio and above (HCA), top-k below it (CSA)
+_DENSE_COMPRESSION_RATIO = 64
 
 
 @dataclass(frozen=True)
@@ -87,12 +97,15 @@ def model_flops_from_hf_config(config: Any) -> ModelFlops:
     getter = getattr(config, "get_text_config", None)
     text = getter() if callable(getter) else getattr(config, "text_config", None)
     config = _AttrDict(text) if isinstance(text, dict) else (text or config)
-    lm_head = 2 * config.hidden_size * config.vocab_size
+    lm_head = 2 * config.hidden_size * _first(config, "padded_vocab_size", "vocab_size")
     pattern = _first(config, "hybrid_override_pattern", "layers_block_type")
     if pattern is not None:
         return ModelFlops(tuple(_nemotron_h_layer(config, pattern, i) for i in range(len(pattern))), lm_head)
     num_layers = _first(config, "num_hidden_layers", "num_layers")
-    layers = tuple(_attention(config, i) + _mlp(config, i) for i in range(num_layers))
+    layers = tuple(
+        _attention(config, i) + _mlp(config, i) + _hyper_connections(config) + _ngram_embedding(config, i)
+        for i in range(num_layers)
+    )
     return ModelFlops(layers, lm_head)
 
 
@@ -117,6 +130,16 @@ def _attention(config: Any, layer: int) -> LayerFlops:
     kind = _attention_kind(config, layer)
     if kind == "linear":
         return _gated_delta_net(config) if _first(config, "linear_num_value_heads") else _kda(config)
+    if kind == "compressed":
+        return _compressed_attention(config, layer)
+    if kind == "block_sparse":
+        sparse = config.sparse_attention_config
+        attended = _field(sparse, "sparse_topk_blocks") * _field(sparse, "sparse_block_size")
+        return _gqa(config, key_cap=attended) + _block_sparse_indexer(config)
+    if _first(config, "d_rel") is not None:
+        return _inkling_attention(config, sliding=kind == "sliding")
+    if kind == "qwen_sparse":
+        return _gqa(config, key_cap=_first(config, "indexer_budget", default=2048)) + _qsa_indexer(config)
     if _first(config, "kv_lora_rank") is not None:
         topk = _first(config, "index_topk")
         attention = _mla(config, key_cap=topk)
@@ -126,6 +149,14 @@ def _attention(config: Any, layer: int) -> LayerFlops:
 
 
 def _attention_kind(config: Any, layer: int) -> str:
+    if _first(config, "compress_ratios", "compress_rates") is not None:
+        return "compressed"
+    local_layer_ids = _first(config, "local_layer_ids")
+    if local_layer_ids is not None:
+        return "sliding" if layer in local_layer_ids else "full"
+    sparse = _first(config, "sparse_attention_config")
+    if sparse is not None:
+        return "block_sparse" if _field(sparse, "sparse_attention_freq")[layer] else "full"
     layer_types = _first(config, "layer_types")
     if layer_types is not None:
         name = layer_types[layer]
@@ -133,7 +164,8 @@ def _attention_kind(config: Any, layer: int) -> str:
             return "sliding"
         if "linear" in name or "kda" in name or "delta" in name:
             return "linear"
-        return "full"
+        is_qwen_sparse = name == "qwen_sparse_attention" or _first(config, "indexer_budget") is not None
+        return "qwen_sparse" if is_qwen_sparse else "full"
     interval = _first(config, "full_attention_interval")
     if interval is not None:
         return "full" if (layer + 1) % interval == 0 else "linear"
@@ -151,6 +183,24 @@ def _gqa(config: Any, key_cap: int | None = None) -> LayerFlops:
     projections = 2 * hidden * heads * head_dim * (2 if gated else 1) + 4 * hidden * kv_heads * head_dim
     projections += 2 * heads * head_dim * hidden
     return LayerFlops(projections, (KeyTerm(4 * heads * head_dim, cap=key_cap),))
+
+
+def _inkling_attention(config: Any, sliding: bool) -> LayerFlops:
+    """GQA plus per-head relative states projected onto a relative-position table, and depthwise short convs
+    on k, v, the attention output and the MLP output."""
+    hidden, rel_dim = config.hidden_size, config.d_rel
+    if sliding:
+        heads, kv_heads, head_dim = config.swa_num_attention_heads, config.swa_num_key_value_heads, config.swa_head_dim
+        window = rel_extent = config.sliding_window_size
+    else:
+        heads, kv_heads, head_dim = config.num_attention_heads, config.num_key_value_heads, config.head_dim
+        window, rel_extent = None, _first(config, "rel_extent", default=1024)
+    projections = 2 * hidden * (heads * head_dim + 2 * kv_heads * head_dim + heads * rel_dim)
+    projections += 2 * heads * head_dim * hidden + 2 * heads * rel_dim * rel_extent
+    if _first(config, "use_sconv", default=True):
+        kernel = _first(config, "sconv_kernel_size", "conv_kernel_size")
+        projections += 2 * kernel * (2 * kv_heads * head_dim + 2 * hidden)
+    return LayerFlops(projections, (KeyTerm(4 * heads * head_dim, cap=window),))
 
 
 def _mla(config: Any, key_cap: int | None) -> LayerFlops:
@@ -186,6 +236,77 @@ def _dsa_indexer(config: Any) -> LayerFlops:
     if pool > 1:
         projections += 2 * hidden * head_dim
     return LayerFlops(projections, (KeyTerm(2 * heads * head_dim, pool=pool),))
+
+
+def _block_sparse_indexer(config: Any) -> LayerFlops:
+    sparse = config.sparse_attention_config
+    heads, head_dim = _field(sparse, "sparse_num_index_heads"), _field(sparse, "sparse_index_dim")
+    return LayerFlops(2 * config.hidden_size * head_dim * (heads + 1), (KeyTerm(2 * heads * head_dim),))
+
+
+def _qsa_indexer(config: Any) -> LayerFlops:
+    heads = _first(config, "indexer_n_heads", default=4)
+    kv_heads = _first(config, "indexer_kv_heads", default=1)
+    head_dim = _first(config, "indexer_head_dim", default=128)
+    pool = _first(config, "indexer_compress_ratio", default=4)
+    projections = 2 * config.hidden_size * (heads + kv_heads) * head_dim
+    return LayerFlops(projections, (KeyTerm(2 * heads * head_dim, pool=pool),))
+
+
+def _compressed_attention(config: Any, layer: int) -> LayerFlops:
+    """DeepSeek V4: single-KV-head attention over a sliding window plus compressed history."""
+    hidden, heads, head_dim = config.hidden_size, config.num_attention_heads, config.head_dim
+    q_lora, o_lora = config.q_lora_rank, config.o_lora_rank
+    window = _first(config, "sliding_window", "window_size", default=128)
+    ratio = _first(config, "compress_ratios", "compress_rates")[layer]
+    projections = 2 * hidden * q_lora + 2 * q_lora * heads * head_dim + 2 * hidden * head_dim
+    projections += 2 * heads * head_dim * o_lora + 2 * _first(config, "o_groups", default=1) * o_lora * hidden
+    per_key = 4 * heads * head_dim
+    attention = LayerFlops(projections, (KeyTerm(per_key, cap=window),))
+    if ratio == 0:
+        return attention
+    if _first(config, "kv_source_layer_ids") is not None:
+        return attention + _shared_compressed_attention(config, layer, ratio)
+    if ratio >= _DENSE_COMPRESSION_RATIO:
+        return attention + LayerFlops(4 * hidden * head_dim, (KeyTerm(per_key, pool=ratio),))
+    index_heads, index_dim = config.index_n_heads, config.index_head_dim
+    indexer = 2 * q_lora * index_heads * index_dim + 2 * hidden * index_heads + 8 * hidden * index_dim
+    return attention + LayerFlops(
+        8 * hidden * head_dim + indexer,
+        (KeyTerm(per_key, pool=ratio, cap=config.index_topk), KeyTerm(2 * index_heads * index_dim, pool=ratio)),
+    )
+
+
+def _shared_compressed_attention(config: Any, layer: int, ratio: int) -> LayerFlops:
+    """DeepSeek V4.1: top-k over ratio-1/2 compressed keys, whose KV and indexer scores are built on source
+    layers and reused by later layers; training scores every compressed entry before candidate masking."""
+    hidden, heads, head_dim = config.hidden_size, config.num_attention_heads, config.head_dim
+    index_heads, index_dim = config.index_n_heads, config.index_head_dim
+    is_kv_source, is_index_source = layer in config.kv_source_layer_ids, layer in config.index_source_layer_ids
+    per_token = 0.0
+    key_terms = [KeyTerm(4 * heads * head_dim, pool=ratio, cap=config.index_topk)]
+    if is_kv_source:
+        per_token += 2 * hidden * head_dim * (2 if ratio > 1 else 1)
+        if is_index_source:
+            per_token += 2 * head_dim * index_dim / ratio
+    if is_index_source:
+        per_token += 2 * config.q_lora_rank * index_heads * index_dim + 2 * hidden * index_heads
+        key_terms.append(KeyTerm(2 * index_heads * index_dim, pool=ratio))
+    return LayerFlops(per_token, tuple(key_terms))
+
+
+def _ngram_embedding(config: Any, layer: int) -> LayerFlops:
+    """Hashed n-gram embeddings (DeepSeek V4.1 Engram, Qwen3.8-Next PLE): the table is a lookup, only the
+    projections of the looked-up rows count."""
+    if layer in (_first(config, "engram_layer_ids") or ()):
+        hashed = (config.engram_max_ngram_size - 1) * config.engram_n_heads * config.engram_head_dim
+        return LayerFlops(2 * hashed * config.hidden_size * (config.hc_mult + 1))
+    if layer + 1 in (_first(config, "ple_layer_ids") or ()):
+        width = config.hc_count * config.hidden_size
+        embed = _first(config, "ple_embed_dim", default=config.hidden_size)
+        kernel = _first(config, "ple_conv_kernel_size", default=4)
+        return LayerFlops(2 * embed * (width + config.hidden_size) + 2 * kernel * width)
+    return LayerFlops(0.0)
 
 
 def _gated_delta_net(config: Any) -> LayerFlops:
@@ -237,7 +358,7 @@ def _is_moe_layer(config: Any, layer: int) -> bool:
     if isinstance(freq, list):
         return bool(freq[layer])
     return (
-        layer >= _first(config, "first_k_dense_replace", default=0)
+        layer >= _first(config, "first_k_dense_replace", "dense_mlp_idx", default=0)
         and layer % freq == 0
         and layer not in (_first(config, "mlp_only_layers") or ())
         and (layer + 1) % _first(config, "decoder_sparse_step", default=1) == 0
@@ -250,7 +371,8 @@ def _moe(config: Any, gemms: int = 3) -> LayerFlops:
     width = _first(config, "moe_intermediate_size", "intermediate_size")
     topk = _first(config, "num_experts_per_tok", "num_experts_per_token", "experts_per_token", "moe_topk")
     latent = _first(config, "routed_expert_hidden_size", "moe_latent_size")
-    flops = 2 * hidden * experts + 2 * gemms * topk * (latent or hidden) * width
+    scored_shared = _first(config, "n_shared_experts", default=0) if _first(config, "shared_expert_sink") else 0
+    flops = 2 * hidden * (experts + scored_shared) + 2 * gemms * topk * (latent or hidden) * width
     if latent:
         flops += 4 * hidden * latent
     return LayerFlops(flops + 2 * gemms * hidden * _shared_expert_width(config, width))
@@ -264,6 +386,15 @@ def _shared_expert_width(config: Any, expert_width: int) -> int:
     if explicit is not None:
         return explicit
     return expert_width * _first(config, "n_shared_experts", "num_shared_experts", default=0)
+
+
+def _hyper_connections(config: Any) -> LayerFlops:
+    """Low-rank hyper-connections, two sites per layer; mHC's mixing is under 1% and not counted."""
+    streams, rank = _first(config, "hc_count"), _first(config, "hc_lowrank")
+    if not streams or not rank:
+        return LayerFlops(0.0)
+    width = streams * config.hidden_size
+    return LayerFlops(2 * (4 * width * rank + 2 * width * streams))
 
 
 def _nemotron_h_layer(config: Any, pattern: str | list[str], layer: int) -> LayerFlops:
