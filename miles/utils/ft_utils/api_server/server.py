@@ -4,8 +4,10 @@ import asyncio
 import logging
 import threading
 import time
+from argparse import Namespace
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 
 import uvicorn
 from fastapi import FastAPI, Request
@@ -24,22 +26,35 @@ from miles.utils.workers.worker_handle import BaseWorkerHandle
 logger = logging.getLogger(__name__)
 
 _API_SERVER_STARTUP_TIMEOUT_SECONDS = 30.0
+_API_SERVER_SHUTDOWN_TIMEOUT_SECONDS = 30.0
 _THREAD_READY_POLL_INTERVAL_SECONDS = 0.05
 
 
 # -------------------------- entrypoint ------------------------------
 
 
+@dataclass(frozen=True)
+class ApiServerHandle:
+    server: uvicorn.Server
+    thread: threading.Thread
+
+    async def dispose(self) -> None:
+        self.server.should_exit = True
+        await asyncio.to_thread(self.thread.join, timeout=_API_SERVER_SHUTDOWN_TIMEOUT_SECONDS)
+        if self.thread.is_alive():
+            raise TimeoutError(f"API server did not stop within {_API_SERVER_SHUTDOWN_TIMEOUT_SECONDS}s")
+
+
 def start_api_server(
     *,
-    args,
+    args: Namespace,
     trainer_models: dict[str, BaseWorkerHandle],
     inference_controller: BaseWorkerHandle | None,
     host: str = "127.0.0.1",
     port: int,
     ft_components: list[str],
     cell_operations: BaseCellOperations,
-) -> None:
+) -> ApiServerHandle:
     handlers: list[_CellHandler] = []
 
     if "train" in ft_components:
@@ -66,20 +81,20 @@ def start_api_server(
             )
         )
 
-    _start_api_server_raw(registry=_CellRegistry(handlers), host=host, port=port)
+    return _start_api_server_raw(registry=_CellRegistry(handlers), host=host, port=port)
 
 
-def _start_api_server_raw(*, registry: _CellRegistry, port: int, host: str) -> uvicorn.Server:
+def _start_api_server_raw(*, registry: _CellRegistry, port: int, host: str) -> ApiServerHandle:
     app = _create_api_app(registry)
 
     server = uvicorn.Server(uvicorn.Config(app, host=host, port=port))
-    _start_and_wait_thread(
+    thread = _start_and_wait_thread(
         target=server.run,
         is_ready=lambda: server.started,
         description=f"Api server on port {port}",
         timeout_seconds=_API_SERVER_STARTUP_TIMEOUT_SECONDS,
     )
-    return server
+    return ApiServerHandle(server=server, thread=thread)
 
 
 # -------------------------- main app ------------------------------
