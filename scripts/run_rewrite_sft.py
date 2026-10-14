@@ -55,7 +55,8 @@ def main(cli: Args) -> None:
         return
     if not (path.parent / "preflight.json").exists():
         raise ValueError("Run preflight first")
-    run_ray_job(entrypoint="python3 train_async.py " + shlex.join(argv),
+    run_ray_job(entrypoint="python3 " + shlex.quote(str(Path(config["miles_path"]) / "train_async.py"))
+                + " " + shlex.join(argv),
                 runtime_env={"env_vars": config["runtime_env"]})
 
 
