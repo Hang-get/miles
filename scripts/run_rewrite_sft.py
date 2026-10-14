@@ -35,7 +35,8 @@ def main(cli: Args) -> None:
         assert args.num_epoch == 2 and args.num_rollout == 1936
         assert args.save_interval == 968 and args.global_batch_size == args.rollout_batch_size == 4
         assert args.lr == args.min_lr == 1e-5 and args.lr_decay_style == "constant"
-        assert args.mtp_num_layers == model.mtp_num_layers == 0 and not args.enable_mtp_training
+        assert args.mtp_num_layers in (None, 0) and model.mtp_num_layers in (None, 0)
+        assert not args.enable_mtp_training
         assert args.accumulate_allreduce_grads_in_fp32 and args.use_dynamic_global_batch_size
         assert args.seq_length == 262144 and args.debug_train_only
         audit = json.loads((path.parent / "data/mask-audit.json").read_text())
