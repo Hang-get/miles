@@ -40,6 +40,23 @@ def _hook_forms(forms: CellFaultForms, kind: str) -> list[InjectFaultForm]:
     return [form for form in forms[kind] if isinstance(form, InjectFaultForm) and form.hook_name is not None]
 
 
+class TestWithoutWeightUpdateAllGathers:
+    def test_only_the_all_gather_hook_forms_are_dropped(self) -> None:
+        """Without a tensor, expert or expert-tensor all-gather the all-gather hook is never reached."""
+        config = command_utils.ExecuteTrainConfig(cluster_backend=ClusterBackend.RAY, namespace="ns", run_id="run-1")
+        triggers = frozenset({FaultTrigger.TIMER, FaultTrigger.HOOK})
+        full = create_cell_fault_forms(config, triggers=triggers)
+        reduced = create_cell_fault_forms(config, triggers=triggers, weight_update_all_gathers=False)
+
+        assert reduced[ACTOR_CELL_TYPE] == [
+            form
+            for form in full[ACTOR_CELL_TYPE]
+            if not (isinstance(form, InjectFaultForm) and form.hook_name is _BEFORE_ALL_GATHER)
+        ]
+        assert {form.hook_name for form in _hook_forms(reduced, ACTOR_CELL_TYPE)} == {_BEFORE_SEND}
+        assert reduced[ROLLOUT_CELL_TYPE] == full[ROLLOUT_CELL_TYPE]
+
+
 class TestTimerForms:
     def test_ray_timer_forms_inject_process_faults_at_random_instants(self) -> None:
         """Timer faults on Ray are direct process faults without any hook, delay or lifetime."""
@@ -69,14 +86,18 @@ class TestTimerForms:
 
 class TestHookForms:
     @pytest.mark.parametrize("backend", [ClusterBackend.RAY, ClusterBackend.KUBERNETES])
-    def test_every_trainer_hook_is_paired_with_every_trainer_hook_action(self, backend: ClusterBackend) -> None:
-        """Each hook can kill, stop or deadlock the trainer that reaches it."""
+    def test_each_trainer_hook_is_paired_with_the_actions_that_fault_its_trainer(
+        self, backend: ClusterBackend
+    ) -> None:
+        """A deadlock pairs only with the all-gather hook, since hanging a per-engine send thread spares the trainer."""
         forms = _forms(backend, FaultTrigger.HOOK)
 
         assert [(f.hook_name, f.action) for f in forms[ACTOR_CELL_TYPE]] == [
-            (hook, action)
-            for hook in (_BEFORE_ALL_GATHER, _BEFORE_SEND)
-            for action in (KillProcessAction(), StopProcessAction(), DeadlockThreadAction())
+            (_BEFORE_ALL_GATHER, KillProcessAction()),
+            (_BEFORE_ALL_GATHER, StopProcessAction()),
+            (_BEFORE_ALL_GATHER, DeadlockThreadAction()),
+            (_BEFORE_SEND, KillProcessAction()),
+            (_BEFORE_SEND, StopProcessAction()),
         ]
         assert all(f.lifetime_seconds == HOOK_FAULT_LIFETIME_SECONDS == 300.0 for f in forms[ACTOR_CELL_TYPE])
         assert not any(f.through_trainer_hook for f in forms[ACTOR_CELL_TYPE])
@@ -88,7 +109,6 @@ class TestHookForms:
         delays = {(f.hook_name, f.action.kind): f.max_delay_ms for f in forms[ACTOR_CELL_TYPE]}
         assert {key: delay for key, delay in delays.items() if key[1] == DeadlockThreadAction().kind} == {
             (_BEFORE_ALL_GATHER, DeadlockThreadAction().kind): 0,
-            (_BEFORE_SEND, DeadlockThreadAction().kind): 0,
         }
         assert {delay for key, delay in delays.items() if key[1] != DeadlockThreadAction().kind} == {
             HOOK_FAULT_MAX_DELAY_MS
@@ -135,7 +155,7 @@ class TestTriggerCombination:
     def test_hook_forms_are_the_only_ones_carrying_a_hook(self) -> None:
         """Timer forms that armed hooks would wait for an update the timer never promised."""
         assert _hook_forms(_forms(ClusterBackend.RAY, FaultTrigger.TIMER), ACTOR_CELL_TYPE) == []
-        assert len(_hook_forms(_forms(ClusterBackend.RAY, FaultTrigger.HOOK), ACTOR_CELL_TYPE)) == 6
+        assert len(_hook_forms(_forms(ClusterBackend.RAY, FaultTrigger.HOOK), ACTOR_CELL_TYPE)) == 5
 
 
 class TestComputeMeanIntervalSecondsOfKind:

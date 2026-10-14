@@ -28,6 +28,11 @@ class SoakActionScheduler:
     awaiting_applied: dict[str, str] = field(init=False, default_factory=dict)
 
     def __post_init__(self) -> None:
+        if kinds_without_forms := sorted(kind for kind in self.config.target_configs if not self.forms.get(kind)):
+            raise ValueError(
+                f"The soak schedules {kinds_without_forms} but has no form to draw for them, so their first due "
+                f"injection would fail mid-run; enable a trigger or cluster backend that has forms for every kind"
+            )
         object.__setattr__(self, "rng", random.Random(self.config.seed))
         now = time.monotonic()
         object.__setattr__(
