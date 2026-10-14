@@ -113,6 +113,7 @@ def make_args(**overrides) -> Namespace:
         dynamic_sampling_filter_path=None,
         reward_key=None,
         rollout_sample_filter_path=None,
+        buffer_filter_path=None,
         sglang_router_ip="127.0.0.1",
         sglang_router_port=30000,
         sglang_router_request_timeout_secs=14400,
