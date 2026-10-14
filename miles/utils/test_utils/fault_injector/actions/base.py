@@ -1,4 +1,5 @@
 import abc
+import asyncio
 import subprocess
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -27,6 +28,7 @@ class FaultHookResources:
     controller: "TrainerController | None" = None
     cell_operations: "BaseCellOperations | None" = None
     managed_process: subprocess.Popen | None = None
+    owner_loop: asyncio.AbstractEventLoop | None = None
 
 
 class BaseFaultAction(FrozenStrictBaseModel, abc.ABC):

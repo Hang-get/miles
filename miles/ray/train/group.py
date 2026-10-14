@@ -358,7 +358,12 @@ class TrainerController:
             self._witness_allocator.resume(read_persisted_witness_counter(Path(args.save_debug_event_data)))
 
         fault_hook_controller.configure(
-            resources=FaultHookResources(args=args, controller=self, cell_operations=self._cell_operations),
+            resources=FaultHookResources(
+                args=args,
+                controller=self,
+                cell_operations=self._cell_operations,
+                owner_loop=asyncio.get_running_loop(),
+            ),
             owner=FaultHookOwner.TRAINER_CONTROLLER,
         )
 
