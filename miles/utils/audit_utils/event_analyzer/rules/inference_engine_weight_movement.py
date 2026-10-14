@@ -1,5 +1,8 @@
+from datetime import datetime
 from itertools import pairwise
+from typing import Any
 
+from miles.utils.audit_utils.event_analyzer.rules.utils import trainer_args
 from miles.utils.audit_utils.event_logger.models import (
     Event,
     InferenceEngineWeightChecksumEvent,
@@ -9,6 +12,8 @@ from miles.utils.audit_utils.event_logger.models import (
 from miles.utils.pydantic_utils import FrozenStrictBaseModel
 
 __all__ = ["check"]
+
+_APPLICABILITY_ARG_NAMES: tuple[str, ...] = ("lora_rank", "lora_adapter_path", "update_weights_interval")
 
 
 class WeightMovementIssue(FrozenStrictBaseModel):
@@ -26,17 +31,27 @@ def check(events: list[Event], *, include_latest: bool = False) -> list[WeightMo
         default=None,
     )
     versions: dict[tuple[str | None, float], dict[int, dict[str, str]]] = {}
-    for event in events:
+    first_observed_at: dict[tuple[str | None, float], datetime] = {}
+    for event in sorted(events, key=lambda event: event.timestamp):
         if not isinstance(event, InferenceEngineWeightChecksumEvent):
             continue
         if not include_latest and (latest is None or event.timestamp >= latest):
             continue
         lineage = (event.trainer_model_id, event.debug_trainer_load_state_timestamp)
+        first_observed_at.setdefault(lineage, event.timestamp)
         for snapshot in event.engine_snapshots:
             versions.setdefault(lineage, {}).setdefault(event.weight_version, snapshot.tensor_checksums)
 
     issues: list[WeightMovementIssue] = []
     for (trainer_model_id, load_state_timestamp), by_version in versions.items():
+        args = trainer_args(
+            events,
+            names=_APPLICABILITY_ARG_NAMES,
+            at=first_observed_at[trainer_model_id, load_state_timestamp],
+            model_id=trainer_model_id,
+        )
+        if args is None or not _applies(args):
+            continue
         for before, after in pairwise(sorted(by_version)):
             previous, current = by_version[before], by_version[after]
             if previous.keys() != current.keys():
@@ -55,3 +70,7 @@ def check(events: list[Event], *, include_latest: bool = False) -> list[WeightMo
                 )
             )
     return issues
+
+
+def _applies(args: dict[str, Any]) -> bool:
+    return args["lora_rank"] == 0 and args["lora_adapter_path"] is None and args["update_weights_interval"] == 1

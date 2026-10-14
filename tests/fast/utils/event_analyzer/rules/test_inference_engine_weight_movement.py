@@ -1,8 +1,17 @@
 from typing import Any
 
 import pytest
-from tests.fast.utils.event_analyzer.rules.weight_event_fakes import make_checksum, make_step_end, make_trainer_args
+from tests.fast.utils.event_analyzer.rules.weight_event_fakes import (
+    make_checksum,
+    make_result,
+    make_step_end,
+    make_trainer_args,
+)
 
+from miles.utils.audit_utils.event_analyzer.rules import (
+    inference_engine_weight_checksum_consistency,
+    inference_engine_weight_checksum_coverage,
+)
 from miles.utils.audit_utils.event_analyzer.rules.inference_engine_weight_movement import check
 from miles.utils.audit_utils.event_logger.models import Event, InferenceEngineWeightChecksumEvent
 
@@ -87,6 +96,7 @@ class TestCheck:
             _version(1, {"w": "same"}, model_id="solver"),
             _version(2, {"w": "same"}, model_id="verifier"),
         )
+        events += [make_trainer_args(model_id="solver"), make_trainer_args(model_id="verifier")]
 
         assert check(events) == []
 
@@ -128,3 +138,128 @@ class TestCheck:
         events = [make_trainer_args(), _version(1, {"w": "1"}), _version(2, {"w": "1"})]
 
         assert check(events) == []
+
+    def test_the_rule_is_silent_without_trainer_arguments(self) -> None:
+        """Without the trainer env report the exclusions cannot be evaluated, so the rule stays off."""
+        events = [_version(1, {"w": "1"}), _version(2, {"w": "1"}), make_step_end(second=100.0)]
+
+        assert check(events) == []
+
+
+class TestExclusions:
+    @pytest.mark.parametrize("old_interval,new_interval,expected_lineage", [(1, 2, 0.0), (2, 1, 10.0)])
+    def test_restored_history_uses_each_lineages_own_arguments(
+        self, old_interval: int, new_interval: int, expected_lineage: float
+    ) -> None:
+        """A restore may change applicability without erasing checks of the earlier run."""
+        events = [
+            make_trainer_args(rank=rank, update_weights_interval=old_interval, run_uuid="same-run")
+            for rank in range(2)
+        ]
+        events += [_version(1, {"w": "same"}), _version(2, {"w": "same"})]
+        events += [
+            make_trainer_args(
+                rank=rank,
+                second=3,
+                update_weights_interval=new_interval,
+                run_uuid="same-run",
+            )
+            for rank in range(2)
+        ]
+        events += [
+            _version(3, {"w": "same"}, second=4, load_state_timestamp=10),
+            _version(4, {"w": "same"}, second=5, load_state_timestamp=10),
+            make_step_end(second=6),
+        ]
+
+        [issue] = check(list(reversed(events)))
+
+        assert issue.debug_trainer_load_state_timestamp == expected_lineage
+
+    def test_a_new_runs_ranks_must_still_agree_after_a_restore(self) -> None:
+        """Scoping history must not hide disagreement among current trainer ranks."""
+        events = [
+            make_trainer_args(rank=0),
+            make_trainer_args(rank=1),
+            _version(1, {"w": "old"}),
+            make_trainer_args(rank=0, second=2, update_weights_interval=2),
+            make_trainer_args(rank=1, second=2, update_weights_interval=1),
+            _version(2, {"w": "new"}, second=3, load_state_timestamp=10),
+            make_step_end(second=4),
+        ]
+
+        with pytest.raises(AssertionError, match="different arguments"):
+            check(events)
+
+    def test_different_policies_apply_their_own_exclusions(self) -> None:
+        """One policy using LoRA does not disable movement checks for another policy."""
+        events = [
+            make_trainer_args(model_id="solver"),
+            make_trainer_args(model_id="verifier", lora_rank=8),
+            _version(1, {"w": "same"}, model_id="solver"),
+            _version(2, {"w": "same"}, model_id="solver"),
+            _version(1, {"w": "same"}, model_id="verifier"),
+            _version(2, {"w": "same"}, model_id="verifier"),
+            make_step_end(second=3),
+        ]
+
+        [issue] = check(events)
+
+        assert issue.trainer_model_id == "solver"
+
+    @pytest.mark.parametrize(
+        "overrides",
+        [dict(lora_rank=8), dict(lora_adapter_path="/adapters/a"), dict(update_weights_interval=2)],
+    )
+    def test_each_exclusion_alone_turns_movement_off(self, overrides: dict[str, Any]) -> None:
+        """LoRA, a loaded adapter or a skipped push each make unchanged tensors legitimate."""
+        events = _settled(_version(1, {"w": "1"}), _version(2, {"w": "1"}), **overrides)
+
+        assert check(events) == []
+
+    def test_the_default_configuration_is_not_excluded(self) -> None:
+        """The baseline arguments keep the check on, or the exclusions above would prove nothing."""
+        events = _settled(_version(1, {"w": "1"}), _version(2, {"w": "1"}))
+
+        assert len(check(events)) == 1
+
+    def test_trainer_ranks_reporting_different_arguments_are_rejected(self) -> None:
+        """Ranks that disagree on the exclusion arguments would make the decision depend on report order."""
+        events = [
+            make_trainer_args(rank=0),
+            make_trainer_args(rank=1, lora_rank=8),
+            _version(1, {"w": "1"}),
+            make_step_end(second=100.0),
+        ]
+
+        with pytest.raises(AssertionError, match="different arguments"):
+            check(events)
+
+    def test_trainer_ranks_differing_only_outside_the_applicability_arguments_still_check_movement(self) -> None:
+        """Per-rank or later-mutated arguments, such as world_size or a sample counter, must not stop the rule."""
+        events = [
+            make_trainer_args(rank=0, world_size=2, consumed_train_samples=0),
+            make_trainer_args(rank=1, world_size=4, consumed_train_samples=64),
+            _version(1, {"w": "1"}),
+            _version(2, {"w": "1"}),
+            make_step_end(second=100.0),
+        ]
+
+        assert len(check(events)) == 1
+
+    def test_excluding_movement_keeps_consistency_and_coverage_reporting(self) -> None:
+        """Only movement is excluded; engines disagreeing or an uncovered publication still fail."""
+        disagreeing = make_checksum(
+            second=1.0,
+            update_id="u1",
+            weight_version=1,
+            snapshots={"a": ("hash-a", {"w": "1"}), "b": ("hash-b", {"w": "2"})},
+        )
+        uncovered = make_result(
+            second=2.0, update_id="u2", published_version=2, cell_hashes={"a": "hash-a"}, updated=["a"]
+        )
+        events = _settled(disagreeing, uncovered, lora_rank=8)
+
+        assert check(events) == []
+        assert len(inference_engine_weight_checksum_consistency.check(events)) == 1
+        assert len(inference_engine_weight_checksum_coverage.check(events)) == 1
