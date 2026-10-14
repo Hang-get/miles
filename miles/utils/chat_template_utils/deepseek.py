@@ -17,8 +17,15 @@ import os
 from collections.abc import Callable
 from typing import Any
 
-from sglang.srt.entrypoints.openai import chat_encoding, encoding_dsv4, encoding_dsv41
+from sglang.srt.entrypoints.openai import chat_encoding, encoding_dsv4
 from sglang.srt.entrypoints.openai.protocol import Tool
+
+try:
+    from sglang.srt.entrypoints.openai import encoding_dsv41
+except ImportError as exc:
+    if exc.name != "sglang.srt.entrypoints.openai" or "'encoding_dsv41'" not in str(exc):
+        raise
+    encoding_dsv41 = None
 
 from miles.utils.chat_template_utils.templates import encoding_dsv32
 
@@ -151,6 +158,8 @@ class DeepSeekV41Family(DeepSeekV4Family):
     template = encoding_dsv41
 
     def _build_encode_config(self, kwargs: dict) -> dict:
+        if self.template is None:
+            raise ImportError("DeepSeek V4.1 requires SGLang with encoding_dsv41 support")
         kwargs = super()._build_encode_config(kwargs)
         default = chat_encoding.default_dsv41_reasoning_effort_from_env(
             os.environ.get("SGLANG_DSV41_REASONING_EFFORT", "high")
