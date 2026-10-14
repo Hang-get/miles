@@ -17,29 +17,42 @@ _HOOK = FaultTrigger.HOOK
 
 class TestResolve:
     @pytest.mark.parametrize(
-        "requested,has_real_rollout,expected",
+        "requested,has_real_rollout,trainer_ft,expected",
         [
-            (None, True, {_TIMER, _HOOK}),
-            ([], True, {_TIMER, _HOOK}),
-            (None, False, {_TIMER}),
-            ([_TIMER], True, {_TIMER}),
-            ([_TIMER], False, {_TIMER}),
-            ([_HOOK], True, {_HOOK}),
-            ([_HOOK, _TIMER, _HOOK], True, {_TIMER, _HOOK}),
+            (None, True, True, {_TIMER, _HOOK}),
+            ([], True, True, {_TIMER, _HOOK}),
+            (None, False, True, {_TIMER}),
+            (None, True, False, {_TIMER}),
+            ([_TIMER], True, True, {_TIMER}),
+            ([_TIMER], False, True, {_TIMER}),
+            ([_HOOK], True, True, {_HOOK}),
+            ([_HOOK, _TIMER, _HOOK], True, True, {_TIMER, _HOOK}),
         ],
-        ids=["default", "empty", "fake-default", "timer", "fake-timer", "hook", "both"],
+        ids=["default", "empty", "fake-default", "rollout-only-default", "timer", "fake-timer", "hook", "both"],
     )
     def test_the_requested_or_default_triggers_are_resolved(
-        self, requested: list[FaultTrigger] | None, has_real_rollout: bool, expected: set[FaultTrigger]
+        self,
+        requested: list[FaultTrigger] | None,
+        has_real_rollout: bool,
+        trainer_ft: bool,
+        expected: set[FaultTrigger],
     ) -> None:
-        """A real rollout draws both by default and a fake rollout silently narrows the default to timer."""
-        assert fault_triggers.resolve(requested, has_real_rollout=has_real_rollout) == frozenset(expected)
+        """Real rollout with trainer ft draws both by default; otherwise the default silently narrows to timer."""
+        assert fault_triggers.resolve(
+            requested, has_real_rollout=has_real_rollout, trainer_ft=trainer_ft
+        ) == frozenset(expected)
 
     @pytest.mark.parametrize("requested", [[_HOOK], [_TIMER, _HOOK]], ids=["hook", "both"])
     def test_explicit_hook_faults_without_rollout_engines_are_refused(self, requested: list[FaultTrigger]) -> None:
         """No update reaches a trainer hook without engines, so asking for hooks explicitly must fail loudly."""
         with pytest.raises(AssertionError, match="hook-triggered faults could only expire"):
-            fault_triggers.resolve(requested, has_real_rollout=False)
+            fault_triggers.resolve(requested, has_real_rollout=False, trainer_ft=True)
+
+    @pytest.mark.parametrize("requested", [[_HOOK], [_TIMER, _HOOK]], ids=["hook", "both"])
+    def test_explicit_hook_faults_without_trainer_ft_are_refused(self, requested: list[FaultTrigger]) -> None:
+        """No trainer cell is exposed to carry a hook without trainer ft, so asking for hooks explicitly must fail."""
+        with pytest.raises(AssertionError, match="hook-triggered faults are not supported"):
+            fault_triggers.resolve(requested, has_real_rollout=True, trainer_ft=False)
 
 
 class TestTestNameSuffixAndTrainArgs:
