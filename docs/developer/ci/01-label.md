@@ -11,7 +11,7 @@ A label is a GitHub PR label that changes what CI runs or how it fails. Three ki
 | Scope label | `run-ci-image` | run every enabled tag except `long`, `ft-short`, and `ft-long` |
 | Cadence/scope label | `nightly` | select nightly cadence and every enabled tag except `long` and `ft-long`, with fast-fail disabled |
 | Scope label | `run-ci-all` | run every enabled tag |
-| Behavior label | `bypass-fastfail` | opt out of fast-fail; one run surfaces every failure |
+| Behavior label | `bypass-fastfail` | opt out of CUDA cross-stage gating and within-suite stopping |
 | Behavior label | `rebuild-ci-image` | force a rebuild when selected CUDA tests need an eligible PR image; does not select tests and is removed once consumed (see [Docker build](/developer/ci/02-docker-build)) |
 | Opt-in label | `run-ci` (or any `run-ci*` label) | lets a PR whose base is not the default branch run `PR Test` (see [below](#labels-opt-non-main-prs-into-ci)) |
 
@@ -34,7 +34,7 @@ CUDA and ROCm registrations must declare at least one domain label. GPU runners 
 
 ### The canonical label list
 
-Domain labels live in `tests/ci/labels.py` (`KNOWN_LABELS`); a `labels=[...]` value outside it is a hard error. Current set: `megatron`, `model-scripts`, `sglang`, `fsdp`, `short`, `long`, `ckpt`, `lora`, `eval`, `precision`, `ft-short`, `ft-long`, `deploy`, `weight-update`, `fully-async`, `multi-policy`, `replay`, `qwen35`, `mooncake`, `miles-plugin`, `amd`, `rpc-comm`.
+Domain labels live in `tests/ci/labels.py` (`KNOWN_LABELS`); a `labels=[...]` value outside it is a hard error. That file is the current set, with a one-line description per label.
 
 To add one: add the entry to `KNOWN_LABELS`, then create the matching `run-ci-<key>` repository label in GitHub. No workflow edit is needed. To expose it through PR comments, also add that exact label to `commands.add_label.allowed_labels` in `.github/workflows/policies/comment-command-access.json`.
 
@@ -42,7 +42,7 @@ To add one: add the entry to `KNOWN_LABELS`, then create the matching `run-ci-<k
 
 Domain labels pick *which* tests run; dispatch labels pick *where*. The two axes are independent, so `run-ci-megatron` + `run-on-blackwell` means "every megatron test that can run on Blackwell, on Blackwell, and nowhere else".
 
-Each CUDA test declares the GPU generations its kernels and precision paths support: `register_cuda_ci(..., hardware=["hopper", "blackwell"])`. Its `suite` must name a stage on the first supported generation, so a test's home stage is also where it runs when nothing asks otherwise.
+Each CUDA test declares `num_gpus`, the minimum count preserving all cases, and the GPU generations its kernels and precision paths support: `register_cuda_ci(..., hardware=["hopper", "blackwell"])`. Its `suite` must name a stage on the first supported generation, so a test's home stage is also where it runs when nothing asks otherwise.
 
 | PR labels | Effect |
 |---|---|
@@ -74,7 +74,7 @@ Unrecognized comments exit after trusted parsing with capability `none`; they do
 
 The gateway controls only the delegated comment path; it does not restrict users' existing GitHub UI/API label permissions and does not offer commands that add `run-ci-all`, `nightly`, or an arbitrary label absent from the policy.
 
-Post `/clear-labels` as the entire comment to remove every current label whose name starts with `run-ci` or `run-on-`, plus `nightly` and `bypass-fastfail`. All other PR labels are preserved. This stops stale CI scope, dispatch, cadence, fast-fail, and fork-approval choices from carrying into later pushes. On a PR based on the default branch it does not suppress the ordinary CI triggered by `synchronize`; on a PR based on another branch, later pushes stop starting `PR Test`. It never cancels a run that has already started.
+Post `/clear-labels` as the entire comment to remove every current label whose name starts with `run-ci` or `run-on-`, plus `nightly` and `bypass-fastfail`. All other PR labels are preserved. Each removal triggers the [PR workflow restart](/developer/ci/00-stage) with the remaining labels. On a PR based on the default branch, ordinary CI remains enabled; on a PR based on another branch, removing the last `run-ci*` label stops `PR Test` from starting jobs.
 
 Post `/rerun-failed-ci` as the entire comment to request failed-job reruns for the current open PR head. The handler considers only the latest run of each allowlisted PR workflow: `pre-commit.yml`, `pr-test.yml`, and `pr-test-rocm.yml`. A latest run is rerun only when it belongs to this PR and exact head SHA and has completed with conclusion `failure`.
 
@@ -83,6 +83,8 @@ Successful, skipped, cancelled, queued, or in-progress runs are not rerun, and a
 GitHub can omit `pull_requests` from fork workflow-run payloads. For a fork, the handler therefore also requires an all-state lookup by exact head owner and ref to identify only the current open PR, then binds each run to the same head ref, SHA, and repository ID. An absent, reused, or otherwise ambiguous fork head fails without a rerun.
 
 Post `/rerun-test <test-file>` as the entire comment to run one registered test file on the PR's current head, e.g. `/rerun-test tests/e2e/precision/test_hf_attention_cp_relayout.py`. Despite the name, this dispatches a fresh workflow and does not require the test to have run previously. The handler accepts only a repo-relative path under the registry scan roots (`tests/e2e`, `tests/fast`, `tests/fast-gpu`, `tests/ci`), then dispatches the fixed default-branch `.github/workflows/run-ci-file.yml` with the PR number, exact head SHA, and file path as inputs.
+
+Merging the PR cancels its unfinished `Rerun Test` runs, including runs waiting for a runner or queued behind another run of the same file. The trusted `cancel-merged-file-ci.yml` workflow matches the PR number in the file run's name; it leaves completed runs and other PRs alone. Closing without merging does not cancel file runs. While the PR is open, repeated requests for the same file retain their existing queue order.
 
 After GitHub confirms the workflow dispatch, the gateway reacts to the original command with 👍. When the dispatched `Rerun Test` workflow starts, that run posts a separate PR comment containing its running state, start time, and exact Actions run link:
 
@@ -93,6 +95,8 @@ Started at <timestamp> UTC; elapsed time and the result will be recorded here wh
 ```
 
 The reaction acknowledges that the request was accepted. When execution finishes, the workflow updates that same status comment—identified by the comment ID returned when it was created—to ✅ passed, ❌ failed, or ⚪ cancelled, and records the selected suite and total elapsed time. A run is reported as passed only when its CPU or CUDA execution job succeeds; resolver failures and runs where no execution job starts are reported as failed rather than as successful dispatches.
+
+A B200 file rerun joins the same `b200-oma` whole-host queue as PR, scheduled, and release CI, so it cannot overlap either B200 stage.
 
 An explicit file request is the selection: domain labels and the nightly cadence gate do not apply, while a symlinked or `disabled` test, an unregistered path, a ROCm-only registration, or a file with more than one CPU/CUDA registration fails the resolve job instead of silently running nothing.
 
@@ -184,15 +188,15 @@ A domain label explicitly requested on the PR wins over a scope subtraction: `ru
 
 ## Registration and scan scope
 
-Labels are optional for CPU registrations and required for GPU registrations; registration itself is not optional. The runner scans `tests/fast`, `tests/fast-gpu`, `tests/e2e`, `tests/ci` recursively for `test_*.py`. Every file must resolve to a registration or collection fails:
+The registration parser in `tests/ci/ci_register.py` requires domain labels for GPU registrations and CPU registrations above the fast-test budget (`est_time > 30` seconds); those CPU files must use `stage-b-cpu`. Shorter CPU registrations may omit labels. The runner scans `tests/fast`, `tests/fast-gpu`, `tests/e2e`, `tests/ci` recursively for `test_*.py`. Every file must resolve to a registration or collection fails:
 
 - A file outside `tests/fast/` with no `register_*_ci()` call → `No CI registry found`.
-- A CUDA or ROCm registration with missing, `None`, or empty `labels` → `labels ... must contain at least one domain label`.
+- A registration requiring domain labels with missing, `None`, or empty `labels` → `labels ... must contain at least one domain label`.
 - A `labels=[...]` value not in `KNOWN_LABELS` → `unknown labels [...]`.
 
 ## `tests/fast/` auto-registers as CPU
 
-Each `test_*.py` under `tests/fast/` is auto-registered as a CPU test (backend CPU, suite `stage-a-cpu`, `labels=[]`) with no `register_*_ci()` call, and runs on the GitHub-hosted `ubuntu-latest` runner. Here "CPU" is the hardware backend, not a label. A `register_cuda_ci()` under `tests/fast/` is a hard error — move it to `tests/fast-gpu/`.
+Each `test_*.py` under `tests/fast/` without an explicit registration is auto-registered as a CPU test (backend CPU, suite `stage-a-cpu`, `labels=[]`), and runs on the GitHub-hosted `ubuntu-latest` runner. Files exceeding the budget above need an explicit `register_cpu_ci(...)` with their estimate, suite, and domain labels. Here "CPU" is the hardware backend, not a label. A `register_cuda_ci()` under `tests/fast/` is a hard error — move it to `tests/fast-gpu/`.
 
 ## `bypass-fastfail`: opt out of fast-fail
 
@@ -201,14 +205,16 @@ By default CI fails fast on two levels:
 - Cross-stage: CUDA GPU stages run only when `stage-a-cpu` succeeds — the `if` requires `needs.stage-a-cpu.result == 'success'`.
 - Within-stage: each suite stops at the first failure (`pytest -x` for CPU; `run_unittest_files` breaks on the first failing file for CUDA).
 
-The `bypass-fastfail` PR label turns both off so one run surfaces every failure:
+The `bypass-fastfail` PR label disables CUDA cross-stage gating and within-suite stopping:
 
 - Cross-stage: each CUDA GPU stage consumes the shared `bypass_fastfail` policy output, so CUDA GPU stages run even after `stage-a-cpu` fails.
 - Within-stage: `run_suite.py` derives continue-on-error from the same resolved policy (drops `pytest -x`; sets `continue_on_error=True` for CUDA). The stage still ends red — it changes coverage, not the verdict.
 
 The ROCm workflow has no CPU cross-stage gate, so `bypass-fastfail` changes only its within-stage behavior.
 
-A resolved nightly, weekly, or release cadence bypasses fast-fail on both levels so a broad run surfaces every failure rather than stopping at the first. For nightly this applies equally whether the cadence came from the PR `nightly` label or the explicitly mapped nightly cron; release comes from the called workflow's explicit override. Local `--nightly` applies the same nightly selection and within-stage behavior; cross-stage gating does not exist in a local invocation.
+A resolved nightly, weekly, or release cadence applies the same bypass. For nightly this applies equally whether the cadence came from the PR `nightly` label or the explicitly mapped nightly cron; release comes from the called workflow's explicit override. Local `--nightly` applies the same nightly selection and within-stage behavior; cross-stage gating does not exist in a local invocation.
+
+These cross-stage exceptions apply to CUDA stages; [Stage B CPU still requires Stage A success](00-stage.md).
 
 Like the scope labels, `bypass-fastfail` is a workflow-only input and is not in `KNOWN_LABELS`.
 
