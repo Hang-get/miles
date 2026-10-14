@@ -52,6 +52,7 @@
 - **The scheme is enforced, not remembered**: `compute_mode_name` derives a mode's name from its fields against an explicit naming-default table, and `tests/fast/e2e/ft/test_naming_scheme.py` fails when a name drifts from it.
 - **Declared per mode**: cell count, parallelism, model, train/rollout GPU split, `colocate` (default disaggregated, i.e. training and rollout on separate nodes), `ft_components` (default `("train",)`).
 - **No rollout engines**: modes with `rollout_num_engines == 0` train on pre-recorded debug rollout data.
+- **Weight-update failures**: launches with rollout fault tolerance explicitly select `weight_update` too, so a killed receiving engine does not abort updates to healthy engines. Mode component tuples still describe which cells receive injected faults.
 
 | Mode | Nodes | GPUs (train + rollout) | DP cells | Parallelism | Rollout | Model | `ft_components` | Why it exists |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
