@@ -431,7 +431,8 @@ class _FakeClient:
 @pytest.mark.asyncio
 async def test_post_bytes_no_retry_returns_raw_bytes(monkeypatch):
     client = _FakeClient([_FakeResponse(200, content=b"\x00\x01binary")])
-    monkeypatch.setattr(http_utils, "_http_client", client)
+    monkeypatch.setattr(http_utils, "_client_concurrency", 1)
+    monkeypatch.setattr(http_utils, "_http_clients", {asyncio.get_running_loop(): client})
     assert await post_bytes_no_retry("http://x/samples", {}, timeout=5) == b"\x00\x01binary"
     assert client.post_count == 1
 
@@ -440,7 +441,8 @@ async def test_post_bytes_no_retry_returns_raw_bytes(monkeypatch):
 async def test_post_bytes_no_retry_does_not_retry_and_carries_body(monkeypatch):
     # Two queued outcomes; a retrying client would consume both. It must not.
     client = _FakeClient([_FakeResponse(422, text="cursor 3 != len(accumulated_token_ids) 4"), RuntimeError("late")])
-    monkeypatch.setattr(http_utils, "_http_client", client)
+    monkeypatch.setattr(http_utils, "_client_concurrency", 1)
+    monkeypatch.setattr(http_utils, "_http_clients", {asyncio.get_running_loop(): client})
     with pytest.raises(RuntimeError, match="422.*cursor 3"):
         await post_bytes_no_retry("http://x/samples", {}, timeout=5)
     assert client.post_count == 1
@@ -449,7 +451,8 @@ async def test_post_bytes_no_retry_does_not_retry_and_carries_body(monkeypatch):
 @pytest.mark.asyncio
 async def test_post_bytes_no_retry_transport_error_propagates_once(monkeypatch):
     client = _FakeClient([ConnectionError("boom"), RuntimeError("late")])
-    monkeypatch.setattr(http_utils, "_http_client", client)
+    monkeypatch.setattr(http_utils, "_client_concurrency", 1)
+    monkeypatch.setattr(http_utils, "_http_clients", {asyncio.get_running_loop(): client})
     with pytest.raises(ConnectionError, match="boom"):
         await post_bytes_no_retry("http://x/samples", {}, timeout=5)
     assert client.post_count == 1
