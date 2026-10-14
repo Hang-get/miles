@@ -16,7 +16,12 @@ from miles.utils.audit_utils.event_logger.models import Event, FaultHookEvent
 from miles.utils.ft_utils.api_server.models import Cell
 from miles.utils.test_utils.fault_injector.actions.union import FaultAction
 from miles.utils.test_utils.fault_injector.controller import FaultHookCommand, FaultHookOperation
-from miles.utils.test_utils.fault_injector.models import FaultHookRequest, FaultHookStatus, ObservedFaultHookTarget
+from miles.utils.test_utils.fault_injector.models import (
+    FaultHookName,
+    FaultHookRequest,
+    FaultHookStatus,
+    ObservedFaultHookTarget,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -27,10 +32,16 @@ EFFECT_TIMEOUT_SECONDS: float = 120.0
 class InjectFaultForm(BaseCellFaultForm):
     base_url: str
     action: FaultAction
+    hook_name: FaultHookName | None = None
+    lifetime_seconds: float | None = None
+    max_delay_ms: float = 0
 
     @property
     def name(self) -> str:
-        return f"inject_fault:{self.action.kind}"
+        name = f"inject_fault:{self.action.kind}"
+        if self.hook_name is not None:
+            name += f":{self.hook_name}:{self.max_delay_ms:g}ms"
+        return name
 
     @property
     def needs_fault_target(self) -> bool:
@@ -51,6 +62,7 @@ class InjectFaultForm(BaseCellFaultForm):
             target=target,
             details=InjectFaultDetails(
                 fault_target=identity,
+                hook_target=identity,
                 training_events_dir=next(
                     (
                         event.sources.get("training_events")
@@ -59,6 +71,8 @@ class InjectFaultForm(BaseCellFaultForm):
                     ),
                     None,
                 ),
+                hook_name=self.hook_name,
+                delay_ms=rng.uniform(0, self.max_delay_ms),
             ),
         )
 
@@ -66,21 +80,29 @@ class InjectFaultForm(BaseCellFaultForm):
         self, request: SoakActionRequest, *, report_applied: Callable[[SoakActionEvidence], None]
     ) -> None:
         assert isinstance(request.details, InjectFaultDetails), f"Request {request.request_id} names no fault target"
-        fault_target = request.details.fault_target
+        details = request.details
+        fault_target = details.fault_target
         assert fault_target.cell_id == request.target.identity
         assert fault_target.workers_hash == request.target.incarnation
         command = FaultHookCommand(
             operation=FaultHookOperation.SET,
-            request=FaultHookRequest(request_id=request.request_id, action=self.action, target=fault_target),
+            request=FaultHookRequest(
+                request_id=request.request_id,
+                hook_name=details.hook_name,
+                action=self.action,
+                target=details.hook_target,
+                lifetime_seconds=self.lifetime_seconds,
+                delay_ms=details.delay_ms,
+            ),
         )
         async with (
             httpx.AsyncClient(timeout=5.0) as client,
-            asyncio.timeout(EFFECT_TIMEOUT_SECONDS),
+            asyncio.timeout(EFFECT_TIMEOUT_SECONDS + (self.lifetime_seconds or 0)),
         ):
             reader = None
             try:
                 response = await client.post(
-                    f"{self.base_url}/api/v1/cells/{request.target.identity}/fault-hook",
+                    f"{self.base_url}/api/v1/cells/{details.hook_target.cell_id}/fault-hook",
                     content=command.model_dump_json(),
                     headers={"Content-Type": "application/json"},
                 )
@@ -88,12 +110,12 @@ class InjectFaultForm(BaseCellFaultForm):
             except (httpx.TransportError, httpx.HTTPStatusError) as error:
                 if isinstance(error, httpx.HTTPStatusError) and not error.response.is_server_error:
                     raise
-                if request.details.training_events_dir is None:
+                if details.training_events_dir is None:
                     raise
                 logger.warning(
                     "Fault response was lost; checking dispatch evidence for %s", request.request_id, exc_info=True
                 )
-                reader = request.details.training_events_dir
+                reader = details.training_events_dir
                 while not _dispatch_confirmed(await asyncio.to_thread(read_events, reader), request=command.request):
                     await asyncio.sleep(0.2)
 
