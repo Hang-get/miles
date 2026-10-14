@@ -5,15 +5,23 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 import httpx
-from tests.utils.soak.core.events import SoakEvent, SoakObservationEvent, SoakRunContextEvent
+from tests.utils.soak.core.events import SoakActionRequestedEvent, SoakEvent, SoakObservationEvent, SoakRunContextEvent
 from tests.utils.soak.core.types import SoakActionEvidence, SoakActionRequest
+from tests.utils.soak.core.views import alive_targets_of_kind
 from tests.utils.soak.ft.actions.base import BaseCellFaultForm
 from tests.utils.soak.ft.cells import cell_is_alive
-from tests.utils.soak.ft.types import CellTarget, InjectFaultDetails, ObservedCellFault, ObservedCellFaultKind
+from tests.utils.soak.ft.types import (
+    ACTOR_CELL_TYPE,
+    CellTarget,
+    InjectFaultDetails,
+    ObservedCellFault,
+    ObservedCellFaultKind,
+)
 
 from miles.utils.audit_utils.event_logger.logger import read_events
 from miles.utils.audit_utils.event_logger.models import Event, FaultHookEvent
 from miles.utils.ft_utils.api_server.models import Cell
+from miles.utils.test_utils.fault_injector.actions.remote import ApiServerFaultAction
 from miles.utils.test_utils.fault_injector.actions.union import FaultAction
 from miles.utils.test_utils.fault_injector.controller import FaultHookCommand, FaultHookOperation
 from miles.utils.test_utils.fault_injector.models import (
@@ -35,17 +43,19 @@ class InjectFaultForm(BaseCellFaultForm):
     hook_name: FaultHookName | None = None
     lifetime_seconds: float | None = None
     max_delay_ms: float = 0
+    through_trainer_hook: bool = False
 
     @property
     def name(self) -> str:
         name = f"inject_fault:{self.action.kind}"
         if self.hook_name is not None:
             name += f":{self.hook_name}:{self.max_delay_ms:g}ms"
+        if self.through_trainer_hook:
+            name += ":through_trainer"
         return name
 
-    @property
-    def needs_fault_target(self) -> bool:
-        return True
+    def fault_target_cell_types(self, kind: str) -> frozenset[str]:
+        return frozenset({kind, ACTOR_CELL_TYPE}) if self.through_trainer_hook else frozenset({kind})
 
     def maybe_create_request(
         self,
@@ -55,14 +65,18 @@ class InjectFaultForm(BaseCellFaultForm):
         events: list[SoakEvent],
         rng: random.Random,
     ) -> SoakActionRequest | None:
-        identity = target.fault_target
-        if identity is None or identity.workers_hash != target.incarnation:
+        if (fault_target := _resolve_fault_target(target)) is None:
             return None
+        hook_target = fault_target
+        if self.through_trainer_hook:
+            hook_target = _draw_trainer_hook_target(target=target, observation=observation, events=events, rng=rng)
+            if hook_target is None:
+                return None
         return self._create_request(
             target=target,
             details=InjectFaultDetails(
-                fault_target=identity,
-                hook_target=identity,
+                fault_target=fault_target,
+                hook_target=hook_target,
                 training_events_dir=next(
                     (
                         event.sources.get("training_events")
@@ -89,7 +103,7 @@ class InjectFaultForm(BaseCellFaultForm):
             request=FaultHookRequest(
                 request_id=request.request_id,
                 hook_name=details.hook_name,
-                action=self.action,
+                action=self._compute_hook_action(fault_target=fault_target, hook_target=details.hook_target),
                 target=details.hook_target,
                 lifetime_seconds=self.lifetime_seconds,
                 delay_ms=details.delay_ms,
@@ -123,6 +137,15 @@ class InjectFaultForm(BaseCellFaultForm):
             if reader is not None:
                 assert _dispatch_confirmed(await asyncio.to_thread(read_events, reader), request=command.request)
             report_applied(effect)
+
+    def _compute_hook_action(
+        self, *, fault_target: ObservedFaultHookTarget, hook_target: ObservedFaultHookTarget
+    ) -> FaultAction:
+        if hook_target == fault_target:
+            return self.action
+        return ApiServerFaultAction(
+            base_url=self.base_url, cell_id=fault_target.cell_id, rank=fault_target.rank, inner=self.action
+        )
 
     async def _read_effect(
         self,
@@ -183,3 +206,28 @@ def _dispatch_confirmed(events: list[Event], *, request: FaultHookRequest) -> bo
     fired = [record for record in records if record.status == FaultHookStatus.FIRED]
     assert len(fired) <= 1, "Fault request was dispatched more than once"
     return len(fired) == 1
+
+
+def _resolve_fault_target(target: CellTarget) -> ObservedFaultHookTarget | None:
+    if (fault_target := target.fault_target) is None or fault_target.workers_hash != target.incarnation:
+        return None
+    return fault_target
+
+
+def _draw_trainer_hook_target(
+    *, target: CellTarget, observation: SoakObservationEvent, events: list[SoakEvent], rng: random.Random
+) -> ObservedFaultHookTarget | None:
+    harmed = {
+        (event.request.target.identity, event.request.target.incarnation)
+        for event in events
+        if isinstance(event, SoakActionRequestedEvent) and event.request.target.kind == ACTOR_CELL_TYPE
+    }
+    candidates = [
+        fault_target
+        for trainer in alive_targets_of_kind(observation, ACTOR_CELL_TYPE)
+        if isinstance(trainer, CellTarget)
+        and trainer.identity != target.identity
+        and (trainer.identity, trainer.incarnation) not in harmed
+        and (fault_target := _resolve_fault_target(trainer)) is not None
+    ]
+    return rng.choice(candidates) if candidates else None
