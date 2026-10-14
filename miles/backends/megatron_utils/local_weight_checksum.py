@@ -101,7 +101,7 @@ def _collect_optimizer_hashes(
     """Collect optimizer state snapshots with tensors replaced by hashes."""
     from miles.utils.audit_utils.event_logger.models import OptimizerStateInfo
 
-    name_by_tensor_id = _build_name_by_tensor_id(model)
+    name_by_tensor_id = _build_name_by_tensor_id(model, skip_no_grad_param=True)
     result: list[OptimizerStateInfo] = []
 
     for sub_opt in _iter_sub_optimizers(optimizer):
@@ -122,12 +122,14 @@ def _collect_optimizer_hashes(
     return result
 
 
-def _build_name_by_tensor_id(model: Sequence[DDP]) -> dict[_MainParamId, str]:
+def _build_name_by_tensor_id(model: Sequence[DDP], *, skip_no_grad_param: bool) -> dict[_MainParamId, str]:
     """Build _MainParamId(fp32_main_param) → name mapping from model parameters."""
     name_map: dict[_MainParamId, str] = {}
     for pp_idx, model_chunk in enumerate(model):
         for name, param in model_chunk.named_parameters():
             assert param is not None, f"pp{pp_idx}.{name}: param is None"
+            if skip_no_grad_param and not param.requires_grad:
+                continue
             main_param = getattr(param, "main_param", None)
             if main_param is None:
                 assert getattr(param, "main_param_sharded", False), (
