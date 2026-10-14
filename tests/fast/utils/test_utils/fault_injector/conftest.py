@@ -1,3 +1,4 @@
+import asyncio
 import os
 import sys
 from collections.abc import Callable, Iterator
@@ -14,6 +15,7 @@ from tests.fast.utils.test_utils.fault_injector.fakes import (
     _Timer,
 )
 
+from miles.utils import async_utils
 from miles.utils.audit_utils.event_logger.logger import EventLogger, read_events, set_event_logger
 from miles.utils.audit_utils.event_logger.models import FaultHookEvent
 from miles.utils.audit_utils.process_identity import SimpleProcessIdentity
@@ -104,9 +106,14 @@ def hook_records(tmp_path: Path) -> Iterator[Callable[[], list[FaultHookRecord]]
 
 @pytest.fixture
 def runtime_hooks(operations: _CellOperations) -> _FaultHookController:
-    hooks = _FaultHookController()
-    hooks.configure(resources=FaultHookResources(cell_operations=operations))
-    return hooks
+    async def configure() -> _FaultHookController:
+        hooks = _FaultHookController()
+        hooks.configure(
+            resources=FaultHookResources(cell_operations=operations, owner_loop=asyncio.get_running_loop())
+        )
+        return hooks
+
+    return async_utils.run(configure())
 
 
 @pytest.fixture
