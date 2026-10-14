@@ -49,7 +49,7 @@ class ScriptArgs(U.ExecuteTrainConfig):
     num_gpus_per_node: int = 8
     run_id: str = field(default_factory=U.create_run_id)
     model_org: str = "meta-models"
-    model_name: str = "muse-spark-open"
+    model_name: str = "Muse-Spark-Open-816B-A42B"
     megatron_model_type: str = "muse-spark-full"
     model_dir: str = "/root/models"
     data_dir: str = "/root/datasets"
