@@ -16,6 +16,7 @@ _POLL_INTERVAL_SECONDS = 10.0
 _DEAD_POD_PHASES = frozenset({"Failed", "Succeeded"})
 _UNREADABLE_PHASE = "Unknown"
 _MISSING_POD_POLLS = 3
+_MISSING_UNSTARTED_POD_POLLS = 30
 _DEAD_POD_POLLS = 3
 _FAILING_POD_POLLS = 3
 _UNREADABLE_GENERATION_POLLS = 30
@@ -126,7 +127,7 @@ def _compute_run_outcome(
         return _RunOutcome(exit_code=state.exit_code, reason="the orchestrator reported its exit code")
 
     if observed is None:
-        if state is None or missing_polls < _MISSING_POD_POLLS:
+        if missing_polls < (_MISSING_POD_POLLS if state is not None else _MISSING_UNSTARTED_POD_POLLS):
             return None
         return _RunOutcome(
             exit_code=_NO_VERDICT_EXIT_CODE,
