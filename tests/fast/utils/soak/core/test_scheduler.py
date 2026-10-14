@@ -323,3 +323,34 @@ class TestSchedulerFormPreference:
         }
 
         assert chosen == {"a", "b"}
+
+
+class TestConfiguredKindsHaveForms:
+    @pytest.mark.parametrize("forms", [{}, {"actor": []}, {"rollout": [_FakeForm()]}])
+    def test_a_configured_kind_without_a_form_is_rejected_before_the_run(self, forms: SoakForms) -> None:
+        """Filtering all forms for a scheduled kind must fail before the first injection is due."""
+        with pytest.raises(ValueError, match="schedules \\['actor'\\] but has no form"):
+            SoakActionScheduler(
+                forms=forms,
+                config=SoakRunnerConfig(
+                    seed=0,
+                    target_configs={"actor": SoakTargetConfig(expected_count=2, mean_interval_seconds=10.0)},
+                ),
+            )
+
+    def test_unused_forms_do_not_require_a_scheduling_policy(self) -> None:
+        """Extra forms must not create an unconfigured target clock or block a valid kind."""
+        scheduler = SoakActionScheduler(
+            forms={"actor": [_FakeForm()], "rollout": []},
+            config=SoakRunnerConfig(
+                seed=0,
+                quiescent_polls_required=1,
+                target_configs={"actor": SoakTargetConfig(expected_count=2, mean_interval_seconds=10.0)},
+            ),
+        )
+
+        request = scheduler.choose(events=_polls(_actors()), now=_LATER)
+
+        assert request is not None
+        assert request.target.kind == "actor"
+        assert set(scheduler.due_of_type) == {"actor"}
