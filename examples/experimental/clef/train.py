@@ -34,7 +34,6 @@ from examples.experimental.clef.data import (
 from examples.experimental.clef.joint_schema_model import collate_records
 from examples.experimental.clef.model import TrainableClefModel, build_model, read_head_config, shard_model
 from examples.experimental.clef.objective import decision_loss, prediction_rows, summarize
-from examples.experimental.clef.resume import validate_resume_config
 from examples.experimental.clef.telemetry import Telemetry
 from tap import Tap
 from transformers import AutoProcessor
@@ -65,10 +64,7 @@ class Args(Tap):
     resume: str = ""
     wandb_project: str = ""
     wandb_entity: str = ""
-    prometheus_port: int = 9090
     distributed_timeout_seconds: int = 3600
-    forecastbench_path: str = ""
-    allow_forecastbench_change: bool = False
 
     def process_args(self) -> None:
         if not 0 <= self.multi_field_fraction <= 1:
@@ -184,13 +180,31 @@ def _evaluate(
         destination.write_text("".join(json.dumps(row) + "\n" for row in sorted(rows, key=lambda row: row["id"])))
     model.train()
     metrics = _metrics(rows, prefix)
-    if prefix == "forecastbench":
-        # ForecastBench scores only the probability of Yes. Two-option summed
-        # Brier is exactly twice this binary convention.
-        if any(len(row["probabilities"]) != 2 or not row["hard_target"] for row in rows):
-            raise ValueError("ForecastBench requires binary resolved targets")
-        metrics[f"{prefix}/binary_brier"] = metrics[f"{prefix}/brier"] / 2
     return metrics
+
+
+# Settings that may change on resume; everything else must match the checkpoint.
+_RESUMABLE_KEYS = {
+    "max_steps",
+    "total_steps",
+    "resume",
+    "output_dir",
+    "run_name",
+    "wandb_project",
+    "wandb_entity",
+    "model_dir",
+    "data_dir",
+    "head_config",
+    "checkpoint_dir",
+}
+
+
+def _check_resume_config(saved: dict[str, Any], current: dict[str, Any]) -> None:
+    if current["total_steps"] < saved["total_steps"]:
+        raise ValueError("resume cannot shorten the training horizon")
+    for key, value in saved.items():
+        if key not in _RESUMABLE_KEYS and current.get(key) != value:
+            raise ValueError(f"resume configuration mismatch: {key}")
 
 
 def _step_order(examples: list[DecisionExample], step: int, args: Args) -> list[int]:
@@ -284,16 +298,6 @@ def _prepare(args: Args) -> tuple[list[DecisionExample], list[DecisionExample], 
     if args.global_batch_size % (world * args.micro_batch_size) or len(train) % args.global_batch_size:
         raise ValueError("global batch must divide data and be divisible by world size * micro batch")
     config = args.as_dict()
-    if args.forecastbench_path:
-        forecast = read_examples(Path(args.forecastbench_path))
-        if not forecast or {e.record["id"] for e in forecast} & {e.record["id"] for e in train + validation}:
-            raise ValueError("empty ForecastBench or overlapping record IDs")
-        config.update(
-            {
-                "forecastbench_questions": len(forecast),
-                "forecastbench_sha256": file_sha256(Path(args.forecastbench_path)),
-            }
-        )
     config.update(
         {
             "world_size": world,
@@ -341,21 +345,11 @@ def main() -> None:
     start = 0
     if args.resume:
         saved = load_checkpoint(model, optimizer, args.resume)
-        validate_resume_config(saved["config"], config, allow_forecastbench_change=args.allow_forecastbench_change)
+        _check_resume_config(saved["config"], config)
         start = saved["step"]
     labels = [encode_example(processor.tokenizer, example, args.max_length) for example in validation]
-    forecast_labels = (
-        [
-            encode_example(processor.tokenizer, example, args.max_length)
-            for example in read_examples(Path(args.forecastbench_path))
-        ]
-        if args.forecastbench_path
-        else []
-    )
     telemetry = (
-        Telemetry(
-            Path(args.output_dir), args.run_name, config, args.wandb_project, args.wandb_entity, args.prometheus_port
-        )
+        Telemetry(Path(args.output_dir), args.run_name, config, args.wandb_project, args.wandb_entity)
         if dist.get_rank() == 0
         else None
     )
@@ -372,7 +366,6 @@ def main() -> None:
             args,
             device,
             telemetry,
-            forecast_labels,
         )
         if telemetry is not None:
             telemetry.close()
@@ -396,14 +389,9 @@ def _run(
     args: Args,
     device: torch.device,
     telemetry: Telemetry | None,
-    forecast_labels: list[LabeledRecord] | None = None,
 ) -> None:
     output = Path(args.output_dir)
     initial = _evaluate(model, labels, processor.tokenizer.pad_token_id, device, output, start)
-    if forecast_labels:
-        initial.update(
-            _evaluate(model, forecast_labels, processor.tokenizer.pad_token_id, device, output, start, "forecastbench")
-        )
     if telemetry is not None:
         telemetry.log(initial, start)
     trace_path = output / "traces" / f"rank_{dist.get_rank():04d}.jsonl"
@@ -422,18 +410,6 @@ def _run(
             completed = step + 1
             if completed % args.eval_interval == 0 or completed == config["total_steps"]:
                 metrics.update(_evaluate(model, labels, processor.tokenizer.pad_token_id, device, output, completed))
-                if forecast_labels:
-                    metrics.update(
-                        _evaluate(
-                            model,
-                            forecast_labels,
-                            processor.tokenizer.pad_token_id,
-                            device,
-                            output,
-                            completed,
-                            "forecastbench",
-                        )
-                    )
             if telemetry is not None:
                 telemetry.log(metrics, completed)
             if completed % args.save_interval == 0 or completed == config["total_steps"]:

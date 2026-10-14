@@ -3,7 +3,7 @@
 # Adapted from Cloudflare/clef, Apache-2.0.
 # Upstream revision: 2f3de3dd85f379784083b0814d997ab627200f0c.
 # https://huggingface.co/Cloudflare/clef/blob/2f3de3dd85f379784083b0814d997ab627200f0c/joint_schema_model.py
-# Modification: hoisted optional loader imports; architecture/encoding unchanged.
+# Modifications: hoisted optional loader imports and reformatted; architecture and encoding unchanged.
 """Clef: a multimodal Qwen backbone with a joint schema head for typed decisions.
 
 A record provides a ``state`` (any JSON value), optional ``images`` and ``videos``,

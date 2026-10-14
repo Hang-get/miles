@@ -18,7 +18,8 @@ guesses.
 
 The head and record encoder in `joint_schema_model.py` are taken unchanged from
 [Cloudflare/clef](https://huggingface.co/Cloudflare/clef) (revision
-`2f3de3dd85f379784083b0814d997ab627200f0c`, Apache-2.0; see `LICENSE-Cloudflare`).
+`2f3de3dd85f379784083b0814d997ab627200f0c`), which is released under Apache-2.0, the same
+license as Miles.
 
 ## Files
 
@@ -30,8 +31,8 @@ The head and record encoder in `joint_schema_model.py` are taken unchanged from
 | `check_data.py` | Checks that a data directory follows the format below |
 | `data.py` | Loads, validates, augments, and encodes labeled records |
 | `objective.py` | Brier loss and validation metrics |
-| `checkpoint.py`, `state.py`, `resume.py` | Resumable checkpoints and a serving export |
-| `telemetry.py` | W&B, Prometheus, and Miles dashboard metrics |
+| `checkpoint.py`, `state.py` | Resumable checkpoints and a serving export |
+| `telemetry.py` | W&B and Miles dashboard metrics |
 
 ## Data format
 
@@ -113,12 +114,6 @@ torchrun --nnodes=2 --nproc-per-node=8 --node-rank=0 \
   Use `--max-steps` to extend a finished run.
 - **Precision:** FP32 master weights and Adam states, BF16 compute, FP32
   gradient reduction. Gradients are clipped at `--max-grad-norm` (default 1).
-
-Optional `--forecastbench-path` evaluates a second, held-out file in the same
-record format (for example, resolved yes/no forecasting questions) at every
-validation step. It is never used for training. Metrics are logged under
-`forecastbench/`, including `binary_brier`, which is half the two-option Brier
-score.
 
 ## Outputs
 

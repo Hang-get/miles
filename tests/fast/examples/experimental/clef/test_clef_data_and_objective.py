@@ -9,6 +9,7 @@ import torch
 from examples.experimental.clef.check_data import check_row
 from examples.experimental.clef.data import DecisionExample, LabeledRecord, augment_example, read_examples
 from examples.experimental.clef.objective import decision_loss, prediction_rows, summarize
+from examples.experimental.clef.train import _check_resume_config
 
 
 def _label(targets: tuple[tuple[float, ...], ...], record_id: str = "r0") -> LabeledRecord:
@@ -119,3 +120,12 @@ def test_augment_leaves_named_fields_unchanged() -> None:
     }
     example = DecisionExample(record, {"team": {"billing": 1.0, "tech": 0.0}}, "unit")
     assert augment_example(example, random.Random(0), multi_field_fraction=1.0) == example
+
+
+def test_resume_allows_extension_but_not_changed_settings() -> None:
+    from_checkpoint = {"total_steps": 100, "head_lr": 1e-5, "output_dir": "/a"}
+    _check_resume_config(from_checkpoint, {"total_steps": 200, "head_lr": 1e-5, "output_dir": "/b"})
+    with pytest.raises(ValueError, match="shorten"):
+        _check_resume_config(from_checkpoint, {"total_steps": 50, "head_lr": 1e-5})
+    with pytest.raises(ValueError, match="head_lr"):
+        _check_resume_config(from_checkpoint, {"total_steps": 100, "head_lr": 2e-5})

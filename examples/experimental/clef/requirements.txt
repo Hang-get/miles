@@ -1,5 +1,4 @@
 huggingface-hub
-prometheus-client
 safetensors
 # Install alongside a CUDA build of PyTorch.
 torch>=2.6

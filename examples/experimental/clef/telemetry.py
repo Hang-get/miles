@@ -1,30 +1,21 @@
 """Decision-training metrics, traces, and native Miles dashboard streams."""
 
 import json
-import re
 import time
 from pathlib import Path
 from typing import Any
 
 import wandb
-from prometheus_client import CollectorRegistry, Gauge, start_http_server
 
 from miles.dashboard.store import Meta, MetricsRecord, MetricStore
 
 
 class Telemetry:
-    def __init__(
-        self, output_dir: Path, run_name: str, config: dict[str, Any], project: str, entity: str, port: int
-    ) -> None:
+    def __init__(self, output_dir: Path, run_name: str, config: dict[str, Any], project: str, entity: str) -> None:
         self.output_dir = output_dir
         started = time.time()
         self.store = MetricStore(output_dir / "dashboard")
         self.store.write_meta(Meta(run_name=run_name, start_ts=started, args=config))
-        self.registry = CollectorRegistry()
-        self.gauges: dict[str, tuple[str, Gauge]] = {}
-        self.collisions: set[tuple[str, str]] = set()
-        self.run_name = run_name
-        self.server, self.thread = start_http_server(port, registry=self.registry)
         self.run = (
             wandb.init(project=project, entity=entity or None, name=run_name, config=config) if project else None
         )
@@ -46,22 +37,9 @@ class Telemetry:
             writer.write(json.dumps({"step": step, **metrics}) + "\n")
         if self.run is not None:
             self.run.log(values, step=step)
-        for key, value in values.items():
-            safe = "miles_metric_" + re.sub(r"[^a-zA-Z0-9_]", "_", key)
-            if safe not in self.gauges:
-                self.gauges[safe] = (key, Gauge(safe, key, ["run_name"], registry=self.registry))
-            owner, gauge = self.gauges[safe]
-            if owner != key:
-                # Distinct keys can sanitize to one Prometheus name; keep the first.
-                if (safe, key) not in self.collisions:
-                    self.collisions.add((safe, key))
-                    print(f"Prometheus name {safe} already exports {owner!r}; skipping {key!r}", flush=True)
-                continue
-            gauge.labels(self.run_name).set(value)
         print("METRICS", json.dumps({"step": step, **metrics}), flush=True)
 
     def close(self) -> None:
         self.store.flush()
-        self.server.shutdown()
         if self.run is not None:
             self.run.finish()
