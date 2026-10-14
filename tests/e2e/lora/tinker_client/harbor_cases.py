@@ -85,7 +85,15 @@ async def test_harbor_http_calls_become_unmodified_training_data(
             await http.get(configs[0].agent.kwargs["api_base"])
 
 
-@pytest.mark.parametrize("failure,reason", [(None, "completed"), ("AgentTimeoutError", "rollout_timeout")])
+@pytest.mark.parametrize(
+    "failure,reason",
+    [
+        (None, "completed"),
+        ("AgentTimeoutError", "rollout_timeout"),
+        ("ContextWindowExceededError", "context_overflow"),
+        ("OutputTokenExceededError", "max_tokens"),
+    ],
+)
 def test_only_scored_trial_outcomes_are_accepted(failure, reason):
     result = SimpleNamespace(
         exception_info=None if failure is None else SimpleNamespace(exception_type=failure),
@@ -101,6 +109,9 @@ def test_only_scored_trial_outcomes_are_accepted(failure, reason):
         ("NonZeroAgentExitCodeError", {"reward": 0}),
         (None, None),
         ("AgentTimeoutError", None),
+        ("ContextWindowExceededError", None),
+        ("OutputTokenExceededError", None),
+        ("ApiRateLimitError", {"reward": 0}),
         (None, {"reward": float("nan")}),
     ],
 )

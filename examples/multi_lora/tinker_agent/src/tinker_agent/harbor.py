@@ -95,6 +95,10 @@ def trial_outcome(result, reward_key):
         stop_reason = StopReason.COMPLETED
     elif failure.exception_type == "AgentTimeoutError":
         stop_reason = StopReason.ROLLOUT_TIMEOUT
+    elif failure.exception_type == "ContextWindowExceededError":
+        stop_reason = StopReason.CONTEXT_OVERFLOW
+    elif failure.exception_type == "OutputTokenExceededError":
+        stop_reason = StopReason.MAX_TOKENS
     else:
         raise RuntimeError(f"Harbor trial failed: {failure.exception_type}: {failure.exception_message}")
     verifier = result.verifier_result
