@@ -12,12 +12,20 @@ DEFAULT_FAULT_TRIGGERS: frozenset[FaultTrigger] = frozenset({FaultTrigger.TIMER,
 HOOK_TRAIN_ARGS: str = "--update-weights-timeout 600 "
 
 
-def resolve(requested: list[FaultTrigger] | None, *, has_real_rollout: bool) -> frozenset[FaultTrigger]:
+def resolve(
+    requested: list[FaultTrigger] | None, *, has_real_rollout: bool, trainer_ft: bool
+) -> frozenset[FaultTrigger]:
     triggers = frozenset(requested) if requested else DEFAULT_FAULT_TRIGGERS
     if not has_real_rollout:
         assert requested is None or FaultTrigger.HOOK not in triggers, (
             "Without rollout engines no weight update ever reaches a trainer fault hook, so hook-triggered faults "
             "could only expire"
+        )
+        triggers -= {FaultTrigger.HOOK}
+    elif not trainer_ft:
+        assert requested is None or FaultTrigger.HOOK not in triggers, (
+            "Without trainer fault tolerance the api server exposes no trainer cell to carry a fault hook, so "
+            "hook-triggered faults are not supported"
         )
         triggers -= {FaultTrigger.HOOK}
     assert triggers, "At least one fault trigger is needed"

@@ -53,7 +53,7 @@ def run_ci(
     fully_async: FullyAsyncOption = False,
     requested_triggers: FaultTriggersOption = None,
 ) -> None:
-    triggers = fault_triggers.resolve(requested_triggers, has_real_rollout=True)
+    triggers = fault_triggers.resolve(requested_triggers, has_real_rollout=True, trainer_ft=True)
     test_name: str = TEST_NAME + fault_triggers.compute_test_name_suffix(triggers)
     if fully_async:
         test_name += "_fully_async"
@@ -80,7 +80,9 @@ def run_ci(
             ),
             event_log=run.event_log,
             evidence_dir=run.evidence_dir,
-            cell_fault_forms=create_cell_fault_forms(run.launch_spec.config, triggers=triggers),
+            cell_fault_forms=create_cell_fault_forms(
+                run.launch_spec.config, triggers=triggers, weight_update_all_gathers=False
+            ),
         )
     )
 
