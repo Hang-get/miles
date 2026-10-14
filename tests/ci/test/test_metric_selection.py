@@ -645,3 +645,19 @@ def test_register_ci_gate_runtime_is_noop():
         )
         is None
     )
+
+
+def test_mfu_gate_default_judges_the_last_step():
+    assert GATE_DEFAULTS["perf/actor_train_mfu"]["steps"] == "last"
+
+
+def test_every_training_e2e_with_a_history_gate_also_gates_mfu():
+    e2e_dir = Path(__file__).parents[2] / "e2e"
+    training_files = [
+        path
+        for path in sorted(e2e_dir.rglob("test_*.py"))
+        if "train/grad_norm" in {spec.metric_key for spec in parse_ci_gate_specs(str(path))}
+    ]
+    assert training_files
+    for path in training_files:
+        assert "perf/actor_train_mfu" in {spec.metric_key for spec in parse_ci_gate_specs(str(path))}, path

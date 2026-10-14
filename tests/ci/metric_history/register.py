@@ -119,6 +119,13 @@ GATE_DEFAULTS: dict[str, dict] = {
         "steps": "last",
         "constraint": {"rel_up": 1.0, "abs_floor_up": 0.1, "rel_down": 1.0},
     },
+    # Step 0 pays compile and allocator warm-up, so judge the last step. Over
+    # 30 days of CI runs, rel_down 0.4 never failed the median gated test;
+    # 0.25 failed a quarter of all runs.
+    "perf/actor_train_mfu": {
+        "steps": "last",
+        "constraint": {"rel_up": 1.0, "rel_down": 0.4},
+    },
 }
 
 
