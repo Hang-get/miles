@@ -583,6 +583,32 @@ class TestReconnectionWithOutstandingWrites:
         assert isinstance(old_cell._error, TimeoutError)
         assert ("unregistered read", old_api.session_id(0)) not in p2p_sender.log
 
+    @pytest.mark.parametrize("old_state", ["running", "native_error"])
+    def test_buffer_growth_cannot_release_memory_a_failed_native_batch_may_read(
+        self, p2p_sender: Any, make_rollout_api: Any, make_bucket: Any, old_state: str
+    ) -> None:
+        """Growing after a timeout or uncertain native error must retain the old allocations and fail explicitly."""
+        protocol = p2p_sender.make_protocol(p2p_transfer_timeout=0.02, update_weight_buffer_size=64)
+        api = make_rollout_api("cell-a", gpu_count=1)
+        p2p_sender.connect(protocol, [api])
+        p2p_sender.begin_sync(protocol, weight_version=1)
+        if old_state == "running":
+            p2p_sender.transfer_engine.hold(api.session_id(0))
+        else:
+            p2p_sender.transfer_engine.failing_sessions.add(api.session_id(0))
+        protocol.send_bucket(make_bucket("hf.w"))
+        protocol.after_base_weights()
+        registrations = list(p2p_sender.transfer_engine.registered)
+        p2p_sender.connect(protocol, [make_rollout_api("cell-a", gpu_count=1, generation=2)])
+        protocol.args.update_weight_buffer_size = 256
+
+        with pytest.raises(RuntimeError, match="Cannot release"):
+            p2p_sender.begin_sync(protocol, weight_version=2)
+
+        assert protocol._transfer_buffers.buffer_nbytes == 64
+        assert p2p_sender.transfer_engine.registered == registrations
+        assert len(registrations) == 2
+
 
 class TestDraftChecksumIsolation:
     @pytest.mark.parametrize("corrupted_role", ["target", "draft"])
