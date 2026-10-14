@@ -23,7 +23,7 @@ def _args() -> ScriptArgs:
         num_gpus_per_node=4,
         num_rollout=2,
         enable_wandb=False,
-        extra_args="--ci-test --ci-disable-logprobs-checker ",
+        extra_args="--ci-test --no-enable-sample-ownership-checker --ci-disable-logprobs-checker ",
     )
 
 
