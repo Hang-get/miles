@@ -7,7 +7,7 @@ only the torch_dist tensors those shards need.
 
 Example:
     python tools/convert_muse_spark_torch_dist_to_hf.py --input-dir <save>/iter_0000029 \\
-        --hf-checkpoint /root/models/Muse-Spark-open-816B-A42B --output-dir <run_dir>/hf
+        --hf-checkpoint /root/models/muse-spark-open --output-dir <run_dir>/hf
 """
 
 import argparse
