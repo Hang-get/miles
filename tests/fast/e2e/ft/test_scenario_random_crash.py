@@ -160,6 +160,7 @@ class TestTheLaunchedTrainArguments:
         env = launch.request.extra_env_vars
         assert DETERMINISTIC_ENV_VARS.items() <= env.items()
         assert (env["TORCHDYNAMO_DISABLE"], env["RAY_DEDUP_LOGS"]) == ("1", "0")
+        assert (env["MOONCAKE_PROTOCOL"], env["MC_FORCE_TCP"]) == ("tcp", "1")
         assert launch.request.megatron_path == MEGATRON_PATH
         assert launch.request.megatron_model_type == MODES[_TRAIN_ONLY_MODE].megatron_model_type
 
