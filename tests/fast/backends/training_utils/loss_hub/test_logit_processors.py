@@ -4,17 +4,19 @@ from types import SimpleNamespace
 import pytest
 import torch
 
+from miles.backends.training_utils.data import context_parallel
 from miles.backends.training_utils.loss.hub import logit_processors
 
 
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
 @pytest.mark.parametrize(
     "lengths,responses,padding",
-    [([17, 13, 9, 12], [16, 6, 0, 11], 7), ([5, 4], [5, 4], 0), ([7], [0], 0)],
+    [([17, 13, 9, 12], [16, 6, 0, 11], 7), ([5, 4], [4, 4], 0), ([7], [0], 0)],
 )
 def test_packed_response_views_preserve_values_and_gradients(monkeypatch, dtype, lengths, responses, padding):
     monkeypatch.setattr(logit_processors, "get_parallel_state", lambda: SimpleNamespace(cp=SimpleNamespace(size=1)))
-    args = Namespace(qkv_format="thd", true_on_policy_mode=False)
+    monkeypatch.setattr(context_parallel, "get_parallel_state", lambda: SimpleNamespace(cp=SimpleNamespace(size=1)))
+    args = Namespace(qkv_format="thd", true_on_policy_mode=False, allgather_cp=False)
     logits = torch.randn(1, sum(lengths) + padding, 16, dtype=dtype, requires_grad=True)
     reference = logits.detach().clone().requires_grad_()
     tokens = [torch.arange(length) for length in lengths]
@@ -43,11 +45,12 @@ def test_packed_response_views_preserve_values_and_gradients(monkeypatch, dtype,
 
 def test_packed_response_backward_does_not_allocate_a_full_gradient_per_sample(monkeypatch):
     monkeypatch.setattr(logit_processors, "get_parallel_state", lambda: SimpleNamespace(cp=SimpleNamespace(size=1)))
+    monkeypatch.setattr(context_parallel, "get_parallel_state", lambda: SimpleNamespace(cp=SimpleNamespace(size=1)))
     logits = torch.ones(1, 16 * 17 + 7, 256, requires_grad=True)
     with torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CPU], profile_memory=True) as profiler:
         chunks = logit_processors._iter_response_chunks(
             logits,
-            args=Namespace(qkv_format="thd", true_on_policy_mode=False),
+            args=Namespace(qkv_format="thd", true_on_policy_mode=False, allgather_cp=False),
             unconcat_tokens=[torch.arange(17) for _ in range(16)],
             total_lengths=[17] * 16,
             response_lengths=[16] * 16,
@@ -72,7 +75,9 @@ class TestGetLogProbsAndEntropy:
             cp=SimpleNamespace(rank=0, size=1),
         )
         monkeypatch.setattr(logit_processors, "get_parallel_state", lambda: parallel_state)
+        monkeypatch.setattr(context_parallel, "get_parallel_state", lambda: parallel_state)
         args = Namespace(
+            log_probs_backend="torch",
             qkv_format="thd",
             rollout_temperature=1.0,
             true_on_policy_mode=False,
