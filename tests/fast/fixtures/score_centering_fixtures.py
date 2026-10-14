@@ -43,6 +43,7 @@ def _args(**overrides: object) -> Namespace:
         rollout_top_k=-1,
         use_sampling_support_replay=False,
         use_rollout_routing_replay=False,
+        use_rollout_indexer_replay=False,
         advantage_estimator="grpo",
         rewards_normalization=False,
         reward_key=None,
