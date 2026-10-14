@@ -108,7 +108,8 @@ def load_checkpoint(ddp_model, optimizer, opt_param_scheduler, checkpointing_con
     # ref: how megatron `load_checkpoint` gets directory
     args = get_args()
 
-    load_path = args.load
+    # Resume takes priority; a fresh run may have only pretrained weights.
+    load_path = args.load or args.pretrained_checkpoint
 
     has_local_checkpoint_manager = "local_checkpoint_manager" in (checkpointing_context or {})
     if has_local_checkpoint_manager:
