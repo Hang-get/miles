@@ -4,7 +4,7 @@ description: Launch recipe for Muse Spark Open (816B omni MoE) — full-paramete
 ---
 ## 1. Model Introduction
 
-[Muse Spark Open](https://huggingface.co/meta-models/Muse-Spark-open-816B-A42B) is an 816B-parameter mixture-of-experts model (42B active) with vision and audio towers, released in BF16. Miles implements its language model natively in Megatron and trains it with RL; the towers stay frozen.
+[Muse Spark Open](https://huggingface.co/meta-models/muse-spark-open) is an 816B-parameter mixture-of-experts model (42B active) with vision and audio towers, released in BF16. Miles implements its language model natively in Megatron and trains it with RL; the towers stay frozen.
 
 **Key highlights:**
 
@@ -17,7 +17,7 @@ description: Launch recipe for Muse Spark Open (816B omni MoE) — full-paramete
 
 | `--model-name` | What it is | HF source |
 |---|---|---|
-| `Muse-Spark-open-816B-A42B` | omni checkpoint; Miles trains the 62-layer language model | [meta-models/Muse-Spark-open-816B-A42B](https://huggingface.co/meta-models/Muse-Spark-open-816B-A42B) |
+| `muse-spark-open` | omni checkpoint; Miles trains the 62-layer language model | [meta-models/muse-spark-open](https://huggingface.co/meta-models/muse-spark-open) |
 
 ## 3. Environment Setup
 
@@ -41,7 +41,7 @@ docker run -d --name miles --gpus all --network host --ipc host --shm-size 512g 
 
 ### 3.2 Download + `torch_dist` conversion
 
-`prepare` (run by the launcher before training) downloads the checkpoint to `<model-dir>/Muse-Spark-open-816B-A42B` and converts it on all eight nodes into `<model-dir>/Muse-Spark-open-816B-A42B_torch_dist`, skipping a finished conversion. The `torch_dist` release is about 1.6 TB and loads into any training layout. It also downloads `zhuzilin/dapo-math-17k`, or with `--vlm` prepares `hiyouga/geometry3k` with `scripts/muse_spark_vlm/prepare_geo3k.py`.
+`prepare` (run by the launcher before training) downloads the checkpoint to `<model-dir>/muse-spark-open` and converts it on all eight nodes into `<model-dir>/muse-spark-open_torch_dist`, skipping a finished conversion. The `torch_dist` release is about 1.6 TB and loads into any training layout. It also downloads `zhuzilin/dapo-math-17k`, or with `--vlm` prepares `hiyouga/geometry3k` with `scripts/muse_spark_vlm/prepare_geo3k.py`.
 
 ### 3.3 SGLang
 
@@ -119,7 +119,7 @@ The image-grounded mode renders prompts with `miles/utils/chat_template_utils/te
 ```bash
 python tools/convert_muse_spark_torch_dist_to_hf.py \
   --input-dir <output-dir>/<run-id>/checkpoints/iter_0000009 \
-  --hf-checkpoint /root/models/Muse-Spark-open-816B-A42B \
+  --hf-checkpoint /root/models/muse-spark-open \
   --output-dir <output-dir>/<run-id>/hf-step-10
 ```
 
