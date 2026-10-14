@@ -350,3 +350,29 @@ class TestProcessRolloutData:
                 train_parallel_config=_TRAIN_PARALLEL_CONFIG,
                 witness_info=None,
             )
+
+
+@pytest.mark.usefixtures("fake_store")
+class TestDelayedSplitOwnership:
+    def test_trimming_is_rejected_even_without_witness_ids_when_ownership_is_enabled(self) -> None:
+        """Ownership checking must reject dropped rows even when no witness allocator is active."""
+        with pytest.raises(AssertionError, match="Dropping samples during delayed DP splitting"):
+            _shards_of_every_rank(
+                args=_delay_split_args(enable_sample_ownership_checker=True),
+                raw=_raw_batch(num_samples=257, lineage_source_sample_indices=list(range(257))),
+            )
+
+    def test_trimming_remains_allowed_when_ownership_and_witness_are_disabled(self) -> None:
+        """The ownership guard must not change the explicitly unchecked trailing-rollout behavior."""
+        shards = _shards_of_every_rank(raw=_raw_batch(num_samples=257))
+
+        assert sorted(index for shard in shards for index in shard["sample_indices"]) == list(range(256))
+
+    def test_a_complete_batch_with_ownership_enabled_keeps_every_sample(self) -> None:
+        """The guard accepts a lossless split across a nondividing number of live cells."""
+        shards = _shards_of_every_rank(
+            args=_delay_split_args(enable_sample_ownership_checker=True),
+            raw=_raw_batch(lineage_source_sample_indices=list(range(256))),
+        )
+
+        assert sorted(index for shard in shards for index in shard["sample_indices"]) == list(range(256))
