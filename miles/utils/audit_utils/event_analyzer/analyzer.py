@@ -1,5 +1,6 @@
 """Centralized event analyzer that reads events and runs all rules."""
 
+import functools
 import logging
 import time
 from argparse import Namespace
@@ -16,7 +17,7 @@ from miles.utils.audit_utils.event_analyzer.rules import witness as witness_rule
 from miles.utils.audit_utils.event_analyzer.rules.inference_engine_weight_movement import WeightMovementIssue
 from miles.utils.audit_utils.event_analyzer.rules.sample_ownership import check as sample_ownership_check
 from miles.utils.audit_utils.event_analyzer.rules.sample_ownership.models import SampleOwnershipViolation
-from miles.utils.audit_utils.event_logger.logger import get_event_logger, read_events
+from miles.utils.audit_utils.event_logger.logger import EventReader, get_event_logger
 from miles.utils.audit_utils.event_logger.models import DataSourceIssuedSamplesEvent
 from miles.utils.audit_utils.process_identity import TrainerControllerProcessIdentity, TrainProcessIdentity
 from miles.utils.misc import partition
@@ -50,7 +51,7 @@ def run_analysis_from_args(args: Namespace) -> None:
 
 
 def run_analysis(event_dir: Path) -> list[Any]:
-    events = read_events(event_dir)
+    events = _event_reader(event_dir, strict=False).read()
     if not events:
         return []
 
@@ -63,7 +64,7 @@ def run_sample_ownership_analysis(*, args: Namespace, event_dir: Path | None = N
 
     try:
         directory = event_dir if event_dir is not None else get_event_logger().log_dir
-        events = read_events(directory, strict=True)
+        events = _event_reader(directory, strict=True).read()
         if not any(isinstance(event, DataSourceIssuedSamplesEvent) for event in events):
             logger.warning(f"Sample ownership check has no issued-sample evidence in {directory}")
         if issues := sample_ownership_check.check(events, grace_steps=args.sample_ownership_grace_steps):
@@ -72,6 +73,11 @@ def run_sample_ownership_analysis(*, args: Namespace, event_dir: Path | None = N
         if args.ci_test:
             raise
         logger.exception("Sample ownership check failed")
+
+
+@functools.cache
+def _event_reader(event_dir: Path, *, strict: bool) -> EventReader:
+    return EventReader(event_dir, strict=strict)
 
 
 def _check_one_model_id(events: list[Any]) -> list[Any]:
