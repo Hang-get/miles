@@ -1,10 +1,10 @@
 """Train full Muse Spark with GRPO on 64 H200 GPUs: DAPO-Math-17k, or Geometry3K images with --vlm.
 
-Requires storage shared by all eight nodes under model_dir, and Muse-enabled Megatron/SGLang on
-every node. Join the Ray cluster before running with MILES_SCRIPT_EXTERNAL_RAY=1; the first run
-downloads the HF checkpoint and converts it into an adjacent _torch_dist release on that cluster.
+Requires storage shared by all eight nodes under model_dir (and under output_dir to save weights), and
+Muse-enabled Megatron/SGLang on every node. Join the Ray cluster before running with MILES_SCRIPT_EXTERNAL_RAY=1;
+the first run downloads the HF checkpoint and converts it into an adjacent _torch_dist release on that cluster.
 Adam streams optimizer state to local disk; Muon keeps state/master weights on CPU and computes
-updates in GPU chunks. Each rollout performs one update; checkpoints are not saved.
+updates in GPU chunks. Each rollout performs one update.
 
 Args:
     model_org / model_dir / model_name: HF repository <model_org>/<model_name>, downloaded to
@@ -20,6 +20,10 @@ Args:
     vlm: Train on geo3k images instead of DAPO-Math (frozen vision tower); defaults False.
     eval_interval / n_samples_per_eval_prompt: geo3k test-split eval cadence (vlm only) and samples per prompt.
     reasoning_effort: Optional chat-template override.
+    save_interval: Save the weights without optimizer state every N rollouts and after the last one, under
+        <run_dir>/checkpoints on storage shared by all eight nodes. After training, the last save is converted
+        on CPU into an HF checkpoint in the released layout under <run_dir>/hf;
+        tools/convert_muse_spark_torch_dist_to_hf.py converts any other save. Defaults None: nothing is saved.
     extra_args / extra_env_vars: Additional training flags and runtime environment.
 
 Example:
@@ -77,6 +81,7 @@ class ScriptArgs(U.ExecuteTrainConfig):
     vlm: bool = False
     eval_interval: int | None = None
     n_samples_per_eval_prompt: int = 4
+    save_interval: int | None = None
     extra_args: str = ""
 
     def __post_init__(self):
@@ -164,6 +169,8 @@ def execute(args: ScriptArgs):
         f"--load {shlex.quote(args.run_dir + '/checkpoints')} "
         "--dist-ckpt-strictness raise_unexpected "
     )
+    if args.save_interval is not None:
+        ckpt_args += f"--save {shlex.quote(args.run_dir + '/checkpoints')} --save-interval {args.save_interval} "
     geo3k = Path(args.data_dir) / "geo3k"
     if args.vlm:
         rollout_args = (
@@ -327,10 +334,24 @@ def execute(args: ScriptArgs):
     )
 
 
+def export_hf(args: ScriptArgs):
+    # The last save is iteration num_rollout - 1; the conversion runs on CPU once training has finished.
+    last_save = f"{args.run_dir}/checkpoints/iter_{args.num_rollout - 1:07d}"
+    U.exec_command_cpu(
+        f"PYTHONPATH={shlex.quote(f'{U.repo_base_dir}:{args.megatron_path}')}${{PYTHONPATH:+:$PYTHONPATH}} "
+        f"python3 {shlex.quote(str(U.repo_base_dir / 'tools/convert_muse_spark_torch_dist_to_hf.py'))} "
+        f"--input-dir {shlex.quote(last_save)} "
+        f"--hf-checkpoint {shlex.quote(str(Path(args.model_dir) / args.model_name))} "
+        f"--output-dir {shlex.quote(args.run_dir + '/hf')}"
+    )
+
+
 @U.dataclass_cli
 def main(args: ScriptArgs):
     prepare(args)
     execute(args)
+    if args.save_interval is not None:
+        export_hf(args)
 
 
 if __name__ == "__main__":
