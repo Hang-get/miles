@@ -51,6 +51,7 @@ from miles.utils.audit_utils.witness.allocator import WitnessInfo
 from miles.utils.context_utils import with_defer
 from miles.utils.distributed_utils import get_gloo_group
 from miles.utils.ft_utils.indep_dp import IndepDPInfo
+from miles.utils.logging_utils import rebind_env_reporting
 from miles.utils.lora.utils import build_lora_config, is_multi_lora_enabled
 from miles.utils.memory_utils import clear_memory, print_memory
 from miles.utils.misc import partition
@@ -390,6 +391,7 @@ class MegatronTrainRayActor(TrainRayActor):
         )
         self._last_rollout_id = None
 
+        rebind_env_reporting(self.args)
         logger.info(f"load_state rolled this trainer back to checkpoint iteration {load_output.loaded_rollout_id}")
         return load_output.start_rollout_id
 
