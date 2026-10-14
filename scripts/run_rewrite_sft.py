@@ -56,7 +56,9 @@ def main(cli: Args) -> None:
         return
     if not (path.parent / "preflight.json").exists():
         raise ValueError("Run preflight first")
-    run_ray_job(entrypoint="python3 " + shlex.quote(str(Path(config["miles_path"]) / "train_async.py"))
+    # No generation to overlap: synchronous iteration also keeps epoch checkpoint
+    # data cursors from advancing into a prefetched batch of the next epoch.
+    run_ray_job(entrypoint="python3 " + shlex.quote(str(Path(config["miles_path"]) / "train.py"))
                 + " " + shlex.join(argv),
                 runtime_env={"env_vars": config["runtime_env"]})
 
