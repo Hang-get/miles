@@ -3937,6 +3937,10 @@ def miles_validate_args(args):
             )
 
     if args.namespaced_radix_cache:
+        assert args.use_session_server in (
+            False,
+            "v2",
+        ), "--namespaced-radix-cache requires --use-session-server v2 when using a session server"
         assert not use_legacy_rollout_v1(), (
             "--namespaced-radix-cache requires the class-based rollout API; "
             "unset MILES_USE_LEGACY_ROLLOUT_V1 or pass --no-namespaced-radix-cache"
