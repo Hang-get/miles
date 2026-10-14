@@ -170,7 +170,7 @@ async def test_sampling_resolves_against_the_saved_version(service):
 
 @pytest.mark.parametrize("requested,expected", [(8192, 7630), (32, 32), (0, 0)])
 async def test_sampling_respects_the_remaining_context_without_mutating_the_request(service, requested, expected):
-    service.config.max_tokens_per_datum = 65536
+    service.config.max_tokens_per_sample = 65536
     payload = {
         "num_samples": 1,
         "prompt_tokens": [1] * 57906,
@@ -186,13 +186,25 @@ async def test_sampling_respects_the_remaining_context_without_mutating_the_requ
 
 @pytest.mark.parametrize("prompt_length", [65536, 65537])
 async def test_an_exhausted_context_never_reaches_the_engine(service, prompt_length):
-    service.config.max_tokens_per_datum = 65536
+    service.config.max_tokens_per_sample = 65536
     with pytest.raises(UserInputError, match="prompt is too long"):
         service.submit_sample(
             "tenant",
             {"num_samples": 1, "prompt_tokens": [1] * prompt_length, "sampling_params": {"max_tokens": 1}},
         )
     assert service.backend.named("sample") == []
+
+
+async def test_a_short_inference_window_does_not_shrink_the_training_window(service):
+    service.config.max_tokens_per_sample = 2
+    service.config.max_tokens_per_datum = 8
+    with pytest.raises(UserInputError, match="prompt is too long"):
+        service.submit_sample(
+            "tenant", {"num_samples": 1, "prompt_tokens": [1, 2], "sampling_params": {"max_tokens": 1}}
+        )
+    model_id = await created_model(service)
+    request_id = service.submit("tenant", "forward_backward", fb_payload(model_id, 1, [datum(7)]))
+    assert (await await_settled(service, "tenant", request_id)).state == DONE
 
 
 async def test_sampler_requests_carry_the_published_checkpoint_path(service):

@@ -31,8 +31,6 @@ async def serve(args, *, disposer: Disposer):
     assert checkpoint_root, "set --tinker-checkpoint-root (or --save to derive <save>/tinker)"
     hf_config = load_hf_config(args.hf_checkpoint).get_text_config()
     max_tokens_per_datum = hf_config.max_position_embeddings
-    if args.sglang_context_length is not None:
-        max_tokens_per_datum = min(max_tokens_per_datum, args.sglang_context_length)
     if args.max_tokens_per_gpu is not None:
         # The trainer pads each packed microbatch to this multiple.
         pad_size = args.tensor_model_parallel_size * args.data_pad_size_multiplier
@@ -43,6 +41,9 @@ async def serve(args, *, disposer: Disposer):
         trainer_token_limit = local_token_limit * args.context_parallel_size
         max_tokens_per_datum = min(max_tokens_per_datum, trainer_token_limit)
     assert max_tokens_per_datum > 0, "trainer token budget must fit at least one padding block"
+    max_tokens_per_sample = max_tokens_per_datum
+    if args.sglang_context_length is not None:
+        max_tokens_per_sample = min(max_tokens_per_sample, args.sglang_context_length)
     _worker_manager = init_orchestration_script(args, disposer=disposer)
     init_http_client(args)
 
@@ -64,6 +65,7 @@ async def serve(args, *, disposer: Disposer):
         checkpoint_root=checkpoint_root,
         vocab_size=hf_config.vocab_size,
         max_tokens_per_datum=max_tokens_per_datum,
+        max_tokens_per_sample=max_tokens_per_sample,
         lora_alpha=args.lora_alpha,
         max_lora_rank=args.lora_rank,
         trains_attn="attn" in args.tinker_lora_groups,
