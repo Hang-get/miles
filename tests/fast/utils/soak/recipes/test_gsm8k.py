@@ -121,6 +121,14 @@ class TestGetGsm8kTrainArgs:
 
 
 class TestPrepareGsm8kRun:
+
+    def test_only_a_fully_async_run_reports_the_prompt_kv_weight_versions(self) -> None:
+        """in_place pausing is the only mode whose prompt KV can trail its decode version."""
+        flag = "--sglang-enable-prefill-weight-versions"
+
+        assert flag in get_gsm8k_train_args(seed=7, num_rollout=30, test_name="t", fully_async=True).split()
+        assert flag not in get_gsm8k_train_args(seed=7, num_rollout=30, test_name="t").split()
+
     def test_the_run_is_bound_to_one_fresh_dump_dir_and_its_evidence(
         self, tmp_path: Path, backend: _FakeBackend
     ) -> None:
