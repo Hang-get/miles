@@ -398,13 +398,15 @@ class TestWandbCredentialProvenance:
         digest = redact_arg("wandb_key", key)
         record = make_record(config={"wandb_key": digest, "unrelated": digest}).model_copy(
             update={
-                "generated_values": [
-                    ConfigSnapshotGeneratedValue(
-                        kind="wandb_key", name="environment", value=redact_arg("wandb_key", "environment-key")
-                    )
-                ]
-                if registered
-                else []
+                "generated_values": (
+                    [
+                        ConfigSnapshotGeneratedValue(
+                            kind="wandb_key", name="environment", value=redact_arg("wandb_key", "environment-key")
+                        )
+                    ]
+                    if registered
+                    else []
+                )
             }
         )
 
