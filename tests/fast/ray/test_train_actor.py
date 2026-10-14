@@ -4,7 +4,7 @@ import sys
 from types import SimpleNamespace
 
 import pytest
-from tests.fast.fixtures.args_fixtures import parse_megatron_test_config
+from tests.fast.fixtures.args_fixtures import make_trainer_config, parse_megatron_test_config
 from tests.fast.train_parallel_config_utils import make_train_parallel_config
 
 from miles.ray import placement_group, train_actor
@@ -336,11 +336,10 @@ class _FakeNvml:
 class TestNumaAffinity:
     def test_a_masked_rank_takes_the_cpus_of_the_gpu_it_runs_on(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Under mask 4,5,6,7 local rank 0 runs on GPU 4, so it must take GPU 4's NUMA node, not GPU 0's."""
-        args = SimpleNamespace(
+        args = make_trainer_config(
             debug_deterministic_collective=False,
             distributed_backend="nccl",
             distributed_timeout_minutes=1,
-            fsdp_cpu_offload=False,
             num_gpus_per_node=4,
         )
         actor = _ActorWithoutReloadSupport.__new__(_ActorWithoutReloadSupport)
