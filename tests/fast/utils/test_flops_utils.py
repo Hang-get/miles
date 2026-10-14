@@ -402,3 +402,16 @@ def test_qwen3_8_next_full_attention_layers_are_sparse_when_the_config_has_an_in
     flops = released_model_flops("Qwen/Qwen3.8-Flash-Next")
     assert per_layer(flops, 0).key_terms == ()
     assert per_layer(flops, 3).key_terms == (KeyTerm(4 * 24 * 256, cap=2048), KeyTerm(2 * 4 * 128, pool=4))
+
+
+def test_deepseek_v4_sizes_the_same_from_transformers_per_type_compress_rates():
+    with open(hf_hub_download("deepseek-ai/DeepSeek-V4-Flash", "config.json")) as f:
+        checkpoint_config = json.load(f)
+    ratios = checkpoint_config["compress_ratios"][: checkpoint_config["num_hidden_layers"]]
+    layer_type = {0: "sliding_attention", 4: "compressed_sparse_attention", 128: "heavily_compressed_attention"}
+    transformers_config = {k: v for k, v in checkpoint_config.items() if k != "compress_ratios"} | {
+        "compress_rates": {"compressed_sparse_attention": 4, "heavily_compressed_attention": 128},
+        "layer_types": [layer_type[ratio] for ratio in ratios],
+        "first_k_dense_replace": 3,
+    }
+    assert model_flops_from_hf_config(transformers_config) == model_flops_from_hf_config(checkpoint_config)
