@@ -1,4 +1,4 @@
-# Harbor agent training through the official Tinker proxy
+# Terminal-Bench 2 training through Harbor and the official Tinker proxy
 
 Install the independent client package; running it does not import or require
 Miles. The Harbor version is pinned to the same fork used by the Miles Harbor
@@ -7,22 +7,44 @@ official `tinker_cookbook.capture.proxy`.
 
 ```bash
 uv pip install 'tinker-agent-rollouts[harbor] @ git+https://github.com/radixark/miles@<commit>#subdirectory=examples/multi_lora/tinker_agent'
+uv pip install 'harbor[e2b] @ git+https://github.com/harbor-framework/harbor@917b3c1be7cf6553a7a9fe25de8adb6f8e639287'
 ```
 
+Use the complete Terminal-Bench 2 dataset, as in the other Miles Harbor training
+examples. Download its native Harbor task directories:
+
+```bash
+harbor datasets download terminal-bench@2.0 --output-dir /data/harbor-tasks
+export TB2_TASKS_DIR=/data/harbor-tasks/terminal-bench
+```
+
+The recipe loads every task directory containing `task.toml` under
+`TB2_TASKS_DIR`; there is no task-specific selection. Each task keeps its original
+instruction, environment and verifier. An existing TB2 directory used by another
+Miles Harbor example can be reused by setting `TB2_TASKS_DIR` to that directory.
+The same interface also accepts other datasets in Harbor's native task format.
+
 Create `trial.json` with Harbor `TrialConfig` fields, omitting `task` (the
-recipe supplies each dataset task). For example, Terminus 2 with Docker:
+recipe supplies each dataset task). This example uses mini-swe-agent with E2B,
+matching the cloud Harbor example:
 
 ```json
 {
   "trials_dir": "/tmp/harbor-trials",
-  "environment": {"type": "docker"},
+  "environment": {"type": "e2b"},
   "agent": {
-    "name": "terminus-2",
+    "name": "mini-swe-agent",
     "model_name": "openai/policy",
+    "override_timeout_sec": 5400,
+    "env": {
+      "OPENAI_BASE_URL": "{proxy_url}/v1",
+      "OPENAI_API_KEY": "{proxy_api_key}",
+      "MSWEA_COST_TRACKING": "ignore_errors"
+    },
     "kwargs": {
-      "api_base": "{proxy_url}/v1",
-      "llm_kwargs": {"api_key": "{proxy_api_key}"},
-      "temperature": 1.0
+      "max_tokens": 8192,
+      "max_seq_len": 65536,
+      "config": {"model": {"model_kwargs": {"temperature": 0.8}}}
     }
   }
 }
@@ -37,21 +59,56 @@ For `claude-code`, use `{proxy_url}` in `agent.env.ANTHROPIC_BASE_URL` and
 `{proxy_api_key}` in `agent.env.ANTHROPIC_API_KEY`. Choose a model/renderer
 that supports the agent's requested tools and message format.
 
+Run the recipe and its model proxy on the GPU devbox. The devbox must reach
+both E2B endpoints, and E2B sandboxes must reach the proxy on that devbox.
+For the internal sandbox service, acquire the devbox with `rx devbox acquire
+--tailnet` and use its tailnet address as `HARBOR_PROXY_HOST`. On a multi-node
+devbox, run the recipe on rank 0, where the platform exposes tailnet access.
+The proxy binds to `0.0.0.0` on dynamically allocated ports; verify sandbox
+connectivity to that address before starting training.
+
 ```bash
 export TINKER_API_KEY=tml-your-key
+export E2B_API_KEY="$(cat ~/.config/e2b/api_key)"
+export HARBOR_PROXY_HOST='devbox-address-reachable-from-e2b'
 python -m tinker_agent.train \
-  config.model_name=Qwen/Qwen3-8B config.renderer_name=qwen3_instruct \
-  config.learning_rate=3e-5 config.max_tokens=8192 \
+  config.model_name=Qwen/Qwen3.6-35B-A3B config.renderer_name=qwen3_5 \
+  config.learning_rate=1e-6 config.max_tokens=8192 config.lora_rank=16 \
   config.log_path=/tmp/harbor-tinker config.loss_fn=ppo \
-  config.dataset_builder.tasks_dir=/data/harbor-tasks \
-  config.dataset_builder.groups_per_batch=4 config.dataset_builder.group_size=4 \
-  config.base_url=http://miles-gateway:8000 \
+  config.dataset_builder.tasks_dir="$TB2_TASKS_DIR" \
+  config.dataset_builder.groups_per_batch=4 config.dataset_builder.group_size=8 \
+  config.base_url=http://miles-gateway:8000 config.ttl_seconds=None \
   harbor.trial_config=trial.json \
-  harbor.listen_host=0.0.0.0 harbor.advertised_host=host.docker.internal
+  harbor.listen_host=0.0.0.0 harbor.advertised_host="$HARBOR_PROXY_HOST"
 ```
 
+The gateway must serve the same Qwen3.6 checkpoint and support rank-16 LoRA.
+Start it with `--target-modules attn,mlp,unembed` to match the cookbook client's
+default LoRA layout, including `train_unembed=True`.
+Qwen3.6 uses cookbook's `qwen3_5` renderer. Set both the inference context limit
+and the gateway's per-Datum training limit to 65536 tokens; tensor
+parallelism does not increase the per-Datum limit. Configure E2B credentials and
+endpoints as described in [Sandbox Providers](../../../docs/user-guide/sandbox-providers.md).
+If the image sets Hugging Face cache variables to a read-only shared model
+mount, configure `HF_HOME`, `HF_HUB_CACHE`, `HUGGINGFACE_HUB_CACHE` and
+`TRANSFORMERS_CACHE` consistently for the recipe's writable tokenizer cache.
+Setting only `HF_HOME` does not override an inherited `HUGGINGFACE_HUB_CACHE`.
+The Miles gateway caps each generation request to the remaining context budget
+and rejects a full prompt before dispatching it to the engine. It preserves the
+prompt and sampled tokens; context errors reach the agent through the official
+proxy. `config.ttl_seconds=None` disables checkpoint expiry, which this gateway
+does not implement.
+
+This produces 32 trials per full batch (4 tasks, 8 trajectories each). Add
+`config.max_steps=1` for a one-batch acceptance run. The dataset remains the full
+TB2 set; the first batch uses its first four task directories in sorted order.
+The agent, sandbox, batch size, sampling temperature, response/context limits
+and learning rate match the cloud Harbor example. Training remains Tinker LoRA
+with cookbook PPO/group advantages, rather than the native example's full-parameter
+GRPO; optimizer defaults and KL behavior are not equivalent.
+
 Omit `config.base_url` to use the official Tinker service. For remote sandboxes,
-`harbor.advertised_host` must resolve to this client machine from the sandbox; use
+`harbor.advertised_host` must resolve to the devbox running this recipe from the sandbox; use
 your provider's reachable host address. Each group gets a random proxy auth
 token. Rendering and official capture run on the client machine. Agent
 sampling parameters come from the agent; `config.max_tokens` supplies the proxy's
