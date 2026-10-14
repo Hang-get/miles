@@ -98,7 +98,12 @@ def test_registry_to_adapter_matcher(target_case, mode):
     assert set(selected) == expected
 
     args = SimpleNamespace(
-        lora_type=mode, lora_rank=2, lora_alpha=4, lora_dropout=0.0, lora_A_init_method="xavier", multi_lora_n_adapters=2
+        lora_type=mode,
+        lora_rank=2,
+        lora_alpha=4,
+        lora_dropout=0.0,
+        lora_A_init_method="xavier",
+        multi_lora_n_adapters=2,
     )
     create_adapter = create_multi_lora_instance if mode == "multi_lora" else create_lora_instance
     adapter = create_adapter(args, target_modules=selected)
