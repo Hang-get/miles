@@ -17,7 +17,7 @@ from tests.utils.soak.ft.types import (
     ObservedCellFaultKind,
 )
 
-from miles.utils.audit_utils.event_logger.logger import read_events
+from miles.utils.audit_utils.event_logger.logger import EventReader
 from miles.utils.audit_utils.event_logger.models import Event, FaultHookEvent
 from miles.utils.ft_utils.api_server.models import Cell
 from miles.utils.misc import split_evenly
@@ -129,13 +129,13 @@ class InjectFaultForm(BaseCellFaultForm):
                 logger.warning(
                     "Fault response was lost; checking dispatch evidence for %s", request.request_id, exc_info=True
                 )
-                reader = details.training_events_dir
-                while not _dispatch_confirmed(await asyncio.to_thread(read_events, reader), request=command.request):
+                reader = EventReader(details.training_events_dir)
+                while not _dispatch_confirmed(await asyncio.to_thread(reader.read), request=command.request):
                     await asyncio.sleep(0.2)
 
             effect = await self._read_effect(client=client, request=request, fault_target=fault_target)
             if reader is not None:
-                assert _dispatch_confirmed(await asyncio.to_thread(read_events, reader), request=command.request)
+                assert _dispatch_confirmed(await asyncio.to_thread(reader.read), request=command.request)
             report_applied(effect)
 
     def _compute_hook_action(
