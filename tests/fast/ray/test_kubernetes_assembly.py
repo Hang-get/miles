@@ -425,9 +425,8 @@ class TestKubernetesDriverAssembly:
         transport = _PerHostTransport({host: app})
 
         async def scenario():
-            async with AsyncExitStack() as stack, httpx.AsyncClient(transport=transport) as client:
+            async with app.router.lifespan_context(app), httpx.AsyncClient(transport=transport) as client:
                 monkeypatch.setattr(http_utils.GeneralHttpClientProvider, "client", classmethod(lambda cls: client))
-                await stack.enter_async_context(app.router.lifespan_context(app))
                 handle = specs_rollout.create_rollout_executor_handle(capability=capability)
                 await handle.set_train_parallel_config(config=make_train_parallel_config(dp_size=4))
                 await handle.load(rollout_id=11)
@@ -496,9 +495,8 @@ class TestKubernetesDriverAssembly:
         transport = _PerHostTransport({host: app})
 
         async def scenario():
-            async with AsyncExitStack() as stack, httpx.AsyncClient(transport=transport) as client:
+            async with app.router.lifespan_context(app), httpx.AsyncClient(transport=transport) as client:
                 monkeypatch.setattr(http_utils.GeneralHttpClientProvider, "client", classmethod(lambda cls: client))
-                await stack.enter_async_context(app.router.lifespan_context(app))
                 handle = specs_train.create_trainer_controller_handle(
                     Namespace(trainer_controller_addrs=None, megatron_config=None),
                     capability=capability,
