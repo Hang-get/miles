@@ -143,7 +143,7 @@ and reads the store's public rows API. Those rows are the sole sampled-token
 record, including compaction and repeated prompts. Cookbook computes group
 advantages and merges only exact token-prefix continuations into Datums.
 
-A completed trial or an agent timeout with a verifier reward is scored using
+A completed trial, agent timeout or token-limit failure with a verifier reward is scored using
 `harbor.reward_key` (default `reward`). Missing/non-finite rewards and other Harbor
 exceptions abort the group. Exporter loss or rows without training logprobs
 also stop training. Failed requests remain official capture annotations;
