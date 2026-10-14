@@ -18,3 +18,9 @@ already-started Ray head. Two epochs require 1,936 updates; checkpoint cadence i
 No generation, evaluation, MTP objective, or change to assistant-token supervision
 is introduced by these launch utilities. Data arrays and run artifacts are not
 committed to this public repository.
+
+Fresh Hugging Face initialization uses `--pretrained-checkpoint` for the base
+weights and a separate `--load` directory for future resume checkpoints. The
+checkpoint loader must fall back to pretrained weights when no resume checkpoint
+exists; an explicit resume checkpoint retains priority. Regression tests exercise
+both paths through the loader's real filesystem checks.
