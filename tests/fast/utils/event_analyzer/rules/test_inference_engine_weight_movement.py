@@ -53,7 +53,8 @@ class TestCheck:
 
         assert issue.weight_version_before == 1
         assert issue.weight_version_after == 2
-        assert issue.description == "unchanged tensor checksums: ['b']"
+        assert (issue.kind, issue.description) == ("unchanged_tensors", "unchanged tensor checksums: ['b']")
+        assert issue.is_warning_only
 
     def test_several_unchanged_tensors_are_all_named(self) -> None:
         """Every stale tensor is listed so one repair does not hide the next."""
@@ -70,7 +71,8 @@ class TestCheck:
 
         [issue] = check(events)
 
-        assert issue.description == "tensor set changed"
+        assert (issue.kind, issue.description) == ("tensor_set_changed", "tensor set changed")
+        assert not issue.is_warning_only
 
     def test_versions_are_paired_in_numeric_order_not_arrival_order(self) -> None:
         """Out-of-order logging still compares 1-2 and 2-3, not 3-1."""

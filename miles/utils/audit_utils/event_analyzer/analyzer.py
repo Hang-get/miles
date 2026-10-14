@@ -13,11 +13,13 @@ from miles.utils.audit_utils.event_analyzer.rules import (
     inference_engine_weight_movement,
 )
 from miles.utils.audit_utils.event_analyzer.rules import witness as witness_rule
+from miles.utils.audit_utils.event_analyzer.rules.inference_engine_weight_movement import WeightMovementIssue
 from miles.utils.audit_utils.event_analyzer.rules.sample_ownership import check as sample_ownership_check
 from miles.utils.audit_utils.event_analyzer.rules.sample_ownership.models import SampleOwnershipViolation
 from miles.utils.audit_utils.event_logger.logger import get_event_logger, read_events
 from miles.utils.audit_utils.event_logger.models import DataSourceIssuedSamplesEvent
 from miles.utils.audit_utils.process_identity import TrainerControllerProcessIdentity, TrainProcessIdentity
+from miles.utils.misc import partition
 
 logger = logging.getLogger(__name__)
 
@@ -36,9 +38,15 @@ def run_analysis_from_args(args: Namespace) -> None:
     finally:
         logger.info(f"Event analysis of {event_dir} took {time.monotonic() - started_at:.3f} seconds")
 
+    failures, warnings = partition(
+        issues, lambda issue: isinstance(issue, WeightMovementIssue) and issue.is_warning_only
+    )
+    for issue in warnings:
+        logger.warning(f"Event analysis warning: {issue}")
+
     # Fail fast, we want to stop the system if sanity check fails
-    if issues:
-        raise ValueError(f"Event analysis found issues: {issues}")
+    if failures:
+        raise ValueError(f"Event analysis found issues: {failures}")
 
 
 def run_analysis(event_dir: Path) -> list[Any]:
