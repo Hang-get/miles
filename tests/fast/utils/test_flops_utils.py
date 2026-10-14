@@ -1,13 +1,10 @@
 import json
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from huggingface_hub import hf_hub_download
 
 from miles.utils.flops_utils import KeyTerm, LayerFlops, ModelFlops, _total_keys, model_flops_from_hf_config
-
-
-CONFIG_DIR = Path(__file__).parent / "flops_configs"
 
 
 def config(**fields):
@@ -18,8 +15,9 @@ def per_layer(model_flops: ModelFlops, layer: int) -> LayerFlops:
     return model_flops.layers[layer]
 
 
-def released_model_flops(name: str) -> ModelFlops:
-    return model_flops_from_hf_config(json.loads((CONFIG_DIR / f"{name}.json").read_text()))
+def released_model_flops(repo_id: str) -> ModelFlops:
+    with open(hf_hub_download(repo_id, "config.json")) as f:
+        return model_flops_from_hf_config(json.load(f))
 
 
 @pytest.mark.parametrize("pool", [1, 3, 128])
@@ -276,38 +274,34 @@ def test_latent_moe_runs_routed_experts_in_the_latent_width():
     assert per_layer(flops, 1) == LayerFlops(expected)
 
 
-# (per-token FLOPs without attention keys, forward FLOPs of one 131072-token sequence) of released configs
+# (per-token FLOPs without attention keys, forward FLOPs of one 131072-token sequence) of each released config
 RELEASED_MODEL_FLOPS = {
-    "deepseek_v3": (73249193984, 52526179793502208),
-    "deepseek_v3_2": (74952212480, 19740118264840192),
-    "glm4_5_air": (25604653056, 22777974654763008),
-    "glm4_7_flash": (7158628352, 9206686258561024),
-    "glm5": (81663885312, 17554128204988416),
-    "glm5_2": (80595517440, 13403046071500800),
-    "glm5_3_flash": (33626390528, 4792992309182464),
-    "gpt_oss_120b": (10262200320, 3883326643372032),
-    "kimi_k2_5": (63372132352, 29768942851457024),
-    "kimi_k3": (209019699200, 40063100602286080),
-    "kimi_linear": (6276415488, 2054124749193216),
-    "llama3_1_8b": (15009316864, 6470935167107072),
-    "minimax_m2_5": (20830224384, 15818945445494784),
-    "nemotron_3_nano": (6502973440, 1696789107310592),
-    "nemotron_3_super": (24632229888, 4354504132657152),
-    "qwen3_30b_a3b": (6083313664, 7552803069231104),
-    "qwen3_5_35b_a3b": (5986713600, 2192076145950720),
-    "qwen3_5_397b_a17b": (32945438720, 8540381406822400),
-    "qwen3_8b": (15136194560, 7050519528865792),
-    "qwen3_next_80b_a3b": (7240155136, 2637844359151616),
+    "deepseek-ai/DeepSeek-V3": (73249193984, 52526179793502208),
+    "deepseek-ai/DeepSeek-V3.2-Exp": (74952212480, 19740118264840192),
+    "zai-org/GLM-4.5-Air": (25604653056, 22777974654763008),
+    "zai-org/GLM-4.7-Flash": (7158628352, 9206686258561024),
+    "zai-org/GLM-5": (81663885312, 17554128204988416),
+    "zai-org/GLM-5.2": (80595517440, 13403046071500800),
+    "zai-org/GLM-5.3-Flash": (33626390528, 4792992309182464),
+    "openai/gpt-oss-120b": (10262200320, 3883326643372032),
+    "moonshotai/Kimi-K2.5": (63372132352, 29768942851457024),
+    "moonshotai/Kimi-K3": (209019699200, 40063100602286080),
+    "moonshotai/Kimi-Linear-48B-A3B-Instruct": (6276415488, 2054124749193216),
+    "unsloth/Llama-3.1-8B-Instruct": (15009316864, 6470935167107072),
+    "MiniMaxAI/MiniMax-M2.5": (20830224384, 15818945445494784),
+    "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16": (6502973440, 1696789107310592),
+    "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16": (24632229888, 4354504132657152),
+    "Qwen/Qwen3-30B-A3B": (6083313664, 7552803069231104),
+    "Qwen/Qwen3.5-35B-A3B": (5986713600, 2192076145950720),
+    "Qwen/Qwen3.5-397B-A17B": (32945438720, 8540381406822400),
+    "Qwen/Qwen3-8B": (15136194560, 7050519528865792),
+    "Qwen/Qwen3-Next-80B-A3B-Instruct": (7240155136, 2637844359151616),
 }
 
 
-def test_every_released_config_is_covered():
-    assert {path.stem for path in CONFIG_DIR.glob("*.json")} == set(RELEASED_MODEL_FLOPS)
-
-
-@pytest.mark.parametrize("name", sorted(RELEASED_MODEL_FLOPS))
-def test_released_config_flops(name):
-    flops = released_model_flops(name)
-    per_token, at_128k = RELEASED_MODEL_FLOPS[name]
+@pytest.mark.parametrize("repo_id", sorted(RELEASED_MODEL_FLOPS))
+def test_released_config_flops(repo_id):
+    flops = released_model_flops(repo_id)
+    per_token, at_128k = RELEASED_MODEL_FLOPS[repo_id]
     assert flops.per_token == pytest.approx(per_token, rel=1e-9)
     assert flops.fwd_flops([131072]) == pytest.approx(at_128k, rel=1e-9)
