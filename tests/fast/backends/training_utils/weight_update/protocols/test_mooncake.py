@@ -85,6 +85,27 @@ class TestBeforeSendFaultHook:
 
 
 class TestNativeFailure:
+    @pytest.mark.parametrize("failure", ["negative", "exception"])
+    def test_failed_native_completion_keeps_memory_registered_across_reconnects(
+        self, p2p_sender: Any, transport: Any, make_remote_shard: Any, failure: str
+    ) -> None:
+        """Native error completion does not prove quiescence and must never permit unregistering its source."""
+        tensor = torch.ones(4)
+        shard = make_remote_shard()
+        transport.register_memory(tensor)
+        if failure == "negative":
+            p2p_sender.transfer_engine.failing_sessions.add(shard.session_id)
+        else:
+            p2p_sender.transfer_engine.errors_by_session[shard.session_id] = RuntimeError("native exception")
+        (future,) = transport.write([shard], {"w": tensor}, run_write=lambda shard, write: write())
+        with pytest.raises(RuntimeError):
+            future.result(timeout=10)
+
+        transport.connect({}, [], [], [])
+        with pytest.raises(RuntimeError, match="unknown native completion"):
+            transport.unregister_memory(tensor)
+        assert p2p_sender.transfer_engine.registered == [(tensor.data_ptr(), tensor.numel() * tensor.element_size())]
+        assert transport._registered_tensors[tensor.data_ptr()] is tensor
 
     def test_a_late_native_failure_uses_the_submitted_update_and_cell_generation(
         self,

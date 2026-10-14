@@ -60,6 +60,8 @@ class MooncakeTransport:
 
     def __init__(self) -> None:
         self._transfer_engine = _create_transfer_engine()
+        self._registered_tensors: dict[int, torch.Tensor] = {}
+        self._has_uncertain_writes = False
         self._write_executors_by_rollout_engine_ind: dict[int, ThreadPoolExecutor] = {}
 
     def connect(
@@ -104,10 +106,17 @@ class MooncakeTransport:
                 f"Mooncake could not register {_nbytes(tensor)} bytes at {tensor.data_ptr():#x}: error {ret}"
             )
 
+        self._registered_tensors[tensor.data_ptr()] = tensor
+
     def unregister_memory(self, tensor: torch.Tensor) -> None:
+        if self._has_uncertain_writes:
+            raise RuntimeError(
+                "Cannot release registered memory after a Mooncake write with unknown native completion"
+            )
         ret = self._transfer_engine.unregister_memory(tensor.data_ptr())
         if ret != 0:
             raise RuntimeError(f"Mooncake could not unregister the memory at {tensor.data_ptr():#x}: error {ret}")
+        del self._registered_tensors[tensor.data_ptr()]
 
     def write(
         self,
@@ -157,6 +166,7 @@ class MooncakeTransport:
             if ret < 0:
                 raise RuntimeError(f"Mooncake batch_transfer_sync_write returned {ret}")
         except Exception as error:
+            self._has_uncertain_writes = True
             if is_event_logger_initialized() and context.debug_weight_update_id is not None:
                 try:
                     get_event_logger().log(
