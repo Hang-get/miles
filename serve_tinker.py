@@ -31,6 +31,8 @@ async def serve(args, *, disposer: Disposer):
     assert checkpoint_root, "set --tinker-checkpoint-root (or --save to derive <save>/tinker)"
     hf_config = load_hf_config(args.hf_checkpoint).get_text_config()
     max_tokens_per_datum = hf_config.max_position_embeddings
+    if args.sglang_context_length is not None:
+        max_tokens_per_datum = min(max_tokens_per_datum, args.sglang_context_length)
     if args.max_tokens_per_gpu is not None:
         # The trainer pads each packed microbatch to this multiple.
         pad_size = args.tensor_model_parallel_size * args.data_pad_size_multiplier
