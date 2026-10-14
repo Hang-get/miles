@@ -19,3 +19,5 @@ torchvision==0.26.0
 typed-argument-parser>=1.10,<2
 wheel
 xgrammar==0.2.1
+
+sglang-router @ https://github.com/radixark/miles-wheels/releases/download/cu130-torch213-x86_64/sglang_router-0.3.2-cp38-abi3-manylinux_2_39_x86_64.whl#sha256=719842da0806f7235ca683ddd9ec124682b8b70ad3d8e30788e32c24934b0600
