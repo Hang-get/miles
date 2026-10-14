@@ -260,9 +260,9 @@ class TestKvCacheNamespace:
         fn._curr_kv_cache_namespace = producer_namespace
 
         for rollout_id in (0, 1):
-            await fn(RolloutFnEvalInput(rollout_id=rollout_id))
+            await fn(RolloutFnEvalInput(rollout_id=rollout_id, invocation_id="eval-call"))
 
-            assert recorder.take_stamps() == {f"eval:-:{rollout_id}" if partition else None}
+            assert recorder.take_stamps() == {f"eval:-:{rollout_id}:eval-call" if partition else None}
             assert fn._curr_kv_cache_namespace == producer_namespace
             assert fn._producer_resumed.is_set()
 
@@ -273,9 +273,11 @@ class TestKvCacheNamespace:
         fleet_state = FakeGenerateState(fn.args)
         fleet_state.generate_function = recorder
 
-        await fn(RolloutFnEvalInput(rollout_id=4, generate_state=fleet_state, weight_version="0"))
+        await fn(
+            RolloutFnEvalInput(rollout_id=4, generate_state=fleet_state, weight_version="0", invocation_id="eval-call")
+        )
 
-        assert recorder.take_stamps() == {"eval:-:4"}
+        assert recorder.take_stamps() == {"eval:-:4:eval-call"}
         assert fn._curr_kv_cache_namespace is None
 
     async def test_the_partition_being_off_names_no_namespace_for_a_train_call(self, monkeypatch):
@@ -293,7 +295,9 @@ class TestKvCacheNamespace:
         fleet_state = FakeGenerateState(fn.args)
         fleet_state.generate_function = recorder
 
-        await fn(RolloutFnEvalInput(rollout_id=4, generate_state=fleet_state, weight_version="0"))
+        await fn(
+            RolloutFnEvalInput(rollout_id=4, generate_state=fleet_state, weight_version="0", invocation_id="eval-call")
+        )
 
         assert recorder.take_stamps() == {None}
 

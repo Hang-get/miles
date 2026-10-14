@@ -66,9 +66,9 @@ class TestInferenceRolloutFnKvCacheNamespace:
         recorder = StampRecordingGenerate()
         fn, _ = self._make_fn(monkeypatch, recorder)
 
-        await fn(RolloutFnEvalInput(rollout_id=4))
+        await fn(RolloutFnEvalInput(rollout_id=4, invocation_id="eval-call"))
 
-        assert recorder.take_stamps() == {"eval:-:4"}
+        assert recorder.take_stamps() == {"eval:-:4:eval-call"}
 
     async def test_fleet_state_eval_stamps_the_samples_of_the_fleet_call(self, monkeypatch):
         """Eval on a dedicated fleet stamps the samples that fleet generates, under the eval namespace."""
@@ -76,9 +76,11 @@ class TestInferenceRolloutFnKvCacheNamespace:
         fn, captured = self._make_fn(monkeypatch)
         fleet_state = make_state(recorder, args=fn.state.args)
 
-        await fn(RolloutFnEvalInput(rollout_id=4, generate_state=fleet_state, weight_version="0"))
+        await fn(
+            RolloutFnEvalInput(rollout_id=4, generate_state=fleet_state, weight_version="0", invocation_id="eval-call")
+        )
 
-        assert recorder.take_stamps() == {"eval:-:4"}
+        assert recorder.take_stamps() == {"eval:-:4:eval-call"}
         assert captured == {}
 
     async def test_the_partition_being_off_names_no_namespace_for_a_train_call(self, monkeypatch):
@@ -94,6 +96,6 @@ class TestInferenceRolloutFnKvCacheNamespace:
         recorder = StampRecordingGenerate()
         fn, _ = self._make_fn(monkeypatch, recorder, partition=False)
 
-        await fn(RolloutFnEvalInput(rollout_id=4))
+        await fn(RolloutFnEvalInput(rollout_id=4, invocation_id="eval-call"))
 
         assert recorder.take_stamps() == {None}
