@@ -10,16 +10,16 @@
 # release for the current arch picked from TARGETARCH — WHEELS_TAG_X86 on amd64,
 # WHEELS_TAG_ARM64 on arm64.
 
-ARG SGLANG_IMAGE_TAG=v0.5.21
+ARG SGLANG_IMAGE_TAG=dev-muse-spark-open
 FROM lmsysorg/sglang:${SGLANG_IMAGE_TAG} AS sglang
 
 # ======================================== Arguments =============================================
 
-ARG SGLANG_BRANCH=sglang-miles
+ARG SGLANG_BRANCH=sglang-miles-muse-spark-open
 ARG SGLANG_COMMIT=""
 
 ARG MEGATRON_REPO=radixark/Megatron-LM
-ARG MEGATRON_BRANCH=miles-main
+ARG MEGATRON_BRANCH=muse-spark-open
 # Empty means the branch HEAD at build time; release builds set it to freeze one commit.
 ARG MEGATRON_COMMIT=""
 ARG TORCHTITAN_REPO=pytorch/torchtitan
@@ -247,7 +247,7 @@ RUN bash /tmp/install-kube-tools.sh "${TARGETARCH}" && rm -f /tmp/install-kube-t
 
 # ====================================== Install main package ============================================
 
-ARG MILES_COMMIT=main
+ARG MILES_COMMIT=muse-spark-open
 RUN git clone https://github.com/radixark/miles.git /root/miles && \
     cd /root/miles && \
     git checkout ${MILES_COMMIT} && \
@@ -308,3 +308,15 @@ RUN rm -rf /tmp/wheels
 
 # The cu130 sglang base ships its baked Rust toolchain outside the default PATH.
 ENV PATH="/root/.cargo/bin:${PATH}"
+
+# ==================== Muse Spark Open runtime ====================
+# The Muse Spark Open SGLang branch was validated on this base (sglang-kernel 0.4.7) with
+# flashinfer 0.7.0.post1, the kernel version check skipped and the Python radix tree core.
+RUN pip install --no-deps flashinfer-python==0.7.0.post1 && \
+    pip install --no-deps flashinfer-cubin==0.7.0.post1 --index-url https://flashinfer.ai/whl && \
+    pip install --no-deps flashinfer-jit-cache==0.7.0.post1 --index-url https://flashinfer.ai/whl/cu130 && \
+    python3 -c "from importlib.metadata import version as v; \
+got = [v(p) for p in ('flashinfer-python', 'flashinfer-cubin', 'flashinfer-jit-cache')]; \
+assert all(g.startswith('0.7.0.post1') for g in got), got"
+ENV SGLANG_SKIP_SGL_KERNEL_VERSION_CHECK=1 \
+    SGLANG_UNIFIED_RADIX_TREE_CORE_BACKEND=python
