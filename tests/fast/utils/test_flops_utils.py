@@ -267,6 +267,11 @@ def test_nemotron_h_counts_one_mixer_per_pattern_character_with_two_gemm_mlps():
     assert per_layer(flops, 3).key_terms == (KeyTerm(4 * 32 * 128),)
 
 
+def test_moe_shared_expert_intermediate_size_is_the_whole_shared_width():
+    one, two = (model_flops_from_hf_config(config(**(NEMOTRON_NANO | {"n_shared_experts": n}))) for n in (1, 2))
+    assert per_layer(one, 1) == per_layer(two, 1)
+
+
 def test_latent_moe_runs_routed_experts_in_the_latent_width():
     flops = model_flops_from_hf_config(config(**NEMOTRON_NANO, moe_latent_size=1024))
     hidden = 2688
@@ -284,6 +289,9 @@ RELEASED_MODEL_FLOPS = {
     "zai-org/GLM-5.2": (80595517440, 13403046071500800),
     "zai-org/GLM-5.3-Flash": (33626390528, 4792992309182464),
     "openai/gpt-oss-120b": (10262200320, 3883326643372032),
+    "google/gemma-4-31b-it": (61392027648, 13895362502721536),
+    "google/gemma-4-26b-a4b-it": (7643660288, 2464016504979456),
+    "XiaomiMiMo/MiMo-V2.6-Flash-RL": (29641146368, 7078529595867136),
     "moonshotai/Kimi-K2.5": (63372132352, 29768942851457024),
     "moonshotai/Kimi-K3": (209019699200, 40063100602286080),
     "moonshotai/Kimi-Linear-48B-A3B-Instruct": (6276415488, 2054124749193216),
