@@ -16,7 +16,7 @@ FROM lmsysorg/sglang:${SGLANG_IMAGE_TAG} AS sglang
 # ======================================== Arguments =============================================
 
 ARG SGLANG_BRANCH=sglang-miles-muse-spark-open
-ARG SGLANG_COMMIT=bb28f1adfaa1f385ca183f171fd8fde63fe3a9aa
+ARG SGLANG_COMMIT=ad34947129c518641db51816c88c126ca16f786c
 
 ARG MEGATRON_REPO=radixark/Megatron-LM
 ARG MEGATRON_BRANCH=muse-spark-open
@@ -247,7 +247,7 @@ RUN bash /tmp/install-kube-tools.sh "${TARGETARCH}" && rm -f /tmp/install-kube-t
 
 # ====================================== Install main package ============================================
 
-ARG MILES_COMMIT=bfdcff0e3aefa972ef795d991c37261ff44c5eb2
+ARG MILES_COMMIT=753e19d8bd8fe5a27892dd18b787dc131addd269
 RUN git clone https://github.com/radixark/miles.git /root/miles && \
     cd /root/miles && \
     git checkout ${MILES_COMMIT} && \
@@ -318,5 +318,7 @@ RUN pip install --no-deps flashinfer-python==0.7.0.post1 && \
     python3 -c "from importlib.metadata import version as v; \
 got = [v(p) for p in ('flashinfer-python', 'flashinfer-cubin', 'flashinfer-jit-cache')]; \
 assert all(g.startswith('0.7.0.post1') for g in got), got"
+# The BF16 split-K GEMM imports cutlass.experimental, which the installed nvidia-cutlass-dsl lacks.
 ENV SGLANG_SKIP_SGL_KERNEL_VERSION_CHECK=1 \
-    SGLANG_UNIFIED_RADIX_TREE_CORE_BACKEND=python
+    SGLANG_UNIFIED_RADIX_TREE_CORE_BACKEND=python \
+    SGLANG_ENABLE_BF16_SPLITK_GEMM=0
