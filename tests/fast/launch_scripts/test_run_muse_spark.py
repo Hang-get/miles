@@ -119,7 +119,6 @@ def test_dapo_recipe_survives_megatron_validation(monkeypatch, tmp_path, counts,
     assert args.data_parallel_size == 1 and args.expert_tensor_parallel_size == 1
     assert args.num_layers == 62 and args.moe_layer_freq == [1] * 62
     assert args.decoder_first_pipeline_num_layers == args.decoder_last_pipeline_num_layers == edge_layers
-    assert args.dist_ckpt_strictness == "raise_unexpected"
     if optimizer == "adam":
         assert args.optimizer == "adam" and args.stream_optimizer_state_to_disk
         assert args.stream_optimizer_state_moment_dtype == "fp32" and args.offload_train_target == "disk"

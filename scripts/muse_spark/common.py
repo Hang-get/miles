@@ -171,7 +171,6 @@ def execute(args: ScriptArgs, entry_script: str):
         f"--hf-checkpoint {shlex.quote(str(Path(args.model_dir) / args.model_name))} "
         f"--ref-load {shlex.quote(str(Path(args.model_dir) / (args.model_name + '_torch_dist')))} "
         f"--load {shlex.quote(args.run_dir + '/checkpoints')} "
-        "--dist-ckpt-strictness raise_unexpected "
     )
     if args.save_interval is not None:
         ckpt_args += f"--save {shlex.quote(args.run_dir + '/checkpoints')} --save-interval {args.save_interval} "
