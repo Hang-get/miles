@@ -325,6 +325,21 @@ class TestComputeSamplesFromRecords:
 
         assert merged.metadata["messages"] == samples[-1].metadata["messages"]
 
+    @pytest.mark.parametrize("num_records", [1, 2])
+    def test_editing_exported_messages_keeps_session_records(self, num_records):
+        tok = _mock_tokenizer()
+        records = [
+            _make_record(prompt_token_ids=[1, 2, 3], output_token_ids=[10, 11]),
+            _make_record(prompt_token_ids=[1, 2, 3, 10, 11, 20, 21], output_token_ids=[30, 31]),
+        ][:num_records]
+
+        merged = merge_samples(compute_samples_from_openai_records(_ARGS_RECORDING, records, tok), tok)
+        for message in merged.metadata["messages"]:
+            message["content"] = "redacted"
+
+        assert records[-1].request["messages"] == [{"role": "user", "content": "hello"}]
+        assert records[-1].response["choices"][0]["message"] == {"role": "assistant", "content": "response"}
+
     def test_finish_reason_length_gives_truncated(self):
         tok = _mock_tokenizer()
         record = _make_record(
@@ -835,6 +850,16 @@ class TestAdditionR3Assembly:
         assert merged_addition.rollout_routed_experts.dtype == np.int32
         assert np.array_equal(merged_addition.rollout_routed_experts, merged_full.rollout_routed_experts)
         assert np.array_equal(merged_addition.rollout_routed_experts, full)
+
+    def test_patch_that_is_not_plain_base64_raises(self):
+        """SGLang sends plain base64; any other character fails the decode instead of being dropped from it."""
+        patch = _r3_patch(_r3_rows(4, seed=0))
+        records = [
+            _make_record([1, 2, 3], [10, 11], routed_experts=patch[:8] + "\n" + patch[8:], routed_experts_start_len=0)
+        ]
+
+        with pytest.raises(ValueError):
+            _merge_addition(records, [1, 2, 3, 10, 11])
 
     def test_overlapping_start_raises(self):
         """Every patch must start exactly after the preceding raw patch."""

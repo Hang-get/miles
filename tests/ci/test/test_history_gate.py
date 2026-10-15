@@ -608,6 +608,32 @@ def test_reward_corridor_flags_drop_and_suspicious_jump(tmp_path, store):
     )
 
 
+def test_grad_norm_default_is_a_sanity_band(tmp_path, store):
+    # grad_norm jitters and is exactly 0 on steps where every GRPO group's rewards
+    # are uniform, so a value passes up to max(4x the mean, mean + 1.0), down to 0.
+    test_file = _write_test_file(tmp_path, 'register_ci_gate(metric_key="train/grad_norm")')
+    for step, values in ((0, [0.2, 0.2]), (1, [2.0, 2.0]), (2, [0.0, 0.0])):
+        _seed_baseline(
+            store,
+            test_file,
+            metric_key="train/grad_norm",
+            steps_key=_key("all"),
+            constraint_key="{}",
+            step=step,
+            values=values,
+        )
+    cases = [
+        ((0.0, 0.0, 0.0), GateStatus.PASS),
+        ((1.1, 7.9, 0.9), GateStatus.PASS),
+        ((1.3, 8.1, 1.1), GateStatus.FAIL),
+    ]
+    for currents, status in cases:
+        series = [[step, value] for step, value in enumerate(currents)]
+        record = _write_record(tmp_path, {"train/grad_norm": series}, name=f"{currents[0]}.jsonl")
+        metrics = evaluate_gate(test_file, record, store, executing_suite="stage-c-8-gpu-h100").metrics
+        assert [(m.baseline_n, m.historical_status) for m in metrics] == [(2, status)] * 3
+
+
 # --- multiple specs, no specs ------------------------------------------------
 
 
