@@ -83,7 +83,9 @@ class TestTokenizeToolResponses:
         if num_tools > 1 and model_name in SINGLE_TOOL_CALL_ONLY_MODELS:
             pytest.skip(f"{model_name} only supports single tool call")
 
-        revision = "c170c708c41dac9275d15a8fff4eca08d52bab71" if model_name == "mistralai/Mistral-7B-Instruct-v0.3" else None
+        revision = (
+            "c170c708c41dac9275d15a8fff4eca08d52bab71" if model_name == "mistralai/Mistral-7B-Instruct-v0.3" else None
+        )
         tokenizer = load_tokenizer(model_name, trust_remote_code=True, revision=revision)
 
         tool_responses = SAMPLE_TOOL_RESPONSES[:num_tools]
