@@ -25,6 +25,7 @@ _GATED_QUERY_MODEL_TYPES = (
     "qwen3_5_moe_text",
     "qwen4_exp",
     "qwen4_exp_text",
+    "muse_spark",
     "muse_spark_text",
 )
 # DeepSeek V4 attends all compressed entries at this ratio and above (HCA), top-k below it (CSA)

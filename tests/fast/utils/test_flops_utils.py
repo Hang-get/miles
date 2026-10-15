@@ -339,6 +339,11 @@ def test_muse_spark_open_counts_its_output_gate_and_latent_experts():
     assert per_layer(flops, 1).key_terms == (KeyTerm(4 * 128 * 64),)
 
 
+def test_muse_spark_open_flattened_config_keeps_its_output_gate():
+    flattened = MUSE_SPARK_OPEN["text_config"] | {"model_type": "muse_spark"}
+    assert model_flops_from_hf_config(flattened) == model_flops_from_hf_config(MUSE_SPARK_OPEN)
+
+
 def test_block_sparse_layers_cap_attention_and_add_the_index_scores():
     minimax_m3 = config(
         model_type="minimax_m3",
