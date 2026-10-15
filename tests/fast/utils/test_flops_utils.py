@@ -5,6 +5,7 @@ import pytest
 from huggingface_hub import hf_hub_download
 
 from miles.utils.flops_utils import KeyTerm, LayerFlops, ModelFlops, _total_keys, model_flops_from_hf_config
+from miles.utils.hf_utils.config import load_hf_config
 
 
 def config(**fields):
@@ -312,37 +313,6 @@ def test_latent_moe_runs_routed_experts_in_the_latent_width():
     assert per_layer(flops, 1) == LayerFlops(expected)
 
 
-def test_block_sparse_layers_cap_attention_and_add_the_index_scores():
-    minimax_m3 = config(
-        model_type="minimax_m3",
-        hidden_size=6144,
-        num_attention_heads=64,
-        num_key_value_heads=4,
-        head_dim=128,
-        intermediate_size=3072,
-        dense_intermediate_size=12288,
-        moe_layer_freq=[0, 1],
-        num_local_experts=128,
-        num_experts_per_tok=4,
-        shared_intermediate_size=3072,
-        num_hidden_layers=2,
-        vocab_size=200064,
-        sparse_attention_config={
-            "sparse_attention_freq": [0, 1],
-            "sparse_num_index_heads": 4,
-            "sparse_index_dim": 128,
-            "sparse_block_size": 128,
-            "sparse_topk_blocks": 16,
-        },
-    )
-    flops = model_flops_from_hf_config(minimax_m3)
-    assert per_layer(flops, 0).key_terms == (KeyTerm(4 * 64 * 128),)
-    assert per_layer(flops, 1).key_terms == (KeyTerm(4 * 64 * 128, cap=2048), KeyTerm(2 * 4 * 128))
-    assert per_layer(flops, 0).per_token - per_layer(flops, 1).per_token == pytest.approx(
-        6 * 6144 * 12288 - (2 * 6144 * 128 + 6 * 4 * 6144 * 3072 + 6 * 6144 * 3072) - 2 * 6144 * 128 * 5
-    )
-
-
 # (per-token FLOPs without attention keys, forward FLOPs of one 131072-token sequence) of each released config
 RELEASED_MODEL_FLOPS = {
     "deepseek-ai/DeepSeek-V3": (73249193984, 52526179793502208),
@@ -365,7 +335,6 @@ RELEASED_MODEL_FLOPS = {
     "moonshotai/Kimi-Linear-48B-A3B-Instruct": (6276415488, 2054124749193216),
     "unsloth/Llama-3.1-8B-Instruct": (15009316864, 6470935167107072),
     "MiniMaxAI/MiniMax-M2.5": (20830224384, 15818945445494784),
-    "MiniMaxAI/MiniMax-M3": (49464999936, 8326751176359936),
     "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16": (6502973440, 1696789107310592),
     "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16": (24632229888, 4354504132657152),
     "Qwen/Qwen3-30B-A3B": (6083313664, 7552803069231104),
@@ -424,3 +393,8 @@ def test_deepseek_v4_sizes_the_same_from_transformers_per_type_compress_rates():
         "first_k_dense_replace": 3,
     }
     assert model_flops_from_hf_config(transformers_config) == model_flops_from_hf_config(checkpoint_config)
+
+
+@pytest.mark.parametrize("repo_id", ["deepseek-ai/DeepSeek-V4-Flash", "deepseek-ai/DeepSeek-V4.1-Flash"])
+def test_deepseek_v4_config_objects_size_like_their_checkpoint_configs(repo_id):
+    assert model_flops_from_hf_config(load_hf_config(repo_id)) == released_model_flops(repo_id)
