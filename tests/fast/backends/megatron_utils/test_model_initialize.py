@@ -315,6 +315,7 @@ class TestALoraAdapterThatCarriesItsOwnIteration:
         assert self._start(tmp_path, adapter_iteration=None).start_rollout_id == 0
 
 
+
 class _MastersUnderChunkedOffload:
     """Where a --chunked-optimizer-state-offload optimizer keeps its fp32 masters: built on GPU, refreshed there by
     reload_model_params, and moved to host by offload_optimizer_state_for_forward."""
