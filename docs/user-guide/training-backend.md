@@ -231,9 +231,9 @@ again by the time Adam launches. That case is what streaming addresses:
 
 The fp32 masters and Adam moments live in per-bucket files on NVMe, and the step brings in
 one bucket at a time, so peak residency is one bucket instead of the whole state. At the
-default `fp32` moment dtype it is bit-identical to keeping the state on the GPU and costs
-disk traffic every step; `--stream-optimizer-state-moment-dtype bf16` cuts the volume by a
-third. It requires the `disk` target and excludes `--optimizer-cpu-offload`.
+default `fp32` moment dtype it matches keeping the state on the GPU up to the grad norm's
+rounding and costs disk traffic every step; `--stream-optimizer-state-moment-dtype bf16` cuts
+the volume by a third. It requires the `disk` target and excludes `--optimizer-cpu-offload`.
 
 [Disk Offload](/advanced/disk-offload) has the full picture for both, including the
 same-topology resume limit, what checkpointing costs, and measured sleep / wake numbers.
@@ -493,24 +493,25 @@ expert parallelism, use [Megatron-LM](#megatron-lm).
 
 Any HuggingFace causal LM loads. Some need small corrections around the edges: a weight
 layout SGLang does not expect, a stateful layer that must be reset per document, a class
-that needs patching before construction. Those live in
-`miles/backends/fsdp_utils/adaptations/specs/`, one file per architecture, and an
-architecture that needs none of them registers nothing.
+that needs patching before construction. Each such architecture has one `ArchAdapter` in
+`miles/backends/fsdp_utils/adaptations/specs/<arch>.py` that overrides only the hooks it
+needs; an architecture without one runs on the stock HF path.
 
 | Hook | What it fixes |
 |---|---|
-| `register_param_transform` | Train to rollout parameter rename / reshape at weight sync, for example unfusing batched experts into the per-expert names SGLang expects |
-| `register_model_patch` | Config-time patch of a `transformers` class |
-| `register_model_instance_patch` | Post-construction patch of one model instance |
-| `register_packing_patch` | Per-document state reset under THD sequence packing, for stateful layers such as Gated-Delta-Net and Mamba2 hybrids |
-| `register_post_load_fixup` | Repair weights `from_pretrained()` clobbered |
-| `register_precision_policy` | Model-specific FSDP compute / autocast policy |
+| `resolve_precision` | Model-specific FSDP compute / autocast policy |
+| `patch_classes` | Patch a `transformers` class before construction |
+| `patch_model` | Patch the constructed model; runs for both the actor and the ref model |
+| `packing_kwargs` | Per-document boundaries under sequence packing, taken from the micro-batch's `cu_seqlens` and passed as HF's own padding-free kwargs (`cu_seq_lens_*`, `seq_idx`) for stateful layers such as Gated-Delta-Net |
+| `param_transform` | Train to rollout parameter rename / reshape at weight sync, for example unfusing batched experts into the per-expert names SGLang expects |
+| `routing_replay` | Where the MoE router selects experts, for `--use-rollout-routing-replay` (R3) |
 
-Specs ship today for `qwen3`, `qwen3_moe`, `qwen3_5`, `glm4_moe_lite` (GLM-4.7-Flash) and
-`nemotron_h`; `adaptations/specs/__init__.py` is the source of truth for that list.
+Adapters ship today for `qwen3`, `qwen3_moe`, `qwen3_vl`, `qwen3_5` (plus Qwen3.5-MoE and
+Qwen3-Next), `glm4_moe_lite` (GLM-4.7-Flash) and `nemotron_h`; `_ADAPTERS` in
+`adaptations/specs/__init__.py` is the source of truth for that list.
 
 MoE is part of this backend rather than an exception to it: expert layers use the fused
-Triton kernels in `fsdp_utils/kernels/`, the weight bridge unfuses batched experts at sync
+Triton kernels in `miles/kernels/moe/`, the weight bridge unfuses batched experts at sync
 time, and `--use-rollout-routing-replay` (R3) works through per-architecture routing
 adapters.
 
