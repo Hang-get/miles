@@ -1,5 +1,5 @@
-from miles.utils.lora.hf_lora_targets import LORA_TARGET_GROUPS, parse_lora_targets
 from miles.tinker.core.types import GatewayConfig
+from miles.utils.lora.hf_lora_targets import LORA_TARGET_GROUPS, parse_lora_targets
 
 
 def add_tinker_arguments(parser):

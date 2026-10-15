@@ -58,7 +58,9 @@ async def test_scheduled_batches_preserve_targets_slots_and_output_order(monkeyp
             assert sum(len(shard["tokens"]) for shard in shards) == max(count, 2)
             outputs = []
             for shard in shards:
-                assert sorted(i for mb in shard["micro_batch_indices"] for i in mb) == list(range(len(shard["tokens"])))
+                assert sorted(i for mb in shard["micro_batch_indices"] for i in mb) == list(
+                    range(len(shard["tokens"]))
+                )
                 for mb in shard["micro_batch_indices"]:
                     assert sum(len(shard["tokens"][i]) for i in mb) <= 100
                     mb_slots = [shard["adapter_slots"][i] for i in mb]
