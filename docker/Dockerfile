@@ -16,7 +16,7 @@ FROM lmsysorg/sglang:${SGLANG_IMAGE_TAG} AS sglang
 # ======================================== Arguments =============================================
 
 ARG SGLANG_BRANCH=sglang-miles-muse-spark-open
-ARG SGLANG_COMMIT=358c17d4b4f517ba5a3191a0c6328c59ee088163
+ARG SGLANG_COMMIT=bb28f1adfaa1f385ca183f171fd8fde63fe3a9aa
 
 ARG MEGATRON_REPO=radixark/Megatron-LM
 ARG MEGATRON_BRANCH=muse-spark-open
@@ -247,7 +247,7 @@ RUN bash /tmp/install-kube-tools.sh "${TARGETARCH}" && rm -f /tmp/install-kube-t
 
 # ====================================== Install main package ============================================
 
-ARG MILES_COMMIT=b31559fe131bd9ef742f2a744f7742379915458e
+ARG MILES_COMMIT=bfdcff0e3aefa972ef795d991c37261ff44c5eb2
 RUN git clone https://github.com/radixark/miles.git /root/miles && \
     cd /root/miles && \
     git checkout ${MILES_COMMIT} && \
