@@ -105,17 +105,27 @@ class TestResolveReplayOutputs:
     def test_an_inline_response_needs_no_object_store(self, monkeypatch):
         monkeypatch.setattr(object_store, "_INSTANCE", None)
 
-        assert asyncio.run(resolve_replay_outputs({"routed_experts": "AAAA"})) is None
+        assert asyncio.run(resolve_replay_outputs({"routed_experts": "AAAA"}, via_store=False)) is None
 
     def test_reads_through_the_process_object_store(self, monkeypatch):
         store = FakeMooncakeStore({"routed_experts": [ROUTED_EXPERTS.tolist()]})
         monkeypatch.setattr(object_store, "_INSTANCE", store)
         meta_info = {OUTPUT_STORE_REF_KEY: _ref(routed_experts=("int32", [2, 3, 4]))}
 
-        replay = asyncio.run(resolve_replay_outputs(meta_info))
+        replay = asyncio.run(resolve_replay_outputs(meta_info, via_store=True))
 
         assert isinstance(replay, ReplayOutputs)
         np.testing.assert_array_equal(replay.routed_experts, ROUTED_EXPERTS)
+
+    @pytest.mark.parametrize("key", ["routed_experts", "indexer_topk", "output_token_sampling_mask"])
+    def test_a_request_served_inline_although_it_asked_for_the_store_fails(self, key):
+        """A router that drops the opt-in must not turn the store off silently."""
+        with pytest.raises(ValueError, match="asked for replay outputs via the output store"):
+            asyncio.run(resolve_replay_outputs({key: "AAAA"}, via_store=True))
+
+    def test_a_response_with_nothing_to_store_has_no_ref(self):
+        """SGLang writes no bundle when a request produced no replay outputs."""
+        assert asyncio.run(resolve_replay_outputs({"finish_reason": {"type": "stop"}}, via_store=True)) is None
 
 
 def _replay_args(**overrides: object) -> Namespace:
@@ -154,19 +164,12 @@ class TestRequestOptIn:
 
         assert "return_outputs_via_store" not in payload
 
-    def test_an_sglang_without_the_flag_never_opts_in(self):
-        args = _replay_args()
-        del args.sglang_output_store_backend
-
-        payload, _ = compute_request_payload(args, [0, 1], {})
-
-        assert "return_outputs_via_store" not in payload
-
 
 def test_inline_and_output_store_responses_build_the_same_sample(monkeypatch):
     """The output store changes only how the replay arrays travel, never the Sample they produce."""
     args = _replay_args()
-    payload, _ = compute_request_payload(args, [0, 1], {})
+    store_payload, _ = compute_request_payload(args, [0, 1], {})
+    inline_payload, _ = compute_request_payload(_replay_args(sglang_output_store_backend="none"), [0, 1], {})
     indexer_topk = np.arange(2 * 2 * 5, dtype=np.int32).reshape(2, 2, 5)
     base_meta = _meta([2], [0.5])
 
@@ -187,7 +190,7 @@ def test_inline_and_output_store_responses_build_the_same_sample(monkeypatch):
     monkeypatch.setattr(object_store, "_INSTANCE", store)
 
     samples = []
-    for meta_info in (inline_meta, store_meta):
+    for payload, meta_info in ((inline_payload, inline_meta), (store_payload, store_meta)):
         sample = Sample()
         asyncio.run(update_sample_from_response(args, sample, payload, {"text": "2", "meta_info": meta_info}))
         samples.append(sample)
@@ -215,6 +218,17 @@ def _free_port() -> int:
         return sock.getsockname()[1]
 
 
+def _wait_for_port(port: int, *, timeout: float = 30.0) -> None:
+    deadline = time.monotonic() + timeout
+    while True:
+        with socket.socket() as sock:
+            if sock.connect_ex(("127.0.0.1", port)) == 0:
+                return
+        if time.monotonic() > deadline:
+            raise TimeoutError(f"mooncake_master did not listen on port {port} within {timeout}s")
+        time.sleep(0.1)
+
+
 @pytest.mark.skipif(not _mooncake_available(), reason="mooncake with structured_object_store API not installed")
 class TestRealMooncakeRoundTrip:
     @pytest.fixture(scope="class")
@@ -225,7 +239,7 @@ class TestRealMooncakeRoundTrip:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-        time.sleep(2)
+        _wait_for_port(port)
         yield port
         master.terminate()
         master.wait(timeout=10)

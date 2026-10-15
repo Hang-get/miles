@@ -110,7 +110,9 @@ async def update_sample_from_response(
     args, sample: Sample, payload: dict, output: dict, update_loss_mask: bool = False
 ):
     # Read the output-store bundle first, so a bad one leaves the Sample untouched.
-    replay = await resolve_replay_outputs(output["meta_info"])
+    replay = await resolve_replay_outputs(
+        output["meta_info"], via_store=payload.get("return_outputs_via_store", False)
+    )
 
     # Initialize sample.tokens for the first turn
     if (len(sample.response) == 0) and not sample.tokens:

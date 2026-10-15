@@ -25,6 +25,7 @@ def make_args(**overrides: object) -> SimpleNamespace:
         sglang_mem_fraction_static=0.7,
         use_rollout_routing_replay=False,
         use_rollout_indexer_replay=False,
+        sglang_output_store_backend="none",
         fp16=False,
         lora_adapter_path=None,
         debug_rollout_only=False,
@@ -170,8 +171,8 @@ class TestAdapterOwnership:
         assert server_args["lora_paths"] == ["miles_lora=/fake/adapter"]
 
 
-class TestOutputStoreExtraConfig:
-    """Engines join the rollout executor's Mooncake cluster; the user may add only the free keys."""
+class TestOutputStore:
+    """Miles makes every training engine a client of its own Mooncake store."""
 
     @pytest.fixture(autouse=True)
     def _server_args_with_output_store(self, monkeypatch):
@@ -184,19 +185,23 @@ class TestOutputStoreExtraConfig:
             monkeypatch.delenv(name, raising=False)
 
     @staticmethod
-    def _args(extra_config: str | None = None) -> SimpleNamespace:
+    def _args() -> SimpleNamespace:
         return make_args(
             sglang_output_store_backend="mooncake",
-            sglang_output_store_backend_extra_config=extra_config,
             mooncake_store_init_kwargs={"master_server_address": "10.0.0.1:50051", "protocol": "tcp"},
             mooncake_replica_num=2,
         )
 
-    def test_each_engine_gets_the_shared_cluster_and_its_own_address(self):
-        server_args = compute(self._args(), host="10.0.0.7")
+    def test_each_engine_joins_the_miles_store_with_its_own_address(self):
+        server_args = compute(
+            self._args(),
+            host="10.0.0.7",
+            sglang_overrides={"output_store_backend_extra_config": '{"key_prefix": "other"}'},
+        )
 
+        assert server_args["output_store_backend"] == "mooncake"
+        # The derived config replaces a group override: the readers can only read what it describes.
         assert json.loads(server_args["output_store_backend_extra_config"]) == {
-            "local_buffer_size": "1gb",
             "master_server_address": "10.0.0.1:50051",
             "protocol": "tcp",
             "metadata_server": "P2PHANDSHAKE",
@@ -204,29 +209,22 @@ class TestOutputStoreExtraConfig:
             "key_prefix": "miles-object-store",
             "replica_num": 2,
             "local_hostname": "10.0.0.7",
+            "local_buffer_size": "1gb",
         }
 
-    def test_the_user_keeps_the_free_keys(self):
-        server_args = compute(self._args('{"local_buffer_size": "4gb", "partition": "run-1"}'))
+    def test_a_group_that_turns_it_off_gets_no_extra_config(self):
+        server_args = compute(self._args(), sglang_overrides={"output_store_backend": "none"})
 
-        config = json.loads(server_args["output_store_backend_extra_config"])
-        assert (config["local_buffer_size"], config["partition"]) == ("4gb", "run-1")
+        assert server_args["output_store_backend"] == "none"
+        assert "output_store_backend_extra_config" not in server_args
 
-    @pytest.mark.parametrize(
-        ("extra_config", "match"),
-        [('{"key_prefix": "other"}', "contradicts"), ('{"local_hostname": "10.0.0.9"}', "local_hostname")],
-    )
-    def test_a_key_miles_derives_cannot_be_overridden(self, extra_config, match):
-        with pytest.raises(ValueError, match=match):
-            compute(self._args(extra_config))
+    def test_engines_stay_out_of_the_store_by_default(self):
+        server_args = compute(make_args())
 
-    @pytest.mark.parametrize("worker_type", ["prefill", "decode"])
+        assert server_args["output_store_backend"] == "none"
+        assert "output_store_backend_extra_config" not in server_args
+
+    @pytest.mark.parametrize("worker_type", [WorkerType.PREFILL, WorkerType.DECODE])
     def test_pd_engines_cannot_enable_it(self, worker_type):
-        with pytest.raises(ValueError, match="PD disaggregation"):
+        with pytest.raises(AssertionError, match="PD disaggregation"):
             compute(self._args(), worker_type=worker_type, disaggregation_bootstrap_port=1)
-
-    def test_an_engine_without_the_backend_is_left_alone(self):
-        args = self._args('{"partition": "run-1"}')
-        args.sglang_output_store_backend = "none"
-
-        assert compute(args)["output_store_backend_extra_config"] == '{"partition": "run-1"}'

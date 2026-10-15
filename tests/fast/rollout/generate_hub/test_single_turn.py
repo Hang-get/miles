@@ -320,6 +320,8 @@ class TestRoutedExperts:
 
     @pytest.mark.parametrize("generation_env", [{"args_kwargs": {"use_rollout_routing_replay": True}}], indirect=True)
     def test_routed_experts_returned_through_the_output_store(self, variant, generation_env, monkeypatch):
+        if variant == "old_sglang_rollout":
+            pytest.skip("old_sglang_rollout does not support the output store")
         num_layers, moe_router_topk = 2, 4
         num_tokens = len(PROMPT_TOKENS) + len(RESPONSE_TOKENS)
         routed_experts_array = np.arange((num_tokens - 1) * num_layers * moe_router_topk, dtype=np.int32).reshape(
