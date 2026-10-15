@@ -25,6 +25,7 @@ _GATED_QUERY_MODEL_TYPES = (
     "qwen3_5_moe_text",
     "qwen4_exp",
     "qwen4_exp_text",
+    "muse_spark_text",
 )
 # DeepSeek V4 attends all compressed entries at this ratio and above (HCA), top-k below it (CSA)
 _DENSE_COMPRESSION_RATIO = 64
@@ -379,7 +380,7 @@ def _moe(config: Any, gemms: int = 3) -> LayerFlops:
     hidden, experts = config.hidden_size, _num_experts(config)
     width = _first(config, "moe_intermediate_size", "intermediate_size")
     topk = _first(config, "num_experts_per_tok", "num_experts_per_token", "experts_per_token", "moe_topk")
-    latent = _first(config, "routed_expert_hidden_size", "moe_latent_size")
+    latent = _first(config, "routed_expert_hidden_size", "moe_latent_size", "moe_hidden_size")
     scored_shared = _first(config, "n_shared_experts", default=0) if _first(config, "shared_expert_sink") else 0
     flops = 2 * hidden * (experts + scored_shared) + 2 * gemms * topk * (latent or hidden) * width
     if latent:
