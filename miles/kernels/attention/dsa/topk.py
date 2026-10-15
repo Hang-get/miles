@@ -2,7 +2,6 @@ import torch
 import triton
 import triton.language as tl
 
-
 _FLASHINFER_TIE_BREAK_VALUES = {
     "small": 1,
     "large": 2,
@@ -15,9 +14,15 @@ _SELECT_SORT_MAX_TOPK = 1024
 
 
 def torch_dsa_topk(logits: torch.Tensor, topk: int, row_starts=None, row_ends=None) -> torch.Tensor:
-    score, indices = torch.topk(logits, topk, dim=-1)
+    # torch.topk errors on k > n; a context shorter than index_topk is legal, so pad with -1
+    k = min(topk, logits.shape[-1])
+    score, indices = torch.topk(logits, k, dim=-1)
     indices = indices.to(torch.int32)
-    return indices.masked_fill(score == -torch.inf, -1)
+    indices = indices.masked_fill(score == -torch.inf, -1)
+    if k < topk:
+        pad = indices.new_full((*indices.shape[:-1], topk - k), -1)
+        indices = torch.cat([indices, pad], dim=-1)
+    return indices
 
 
 def flashinfer_dsa_topk(logits: torch.Tensor, topk: int, row_starts=None, row_ends=None) -> torch.Tensor:
