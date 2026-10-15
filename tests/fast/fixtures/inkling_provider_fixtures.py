@@ -12,7 +12,6 @@ from tests.fast.fixtures.args_fixtures import make_trainer_config
 
 from miles.utils.args.custom_function import CustomFunctionConfig
 from miles.utils.function_registry import function_registry
-from miles_plugins.models.inkling import lora
 
 
 @pytest.fixture
@@ -21,6 +20,7 @@ def inkling_provider_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Ite
 
     from miles.backends.megatron_utils import model
     from miles.backends.training_utils import parallel
+    from miles_plugins.models.inkling import lora
 
     layers = ModuleType("miles_plugins.models.inkling.layers")
     layers.__dict__.update(
@@ -81,6 +81,8 @@ def inkling_provider_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Ite
 
 @pytest.fixture
 def inkling_adapter_model(inkling_provider_env: SimpleNamespace) -> torch.nn.Module:
+    from miles_plugins.models.inkling import lora
+
     model = _TinyInklingModel()
     lora._apply_lm_head_lora(model, inkling_provider_env.args, scale=2, dropout=0, a_init="xavier")
     return model
