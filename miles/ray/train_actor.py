@@ -98,7 +98,7 @@ class TrainRayActor(NodeProbeMixin):
         try:
             model_flops = model_flops_from_hf_config(self.hf_config)
         except Exception as e:
-            logger.warning(f"MFU will not be reported, {type(self.hf_config).__name__} could not be sized: {e}")
+            logger.warning(f"MFU will not be reported, the HF config could not be sized: {e!r}")
             return None
         return lambda seq_lens: fwd_tflops_per_gpu(seq_lens, model_flops, dist.get_world_size())
 
