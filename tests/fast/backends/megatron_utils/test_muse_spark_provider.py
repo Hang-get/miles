@@ -4,6 +4,7 @@ import json
 import math
 import os
 from dataclasses import replace
+from itertools import accumulate
 from types import SimpleNamespace
 
 import pytest
@@ -130,18 +131,10 @@ def test_rejects_non_fp32_combine(spark):
     ],
 )
 def test_rejects_position_temperature(temperature):
+    with pytest.raises(ValueError, match="unsupported text_config fields: \\['attn_temperature_tuning_"):
+        parse_muse_spark_1x_config(_checkpoint_config(2, **temperature))
     with pytest.raises(ValueError, match="position temperature is not supported"):
-        parse_muse_spark_1x_config(temperature)
-
-
-def test_accepts_disabled_position_temperature_metadata():
-    assert parse_muse_spark_1x_config(
-        {
-            "attn_temperature_tuning_floor_scale": None,
-            "attn_temperature_tuning_layers": None,
-            "attn_temperature_tuning_q_scale_constant": None,
-        }
-    ) == parse_muse_spark_1x_config({})
+        MuseSpark1xConfig(**temperature)
 
 
 def test_runtime_does_not_override_checkpoint_semantics(spark):
@@ -476,7 +469,7 @@ def test_miles_thd_uses_native_rope_for_packed_boundaries(spark, monkeypatch, le
         return self._preprocess(tokens, positions, packed_seq_params=kwargs["packed_seq_params"])[1]
 
     monkeypatch.setattr(GPTModel, "forward", forward)
-    assert packed.real_sequence_lengths == lengths
+    assert packed.cu_seqlens_host[: len(lengths) + 1] == tuple(accumulate(lengths, initial=0))
     assert batch["packed_seq_params"] is packed
     implicit = model(input_ids=batch["tokens"], packed_seq_params=packed)
     explicit = model(input_ids=batch["tokens"], position_ids=batch["position_ids"], packed_seq_params=packed)
@@ -512,9 +505,9 @@ def test_full_recompute_retains_each_packs_metadata_after_model_forward(spark, m
     calls = []
 
     def layer(*, hidden_states, rotary_pos_emb, packed_seq_params, **kwargs):
-        lengths = packed_seq_params.real_sequence_lengths
-        calls.append((lengths, rotary_pos_emb[:, 0, 0, 0].tolist()))
-        return hidden_states * (rotary_pos_emb[-1, 0, 0, 0] + lengths[0]), None
+        boundaries = packed_seq_params.cu_seqlens_host
+        calls.append((boundaries, rotary_pos_emb[:, 0, 0, 0].tolist()))
+        return hidden_states * (rotary_pos_emb[-1, 0, 0, 0] + boundaries[1]), None
 
     block = SimpleNamespace(config=model.config, num_layers_per_pipeline_rank=1, _get_layer=lambda index: layer)
     # Keep the actual MCore checkpoint/autograd path; the CPU test has only CPU RNG state.
@@ -538,13 +531,14 @@ def test_full_recompute_retains_each_packs_metadata_after_model_forward(spark, m
         outputs.append(model(input_ids=batch["tokens"], decoder_input=hidden, packed_seq_params=packed))
     for output in outputs:
         output.sum().backward()
+    # TP2 pads each pack to a multiple of 8 tokens, so (3, 3) carries a 2-token tail segment
     assert calls == [
-        ((3, 3), [0, 1, 2]),
-        ((4, 4), [0, 1, 2, 3]),
-        ((3, 3), [0, 1, 2]),
-        ((3, 3), [0, 1, 2]),
-        ((4, 4), [0, 1, 2, 3]),
-        ((3, 3), [0, 1, 2]),
+        ((0, 3, 6, 8), [0, 1, 2]),
+        ((0, 4, 8), [0, 1, 2, 3]),
+        ((0, 3, 6, 8), [0, 1, 2]),
+        ((0, 3, 6, 8), [0, 1, 2]),
+        ((0, 4, 8), [0, 1, 2, 3]),
+        ((0, 3, 6, 8), [0, 1, 2]),
     ]
     torch.testing.assert_close(inputs[0].grad, torch.full_like(inputs[0], 5))
     torch.testing.assert_close(inputs[1].grad, torch.full_like(inputs[1], 7))

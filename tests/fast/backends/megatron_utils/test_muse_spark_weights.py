@@ -12,11 +12,16 @@ from mbridge import AutoBridge
 from miles_plugins.mbridge.muse_spark import MuseSpark1xBridge
 from miles_plugins.models.muse_spark import checkpoint
 from miles_plugins.models.muse_spark.config import parse_muse_spark_1x_config
-from miles_plugins.models.muse_spark.weight_mapping import build_mappings, hf_tensor_specs
+from miles_plugins.models.muse_spark.weight_mapping import (
+    NON_TEXT_PREFIXES,
+    build_mappings,
+    hf_tensor_specs,
+    rope_pairs_hf_to_kernel,
+)
 
 
-def _build_hf_config(dense_prefix=0):
-    """Two-layer ``MuseSparkForConditionalGeneration`` config (all layers RoPE + global attention, MoE)."""
+def _build_hf_config(dense_prefix=0, num_layers=2):
+    """Small ``MuseSparkForConditionalGeneration`` config (all layers RoPE + global attention, MoE)."""
     return {
         "architectures": ["MuseSparkForConditionalGeneration"],
         "model_type": "muse_spark",
@@ -24,16 +29,16 @@ def _build_hf_config(dense_prefix=0):
         "text_config": {
             "model_type": "muse_spark_text",
             "hidden_size": 16,
-            "num_hidden_layers": 2,
+            "num_hidden_layers": num_layers,
             "vocab_size": 32,
             "num_attention_heads": 4,
             "num_key_value_heads": 2,
             "head_dim": 4,
             "max_position_embeddings": 32,
             "intermediate_size": 32,
-            "layer_types": ["full_attention", "full_attention"],
-            "layer_rope_theta": [500000.0, 500000.0],
-            "mlp_layer_types": ["dense"] * dense_prefix + ["sparse"] * (2 - dense_prefix),
+            "layer_types": ["full_attention"] * num_layers,
+            "layer_rope_theta": [500000.0] * num_layers,
+            "mlp_layer_types": ["dense"] * dense_prefix + ["sparse"] * (num_layers - dense_prefix),
             "moe_hidden_size": 8,
             "moe_intermediate_size": 16,
             "num_local_experts": 4,
@@ -123,12 +128,15 @@ def test_slice_loader_preserves_weights_and_fp32_buffers(tmp_path, weight_model,
         (tmp_path / "model.safetensors").unlink()
         save_file({"unrelated": torch.ones(1)}, tmp_path / "unrelated.safetensors")
     hf_checkpoint = checkpoint.SafetensorsCheckpoint(tmp_path)
+    stacked_expert_names = {
+        mapping.hf_param for mapping in build_mappings(weight_model.config.spark) if mapping.expert_index is not None
+    }
     slice_reads = []
     read_slice = hf_checkpoint.read_slice
 
     def record_slice(name, selection):
         slice_reads.append((name, selection))
-        if ".experts." in name:
+        if name in stacked_expert_names:
             assert isinstance(selection[0], int)
         return read_slice(name, selection)
 
@@ -155,16 +163,14 @@ def test_offline_mbridge_entry_uses_slice_loader(tmp_path, weight_model):
     bridge = AutoBridge.from_pretrained(str(tmp_path), trust_remote_code=False)
     assert isinstance(bridge, MuseSpark1xBridge)
     bridge.load_weights([weight_model], str(tmp_path), memory_efficient=True)
-    assert torch.equal(weight_model.embedding.word_embeddings.weight, expected_weights["model.embed_tokens.weight"])
+    assert torch.equal(
+        weight_model.embedding.word_embeddings.weight, expected_weights["model.language_model.embed_tokens.weight"]
+    )
 
 
 def test_omni_source_loads_complete_text_without_reading_non_text_payload(tmp_path, weight_model, monkeypatch):
     hf_weights = _build_hf_weights(_build_hf_config())
-    auxiliary_names = (
-        "vision_model.encoder.layers.0.weight",
-        "modalities.vision_perception.encoder.layers.0.weight",
-        "modalities.soft_audio_perception.interaction_encoder.layers.0.weight",
-    )
+    auxiliary_names = tuple(prefix + "encoder.layers.0.weight" for prefix in NON_TEXT_PREFIXES)
     hf_weights.update({name: torch.ones(2, dtype=torch.bfloat16) for name in auxiliary_names})
     _write_checkpoint(tmp_path, _build_hf_config(), hf_weights)
     hf_checkpoint = checkpoint.SafetensorsCheckpoint(tmp_path)
@@ -176,7 +182,9 @@ def test_omni_source_loads_complete_text_without_reading_non_text_payload(tmp_pa
 
     monkeypatch.setattr(hf_checkpoint, "read_slice", text_slice)
     checkpoint.load_hf_checkpoint(weight_model, hf_checkpoint)
-    assert torch.equal(weight_model.embedding.word_embeddings.weight, hf_weights["model.embed_tokens.weight"])
+    assert torch.equal(
+        weight_model.embedding.word_embeddings.weight, hf_weights["model.language_model.embed_tokens.weight"]
+    )
 
 
 @pytest.mark.parametrize("problem", ["missing", "unexpected", "shape", "dtype"])
@@ -223,15 +231,15 @@ def test_qgkv_local_slice_layout_matches_grouped_global_layout(tmp_path, gated):
     hf_weights = _write_checkpoint(tmp_path, _build_hf_config(), _build_hf_weights(spark_config))
     mapping = next(candidate for candidate in build_mappings(spark_config) if candidate.kind == "qgkv")
     projections = ("q", "g", "k", "v") if gated else ("q", "k", "v")
-    global_weight = torch.cat(
-        [
-            hf_weights[mapping.hf_param[projection]].reshape(
-                spark_config.num_key_value_heads, -1, spark_config.hidden_size
-            )
-            for projection in projections
-        ],
-        dim=1,
-    ).flatten(0, 1)
+
+    def kernel_rows(projection):
+        weight = hf_weights[mapping.hf_param[projection]]
+        if projection in ("q", "k"):
+            # the loader turns the checkpoint's half-split RoPE rows into interleaved pairs
+            weight = rope_pairs_hf_to_kernel(weight, spark_config.head_dim)
+        return weight.reshape(spark_config.num_key_value_heads, -1, spark_config.hidden_size)
+
+    global_weight = torch.cat([kernel_rows(projection) for projection in projections], dim=1).flatten(0, 1)
     mapping.partition_size = 2
     mapping.partition_dim = 0
     hf_checkpoint = checkpoint.SafetensorsCheckpoint(tmp_path)
@@ -262,7 +270,7 @@ def test_dense_glu_local_slices_preserve_gate_up_stride(tmp_path):
 
 
 def test_mapping_names_use_partial_local_layers_without_original_offset():
-    spark_config = replace(parse_muse_spark_1x_config(_build_hf_config()), num_hidden_layers=4)
+    spark_config = parse_muse_spark_1x_config(_build_hf_config(num_layers=4))
     mappings = build_mappings(spark_config)
     layer_indices = {
         int(name.split(".")[3])
