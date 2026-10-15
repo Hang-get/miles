@@ -38,7 +38,7 @@ processes:
           /args/colocate: false
           /args/config_snapshot_name: tests/e2e/short/test_qwen2.5_0.5B_fully_async_eval/run-0000
           /args/dsa_impl: miles
-          /args/eval_hf_dir: /dev/shm/miles_e2e_eval_hf_l8sfu_2g
+          /args/eval_hf_dir: /dev/shm/$TEMPORARY_DIRECTORY_fully_async_eval
           /args/eval_max_response_len: 1024
           /args/eval_prompt_data: [gsm8k, /root/datasets/gsm8k/test.parquet]
           /args/eval_top_k: 1
