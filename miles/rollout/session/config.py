@@ -68,8 +68,7 @@ def compute_session_server_config(
         rollout_top_logprobs_num=args.rollout_top_logprobs_num,
         rollout_sampling_logprobs_mode=args.rollout_sampling_logprobs_mode,
         rollout_temperature=getattr(args, "rollout_temperature", 1.0),
-        # Registered from SGLang's ServerArgs, so absent with an SGLang that lacks it.
-        sglang_output_store_backend=getattr(args, "sglang_output_store_backend", "none"),
-        mooncake_store_init_kwargs=getattr(args, "mooncake_store_init_kwargs", None),
-        mooncake_replica_num=getattr(args, "mooncake_replica_num", 1),
+        sglang_output_store_backend=args.sglang_output_store_backend,
+        mooncake_store_init_kwargs=args.mooncake_store_init_kwargs,
+        mooncake_replica_num=args.mooncake_replica_num,
     )

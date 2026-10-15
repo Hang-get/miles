@@ -1,4 +1,3 @@
-import asyncio
 from typing import TYPE_CHECKING
 
 from pydantic import (
@@ -68,19 +67,15 @@ class SessionRecord(BaseModel):
     request: dict
     response: dict
     status_code: int
-    # Background read of the response's output-store bundle (replay_reads); never serialized.
-    _replay_read: asyncio.Future | None = PrivateAttr(default=None)
+    # The arrays of the response's output-store bundle, read when the response arrived; never serialized.
+    _replay_outputs: "ReplayOutputs | None" = PrivateAttr(default=None)
 
     @property
-    def replay_read(self) -> asyncio.Future | None:
-        return self._replay_read
-
-    def attach_replay_read(self, read: asyncio.Future | None) -> None:
-        self._replay_read = read
-
     def replay_outputs(self) -> "ReplayOutputs | None":
-        """The arrays its output-store bundle held; valid once ``wait_for_replay_reads`` returned."""
-        return None if self._replay_read is None else self._replay_read.result()
+        return self._replay_outputs
+
+    def attach_replay_outputs(self, replay: "ReplayOutputs | None") -> None:
+        self._replay_outputs = replay
 
 
 class GetSessionResponse(BaseModel):

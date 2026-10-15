@@ -44,13 +44,13 @@ from miles.rollout.session.config import SessionServerConfig
 from miles.rollout.session.core import JSON_MEDIA_TYPE, SessionCore, _render_json
 from miles.rollout.session.errors import SessionError
 from miles.rollout.session.linear_trajectory import SessionRegistry
-from miles.rollout.session.replay_reads import ReplayReader
 from miles.rollout.session.types import CreateSessionRequest
 from miles.utils.chat_template_utils import get_tito_tokenizer
 from miles.utils.chat_template_utils.message_matcher_hub import (
     SessionMessageMatcherError,
     resolve_session_message_matcher,
 )
+from miles.utils.object_store import BaseObjectStore
 from miles.utils.processing_utils import load_tokenizer
 
 logger = logging.getLogger(__name__)
@@ -62,7 +62,7 @@ def setup_session_routes(
     config: SessionServerConfig,
     *,
     use_addition_r3: bool = False,
-    replay_reader: ReplayReader | None = None,
+    output_store: BaseObjectStore | None = None,
 ):
     if not config.hf_checkpoint:
         logger.info("[session] Skipping session routes (hf_checkpoint not set).")
@@ -95,7 +95,7 @@ def setup_session_routes(
             config,
             config.instance_id,
             use_addition_r3=use_addition_r3,
-            replay_reader=replay_reader,
+            output_store=output_store,
         )
     else:
         registry = SessionRegistry(tokenizer, tito_tokenizer=tito_tokenizer, message_matcher=message_matcher)
@@ -105,7 +105,7 @@ def setup_session_routes(
             config,
             config.instance_id,
             use_addition_r3=use_addition_r3,
-            replay_reader=replay_reader,
+            output_store=output_store,
         )
 
     @app.exception_handler(SessionError)

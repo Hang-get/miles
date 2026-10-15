@@ -5,7 +5,8 @@ HTTP-agnostic: the FastAPI adapter (``sessions.py`` + ``server.py``) turns each 
 - `chat_completions` omits choice `meta_info` from client replies, and choice `logprobs` unless the client's request asked for them, without modifying the stored response; `SessionRecord` retains both for sample collection and `GET /sessions/{id}`.
 - ``chat_completions`` holds the per-session lock for prep and state update but not across the proxy call; ``closing`` re-checks and the ``num_assistant`` check gate concurrent DELETE/chat.
 - ``stream: true`` is served as fake streaming: the backend call stays non-streaming (TITO needs the complete message + meta_info) and the full response is re-rendered as a single SSE chunk plus ``data: [DONE]``. Errors all happen before the SSE body is built, so they keep their real status codes as JSON.
-- ``collect_samples`` waits for the records' output-store reads (``replay_reads``), then assembles training Samples from the session's records on the server (compute -> truncate -> merge, synchronously on the loop like the lock-free ``get_session``); deterministic assembly failures return 422 with the assertion text.
+- ``chat_completions`` reads and removes a response's output-store bundle as soon as the response arrives, before anything can discard it; a failed read fails the chat.
+- ``collect_samples`` assembles training Samples from the session's records on the server (compute -> truncate -> merge, synchronously on the loop like the lock-free ``get_session``); deterministic assembly failures return 422 with the assertion text.
 """
 
 import json
@@ -16,6 +17,7 @@ from dataclasses import dataclass
 import orjson
 from starlette.responses import Response
 
+from miles.rollout.generate_utils.output_store import ReplayOutputs, resolve_replay_outputs
 from miles.rollout.generate_utils.sample_utils import merge_samples
 from miles.rollout.session.config import SessionServerConfig
 from miles.rollout.session.errors import (
@@ -25,7 +27,6 @@ from miles.rollout.session.errors import (
     UpstreamResponseError,
 )
 from miles.rollout.session.linear_trajectory import SessionRegistry
-from miles.rollout.session.replay_reads import ReplayReader, wait_for_replay_reads
 from miles.rollout.session.request_args import ClientResponseIntent, filter_turn_args, parse_chat_request
 from miles.rollout.session.samples.codec import COMPUTED_FIELDS, ROLLOUT_SAMPLING_MASK_FIELDS, encode_samples
 from miles.rollout.session.samples.merge import (
@@ -34,6 +35,7 @@ from miles.rollout.session.samples.merge import (
     truncate_samples_by_total_tokens,
 )
 from miles.rollout.session.types import GetSessionResponse, SessionRecord
+from miles.utils.object_store import BaseObjectStore
 
 logger = logging.getLogger(__name__)
 
@@ -204,7 +206,7 @@ class SessionCore:
         session_server_instance_id=None,
         *,
         use_addition_r3=False,
-        replay_reader: ReplayReader | None = None,
+        output_store: BaseObjectStore | None = None,
     ):
         self.backend = backend
         self.registry = registry
@@ -214,11 +216,16 @@ class SessionCore:
         # must depend on this capability, never on the weight-update mode.
         self.use_addition_r3 = use_addition_r3
         # None unless the engines return replay outputs through the output store.
-        self.replay_reader = replay_reader
+        self.output_store = output_store
 
-    def _start_replay_read(self, response: dict):
-        """Start reading the response's output-store bundle before anything can discard the response."""
-        return None if self.replay_reader is None else self.replay_reader.start(response)
+    async def _read_replay_outputs(self, request_body: dict, response: dict) -> ReplayOutputs | None:
+        """Read and remove the response's output-store bundle; a malformed response is left to extract_completion."""
+        meta_info = response.get("choices", [{}])[0].get("meta_info")
+        if not isinstance(meta_info, dict):
+            return None
+        return await resolve_replay_outputs(
+            meta_info, via_store=request_body.get("return_outputs_via_store", False), store=self.output_store
+        )
 
     def _maybe_request_addition_r3(
         self, request_body: dict, checkpoint_token_ids: list[int], prompt_token_ids: list[int]
@@ -284,12 +291,8 @@ class SessionCore:
     async def collect_samples(self, session_id: str, *, max_seq_len: int | None) -> Response:
         """Assemble training Samples from this session's records.
 
-        Validation failures return 422; unexpected errors, including a failed
-        output-store read, propagate.
+        Validation failures return 422; unexpected errors propagate.
         """
-        session = self.registry.get_session(session_id)
-        await wait_for_replay_reads(lambda: session.records)
-        # Re-fetched because the session may have been deleted while waiting.
         session = self.registry.get_session(session_id)
         metadata = self._session_metadata(session_id, session)
         tokenizer = self.registry.tokenizer
@@ -388,7 +391,7 @@ class SessionCore:
 
         # orjson: every turn parses a multi-MB body (per-token logprobs, R3); SGLang writes it with orjson too.
         response = orjson.loads(result["response_body"])
-        replay_read = self._start_replay_read(response)
+        replay = await self._read_replay_outputs(request_body, response)
         choice, assistant_message, completion_token_ids = extract_completion(response)
         assistant_message = tito_tokenizer.postprocess_completion(
             choice=choice,
@@ -432,7 +435,7 @@ class SessionCore:
                 request=request_body,
                 response=response,
             )
-            record.attach_replay_read(replay_read)
+            record.attach_replay_outputs(replay)
             session.append_record(record)
         # --- lock released ---
 

@@ -116,7 +116,7 @@ def _compute_sample_from_openai_record(
 ) -> Sample:
     choice = record.response["choices"][0]
     finish_reason = choice.get("finish_reason")
-    replay = record.replay_outputs()
+    replay = record.replay_outputs
 
     prompt_token_ids = record.request.get("input_ids")
     if prompt_token_ids is None:
@@ -212,7 +212,7 @@ def merge_samples_with_addition_r3(
         if has_rows != bool(delta_rows):
             raise ValueError(f"additional R3: record {i} payload presence does not match {delta_rows} rows")
 
-        patch = get_routed_experts_from_response(args, choice, delta_rows, replay=record.replay_outputs())
+        patch = get_routed_experts_from_response(args, choice, delta_rows, replay=record.replay_outputs)
         if len(patch) or required_rows == 0:
             chunks.append(patch)
         covered_rows = end
@@ -228,7 +228,7 @@ def merge_samples_with_addition_r3(
 
 def _routed_experts_payload(record: SessionRecord) -> tuple[bool, bool]:
     """Whether the record returned R3, inline or through the output store, and whether it holds any rows."""
-    replay = record.replay_outputs()
+    replay = record.replay_outputs
     if replay is not None and replay.routed_experts is not None:
         return True, len(replay.routed_experts) > 0
     info = record.response["choices"][0]["meta_info"].get("routed_experts")

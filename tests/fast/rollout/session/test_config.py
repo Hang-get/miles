@@ -135,23 +135,6 @@ class TestComputeSessionServerConfig:
         )
         assert config.rollout_temperature == 1.0
 
-    def test_args_without_the_output_store_leave_it_off(self):
-        """An SGLang without --output-store-backend registers no flag, and test args omit the Mooncake ones."""
-        omitted = ("sglang_output_store_backend", "mooncake_store_init_kwargs", "mooncake_replica_num")
-        args = Namespace(**{key: value for key, value in _DISTINCT_ARGS_VALUES.items() if key not in omitted})
-        config = compute_session_server_config(
-            args, host="127.0.0.1", port=5001, instance_id=None, backend_url="http://127.0.0.1:3000"
-        )
-        assert (
-            config.sglang_output_store_backend,
-            config.mooncake_store_init_kwargs,
-            config.mooncake_replica_num,
-        ) == (
-            "none",
-            None,
-            1,
-        )
-
 
 _COMPLETE_CONFIG_KWARGS = dict(
     host="127.0.0.1",

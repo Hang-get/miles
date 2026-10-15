@@ -19,7 +19,6 @@ from tests.fast.fixtures.session_fixtures import make_session_server_config
 
 from miles.rollout.generate_utils.output_store import OUTPUT_STORE_REF_KEY
 from miles.rollout.session import sessions
-from miles.rollout.session.replay_reads import ReplayReader
 from miles.rollout.session.samples.codec import (
     COMPUTED_FIELDS,
     COMPUTED_FIELDS_V2,
@@ -50,9 +49,12 @@ class _KeyedStore(MooncakeObjectStore):
         self.bundles: dict[int, dict] = {}
         self.reads = 0
         self.removed: list[int] = []
+        self.get_error: Exception | None = None
 
     def get(self, ref):
         self.reads += 1
+        if self.get_error is not None:
+            raise self.get_error
         return object_store.ObjectStoreGetResult(value=self.bundles[ref.payload["id"]], release_fn=lambda value: None)
 
     def remove(self, ref):
@@ -120,13 +122,13 @@ async def _serve(tokenizer, monkeypatch, version, *, via_store=True):
         session_sample_picker_path="miles.rollout.session.v2.picker_hub.drop_same_prompt_retries",
         session_sample_postprocessor_path="miles.rollout.session.v2.postprocessor_hub.default_postprocess",
     )
-    reader = ReplayReader(store) if via_store else None
     app = FastAPI()
-    sessions.setup_session_routes(app, backend, config, use_addition_r3=True, replay_reader=reader)
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://session") as client:
+    sessions.setup_session_routes(
+        app, backend, config, use_addition_r3=True, output_store=store if via_store else None
+    )
+    transport = httpx.ASGITransport(app, raise_app_exceptions=False)
+    async with httpx.AsyncClient(transport=transport, base_url="http://session") as client:
         yield SimpleNamespace(client=client, backend=backend, store=store, version=version)
-    if reader is not None:
-        reader.close()
 
 
 @pytest_asyncio.fixture(params=[True, "v2"], ids=["v1", "v2"])
@@ -182,12 +184,20 @@ async def test_a_response_discarded_by_a_concurrent_delete_still_has_its_bundle_
     assert (await env.client.delete(f"/sessions/{sid}")).status_code == 204
     env.backend.gate.set()
     assert (await chat).status_code == 200
-    for _ in range(100):
-        if env.store.removed:
-            break
-        await asyncio.sleep(0.01)
 
     assert env.store.removed == [1]
+
+
+async def test_a_failed_read_fails_the_chat_and_still_removes_the_bundle(env):
+    """A record without its arrays would build a sample with no R3, so the turn fails instead."""
+    sid = (await env.client.post("/sessions")).json()["session_id"]
+    env.store.get_error = RuntimeError("master unreachable")
+
+    response = await env.client.post(f"/sessions/{sid}/v1/chat/completions", json={"messages": [USER]})
+
+    assert response.status_code == 500
+    assert env.store.removed == [1]
+    assert (await env.client.get(f"/sessions/{sid}")).json()["records"] == []
 
 
 async def test_inline_and_store_sessions_assemble_the_same_sample(tokenizer, monkeypatch):
