@@ -1,7 +1,8 @@
-import json
 import logging
 import time
+from copy import deepcopy
 
+import orjson
 from starlette.responses import Response
 
 from miles.rollout.session.core import (
@@ -102,6 +103,9 @@ class SessionCoreV2(SessionCore):
                 session_id=session_id,
                 max_seq_len=max_seq_len,
                 use_addition_r3=self.use_addition_r3,
+                # The latest generation is always a leaf; its mismatch is already in the session metadata.
+                # A copy: hooks may edit the session metadata, which must not reach that leaf's sample.
+                computed_mismatch={session.latest().seq: deepcopy(metadata.get("tito_session_mismatch"))},
             )
         except (AssertionError, ValueError) as exc:
             return Response(content=str(exc).encode(), status_code=422, media_type="text/plain")
@@ -171,7 +175,8 @@ class SessionCoreV2(SessionCore):
             self._maybe_request_addition_r3(request_body, checkpoint_token_ids, prompt_token_ids)
             _add_session_extra_key(request_body, session)
 
-            proxy_body = json.dumps(request_body).encode()
+            # orjson: the body carries the whole prompt's input_ids on every turn.
+            proxy_body = orjson.dumps(request_body)
         # --- lock released ---
 
         # --- Phase 2: proxy to backend (NO lock held) ---
