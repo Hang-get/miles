@@ -56,8 +56,9 @@ def register_ci_gate(
     metric. `steps` picks the
     comparison value(s): `"last"` (the series' last point), `"all"` (every
     step present, fanned out), or a non-empty list of step indices.
-    `constraint` is None to track the metric without judging it, or a literal
-    dict of the two-sided band params -- see
+    `constraint` is None to track the metric without judging it (record its
+    history only, never gate on it; an explicit None disables even a band its
+    GATE_DEFAULTS entry has), or a literal dict of the two-sided band params -- see
     :data:`constraints.CONSTRAINT_SCHEMA`; each side needs at least one of its
     `rel` / `abs_floor` written. An omitted `steps` / `constraint` is filled from
     :data:`GATE_DEFAULTS` when `metric_key` has an entry there; the Python
@@ -224,6 +225,7 @@ def _normalize_constraint(raw: object) -> dict | None:
     least one written band param -- an all-default side has band 0 and would
     fail on any deviation. None marks a tracked metric."""
     if raw is None:
+        # Record only, never gate: for now tracked metrics only collect golden values.
         return None
     if not isinstance(raw, dict):
         raise _ParseError("constraint must be a dict")
