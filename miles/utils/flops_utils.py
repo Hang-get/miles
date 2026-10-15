@@ -144,8 +144,11 @@ def _attention(config: Any, layer: int) -> LayerFlops:
         topk = _first(config, "index_topk")
         attention = _mla(config, key_cap=topk)
         return attention + _dsa_indexer(config) if topk is not None and _runs_indexer(config, layer) else attention
-    window = _first(config, "sliding_window", "window_size") if kind == "sliding" else None
-    return _gqa(config, key_cap=window)
+    if kind == "sliding":
+        return _gqa(
+            config, key_cap=_first(config, "sliding_window", "window_size", "sliding_window_size"), sliding=True
+        )
+    return _gqa(config)
 
 
 def _attention_kind(config: Any, layer: int) -> str:
@@ -166,6 +169,9 @@ def _attention_kind(config: Any, layer: int) -> str:
             return "linear"
         is_qwen_sparse = name == "qwen_sparse_attention" or _first(config, "indexer_budget") is not None
         return "qwen_sparse" if is_qwen_sparse else "full"
+    hybrid_pattern = _first(config, "hybrid_layer_pattern")
+    if hybrid_pattern is not None:
+        return "sliding" if hybrid_pattern[layer] else "full"
     interval = _first(config, "full_attention_interval")
     if interval is not None:
         return "full" if (layer + 1) % interval == 0 else "linear"
@@ -175,14 +181,28 @@ def _attention_kind(config: Any, layer: int) -> str:
     return "full"
 
 
-def _gqa(config: Any, key_cap: int | None = None) -> LayerFlops:
+def _gqa(config: Any, key_cap: int | None = None, sliding: bool = False) -> LayerFlops:
+    """GQA, with MiMo-V2's sliding-layer (swa_*) shapes and Gemma 4's global layers, which can reuse K as V."""
     hidden, heads = config.hidden_size, config.num_attention_heads
     kv_heads = _first(config, "num_key_value_heads", default=heads)
     head_dim = _first(config, "head_dim", default=hidden // heads)
+    value_dim = _first(config, "v_head_dim", default=head_dim)
+    value_is_key = False
+    if sliding:
+        heads = _first(config, "swa_num_attention_heads", default=heads)
+        kv_heads = _first(config, "swa_num_key_value_heads", default=kv_heads)
+        head_dim = _first(config, "swa_head_dim", default=head_dim)
+        value_dim = _first(config, "swa_v_head_dim", default=value_dim)
+    elif _first(config, "global_head_dim") is not None:
+        head_dim = value_dim = config.global_head_dim
+        value_is_key = bool(_first(config, "attention_k_eq_v"))
+        if value_is_key:
+            kv_heads = _first(config, "num_global_key_value_heads", default=kv_heads)
     gated = _first(config, "attn_output_gate", default=config.model_type in _GATED_QUERY_MODEL_TYPES)
-    projections = 2 * hidden * heads * head_dim * (2 if gated else 1) + 4 * hidden * kv_heads * head_dim
-    projections += 2 * heads * head_dim * hidden
-    return LayerFlops(projections, (KeyTerm(4 * heads * head_dim, cap=key_cap),))
+    projections = 2 * hidden * heads * head_dim * (2 if gated else 1) + 2 * hidden * kv_heads * head_dim
+    projections += 0 if value_is_key else 2 * hidden * kv_heads * value_dim
+    projections += 2 * heads * value_dim * hidden
+    return LayerFlops(projections, (KeyTerm(2 * heads * (head_dim + value_dim), cap=key_cap),))
 
 
 def _inkling_attention(config: Any, sliding: bool) -> LayerFlops:
@@ -346,9 +366,10 @@ def _kda(config: Any) -> LayerFlops:
 
 
 def _mlp(config: Any, layer: int) -> LayerFlops:
-    if _is_moe_layer(config, layer):
+    if _is_moe_layer(config, layer) and not _first(config, "enable_moe_block"):
         return _moe(config)
-    return LayerFlops(6 * config.hidden_size * _first(config, "dense_intermediate_size", "intermediate_size"))
+    dense = LayerFlops(6 * config.hidden_size * _first(config, "dense_intermediate_size", "intermediate_size"))
+    return dense + _moe(config) if _is_moe_layer(config, layer) else dense
 
 
 def _num_experts(config: Any) -> int | None:
@@ -378,7 +399,9 @@ def _moe(config: Any, gemms: int = 3) -> LayerFlops:
     """Router, routed experts (in the latent width when the model has one) and shared experts."""
     hidden, experts = config.hidden_size, _num_experts(config)
     width = _first(config, "moe_intermediate_size", "intermediate_size")
-    topk = _first(config, "num_experts_per_tok", "num_experts_per_token", "experts_per_token", "moe_topk")
+    topk = _first(
+        config, "num_experts_per_tok", "num_experts_per_token", "experts_per_token", "moe_topk", "top_k_experts"
+    )
     latent = _first(config, "routed_expert_hidden_size", "moe_latent_size")
     scored_shared = _first(config, "n_shared_experts", default=0) if _first(config, "shared_expert_sink") else 0
     flops = 2 * hidden * (experts + scored_shared) + 2 * gemms * topk * (latent or hidden) * width
@@ -388,10 +411,9 @@ def _moe(config: Any, gemms: int = 3) -> LayerFlops:
 
 
 def _shared_expert_width(config: Any, expert_width: int) -> int:
-    per_expert = _first(config, "moe_shared_expert_intermediate_size")
-    if per_expert is not None:
-        return per_expert * _first(config, "n_shared_experts", default=1)
-    explicit = _first(config, "shared_expert_intermediate_size", "shared_intermediate_size")
+    explicit = _first(
+        config, "moe_shared_expert_intermediate_size", "shared_expert_intermediate_size", "shared_intermediate_size"
+    )
     if explicit is not None:
         return explicit
     return expert_width * _first(config, "n_shared_experts", "num_shared_experts", default=0)
