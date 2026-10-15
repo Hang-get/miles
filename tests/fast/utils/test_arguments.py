@@ -3075,6 +3075,27 @@ def _make_skip_actor_forward_only_args(**overrides) -> SimpleNamespace:
 
 
 class TestValidateSkipActorForwardOnly:
+    @pytest.mark.parametrize(
+        "provider",
+        [
+            "miles_plugins.models.muse_spark.muse_spark_1x_model_provider",
+            "miles_plugins.models.muse_spark.provider.muse_spark_1x_omni_model_provider",
+        ],
+    )
+    @pytest.mark.parametrize("overrides", [{}, {"hidden_dropout": 0.1}, {"num_steps_per_rollout": 2}])
+    def test_muse_providers_keep_the_single_step_and_dropout_constraints(self, provider, overrides):
+        args = _make_skip_actor_forward_only_args(custom_model_provider_path=provider, **overrides)
+        if overrides:
+            with pytest.raises(AssertionError, match="--skip-actor-forward-only"):
+                validate_skip_actor_forward_only(args)
+        else:
+            validate_skip_actor_forward_only(args)
+
+    def test_other_custom_providers_stay_incompatible(self):
+        args = _make_skip_actor_forward_only_args(custom_model_provider_path="my_pkg.my_provider")
+        with pytest.raises(AssertionError, match="--custom-model-provider-path"):
+            validate_skip_actor_forward_only(args)
+
     def test_valid_single_step_configuration_passes(self):
         validate_skip_actor_forward_only(_make_skip_actor_forward_only_args())
 

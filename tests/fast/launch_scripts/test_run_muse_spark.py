@@ -128,7 +128,7 @@ def test_dapo_recipe_survives_megatron_validation(monkeypatch, tmp_path, counts,
         assert args.offload_train_target == "cpu" and args.chunked_optimizer_state_offload
         assert args.chunked_muon_master_weights and args.optimizer_state_offload_fraction == 1
     assert args.loss_type == "policy_loss" and args.advantage_estimator == "grpo"
-    assert args.calculate_per_token_loss and not args.skip_actor_forward_only
+    assert args.calculate_per_token_loss and args.skip_actor_forward_only
     assert args.save is None and not args.debug_train_only and not args.debug_rollout_only
     assert (args.actor_num_nodes, args.actor_num_gpus_per_node) == (num_nodes, 8)
     assert (args.rollout_num_gpus_per_engine, args.sglang_ep_size, args.sglang_pp_size) == (

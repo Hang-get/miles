@@ -224,6 +224,9 @@ def execute(args: ScriptArgs, entry_script: str):
         "--eps-clip 0.2 "
         "--eps-clip-high 0.28 "
         "--calculate-per-token-loss "
+        # One update per rollout: the training forward's detached log-probs are the old policy, so the
+        # separate forward-only pass is skipped.
+        "--skip-actor-forward-only "
     )
     if args.use_rollout_routing_replay:
         grpo_args += "--use-rollout-routing-replay "
