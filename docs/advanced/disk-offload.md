@@ -89,7 +89,10 @@ allocation at the rollout/train handoff. Cap it per rank:
 A writer thread then writes back and drops each flushed bucket in order, so a bucket's
 writeback overlaps the buckets after it instead of stalling its own flush. A flush waits only
 while more than the cap is still waiting to be written back; the bucket being read comes on top
-of it. None of the state stays cached between steps, so each step reads it back from disk.
+of it. The step finishes its writeback before it returns, so none of the store's files stay
+cached past a step and each step reads its state back from disk. Checkpoint save and resume
+copy the store's files through the same cap; the checkpoint's own copy is cached like any other
+checkpoint file.
 
 With `fp32` storage the state round-trips bit for bit and only the grad norm's summation
 order differs from keeping it on GPU, so turning this on changes results by rounding at

@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import torch
 from tests.ci.ci_register import register_cuda_ci, register_rocm_ci
-from tests.fast.optimizers.test_nvme_stream import _resident_pages
+from tests.fast.optimizers.test_nvme_stream import _resident_pages, require_evictable
 
 from miles_plugins.optimizers.nvme_stream import (
     NVMeOptimizerStateStore,
@@ -22,7 +22,7 @@ register_cuda_ci(
 register_rocm_ci(est_time=30, suite="nightly-stage-c-2-gpu-mi350", labels=["miles-plugin"])
 
 
-def test_bucketwise_main_initialization_preserves_bytes_and_releases_cuda_storage(tmp_path):
+def _initialized_store(tmp_path):
     model_param = torch.nn.Parameter(torch.arange(600_000, dtype=torch.float32, device="cuda").to(torch.bfloat16))
     main_param = torch.empty_like(model_param, dtype=torch.float32)
     _resize(main_param, 0)
@@ -43,21 +43,32 @@ def test_bucketwise_main_initialization_preserves_bytes_and_releases_cuda_storag
     store.dist_opt = dist_opt
     store.buckets = [bucket]
     store._page_cache = None
-
     nbytes = main_param.numel() * main_param.element_size()
     assert store.initialize_main_from_model_params() == nbytes
+    return bucket, model_param, main_param, nbytes
+
+
+def test_bucketwise_main_initialization_preserves_bytes_and_releases_cuda_storage(tmp_path):
+    bucket, model_param, main_param, nbytes = _initialized_store(tmp_path)
+
     assert main_param.untyped_storage().nbytes() == 0
-    # With no cap set, initialization still leaves nothing cached. Checked before the read-back below,
-    # which pulls the pages in again.
-    assert _resident_pages(bucket.fd) == 0
     restored = torch.frombuffer(bytearray(os.pread(bucket.fd, nbytes, 0)), dtype=torch.float32)
     torch.testing.assert_close(restored, model_param.float().cpu(), atol=0, rtol=0)
+    os.close(bucket.fd)
+
+
+def test_uncapped_initialization_leaves_nothing_cached(tmp_path):
+    require_evictable(tmp_path)
+    bucket, *_ = _initialized_store(tmp_path)
+
+    assert _resident_pages(bucket.fd) == 0
     os.close(bucket.fd)
 
 
 @torch.no_grad()
 def test_capped_page_cache_drops_older_buckets_and_matches_a_resident_adam(tmp_path):
     """The cap drops older buckets once written back; the state stays bit-exact through it."""
+    require_evictable(tmp_path)
     params = [torch.nn.Parameter(torch.linspace(-1, 1, 1_048_576, device="cuda") * (i + 1)) for i in range(2)]
     references = [torch.nn.Parameter(param.detach().clone()) for param in params]
     resident_adams = [torch.optim.Adam([reference], lr=1e-3) for reference in references]

@@ -13,7 +13,16 @@ import pytest
 import torch
 from tests.ci.ci_register import register_cuda_ci
 
-from miles_plugins.optimizers.nvme_stream import NVMeOptimizerStateStore, _Bucket, _Entry, _resize, _Stager
+from tests.fast.optimizers.test_nvme_stream import _resident_pages, require_evictable
+
+from miles_plugins.optimizers.nvme_stream import (
+    NVMeOptimizerStateStore,
+    _Bucket,
+    _Entry,
+    _PageCacheWindow,
+    _resize,
+    _Stager,
+)
 
 register_cuda_ci(
     est_time=30, suite="stage-b-2-gpu-h200", labels=["miles-plugin"], hardware=["hopper", "blackwell"], num_gpus=1
@@ -163,6 +172,44 @@ def test_megatron_norm_and_clip_leave_streamed_mains_to_the_store(tmp_path):
         total_norm = torch.full((1,), 100.0, device="cuda") if multi_tensor_scale_tensor_impl is not None else 100.0
         clip_grad_by_total_norm_fp32([entry.main_param for entry in entries], 1.0, total_norm)
     finally:
+        for bucket in store.buckets:
+            os.close(bucket.fd)
+
+
+@torch.no_grad()
+def test_capped_store_leaves_no_page_cache_after_a_step_save_or_load(tmp_path):
+    """The cap reaches every path that touches the store's files: the step, a checkpoint save, and a resume."""
+    from megatron.core.optimizer.clip_grads import multi_tensor_scale_tensor_impl
+
+    require_evictable(tmp_path)
+    store, *_ = _setup(tmp_path, clip_grad=1.0)
+    store._page_cache = _PageCacheWindow(cap_bytes=store.buckets[1].nbytes)
+    store._rank, store._instance, store.uid = 0, 0, 0
+    store.dtypes, store._allow_fresh_state = DTYPES, False
+
+    def resident() -> list[int]:
+        return [_resident_pages(bucket.fd) for bucket in store.buckets]
+
+    try:
+        (norm,) = store.grads_for_norm()
+        store.record_grad_norm(norm if multi_tensor_scale_tensor_impl is not None else float(norm))
+        assert store.step()
+        assert resident() == [0, 0], "the step drains its own writeback before returning"
+        stepped = [_read_main(bucket, 0, bucket.entries[0].main_param.numel()) for bucket in store.buckets]
+
+        store.save_to(str(tmp_path / "ckpt"))
+        store._page_cache.drain()
+        assert resident() == [0, 0]
+
+        for bucket in store.buckets:
+            os.pwrite(bucket.fd, bytes(bucket.nbytes), 0)
+        assert store.load_from(str(tmp_path / "ckpt"))
+        store._page_cache.drain()
+        assert resident() == [0, 0]
+        for bucket, before in zip(store.buckets, stepped, strict=True):
+            torch.testing.assert_close(_read_main(bucket, 0, before.numel()), before, atol=0, rtol=0)
+    finally:
+        store._page_cache.drain()
         for bucket in store.buckets:
             os.close(bucket.fd)
 

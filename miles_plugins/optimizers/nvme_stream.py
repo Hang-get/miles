@@ -155,11 +155,11 @@ def _drop_from_page_cache(fd: int) -> None:
 
 
 class _PageCacheWindow:
-    """Caps how much flushed state the host page cache holds, without a flush waiting on its own writeback.
+    """Caps how much of the store's files the host page cache holds, without a flush waiting on its own writeback.
 
-    A writer thread drops each flushed file in flush order; both syscalls release the GIL, so a file's writeback
-    overlaps the buckets after it. A flush waits only while more than the cap is still waiting to be dropped, and only
-    for the oldest files. The bucket being read for the next step comes on top of the cap.
+    A writer thread drops each released file in release order; both syscalls release the GIL, so a file's
+    writeback overlaps the buckets after it. A release waits only while more than the cap is still waiting to be
+    dropped, and only for the oldest files. The bucket being read for the next step comes on top of the cap.
     """
 
     def __init__(self, cap_bytes: int):
@@ -168,7 +168,8 @@ class _PageCacheWindow:
         self._waiting: deque[tuple[int, Future]] = deque()
         self._waiting_bytes = 0
 
-    def flushed(self, fd: int, nbytes: int) -> None:
+    def release(self, fd: int, nbytes: int) -> None:
+        """Queue a store file just written or read, ``nbytes`` of it now in the page cache, to be dropped."""
         self._waiting.append((nbytes, self._writer.submit(_drop_from_page_cache, fd)))
         self._waiting_bytes += nbytes
         while self._waiting and (self._waiting_bytes > self._cap_bytes or self._waiting[0][1].done()):
@@ -252,12 +253,15 @@ class _Bucket:
         self.numel = sum(e.main_param.numel() for e in entries)
 
         self.offsets: dict[str, list[int]] = {}
+        self.segment_nbytes: dict[str, int] = {}  # page-aligned, which is what a segment occupies in the cache
         at = 0
         for segment in SEGMENTS:
             self.offsets[segment] = []
+            start = at
             for entry in entries:
                 self.offsets[segment].append(at)
                 at += _align(entry.main_param.numel() * dtypes[segment].itemsize)
+            self.segment_nbytes[segment] = at - start
         self.nbytes = at
         self.fd = _allocate_file(path, at)
         self.moments_ready = False
@@ -284,7 +288,7 @@ class _Bucket:
     def flush(self, segments=SEGMENTS, page_cache: _PageCacheWindow | None = None) -> int:
         moved = self._move(segments, to_disk=True)
         if page_cache is not None:
-            page_cache.flushed(self.fd, self.nbytes)
+            page_cache.release(self.fd, nbytes=sum(self.segment_nbytes[segment] for segment in segments))
         self.moments_ready = self.moments_ready or tuple(segments) == SEGMENTS
         return moved
 
@@ -529,6 +533,10 @@ class NVMeOptimizerStateStore:
         if self._fp32_adam is not None:
             self._sync_lr_wd(self._fp32_adam, self._fp32_group_indices)
             self._fp32_adam.step()
+        if self._page_cache is not None:
+            # Finish the step's writeback inside the step: nothing of the store stays cached past it, and a failed
+            # writeback fails this step rather than a later one, or none after the last.
+            self._page_cache.drain()
         logger.info(
             f"NVMe streaming step: {len(self.buckets)} buckets, read {read / 1024**3:.1f} GB, "
             f"wrote {written / 1024**3:.1f} GB in {time.monotonic() - started:.1f}s"
@@ -551,6 +559,8 @@ class NVMeOptimizerStateStore:
                 # Initialization writes the whole main state in one pass, just before the checkpoint load and
                 # the engines' pinned allocations, so even with no cap it leaves none of that cached.
                 _drop_from_page_cache(bucket.fd)
+        if self._page_cache is not None:
+            self._page_cache.drain()
         return written
 
     @torch.no_grad()
@@ -579,6 +589,8 @@ class NVMeOptimizerStateStore:
         }
         for bucket in self.buckets:
             shutil.copyfile(bucket.path, os.path.join(dirpath, os.path.basename(bucket.path)))
+            if self._page_cache is not None:
+                self._page_cache.release(bucket.fd, nbytes=bucket.nbytes)
         if self._fp32_adam is not None:
             torch.save(self._fp32_adam.state_dict(), os.path.join(dirpath, "fp32_resident_optimizer.pt"))
         with open(os.path.join(dirpath, "manifest.json"), "w") as f:
@@ -620,6 +632,8 @@ class NVMeOptimizerStateStore:
             assert meta["numel"] == bucket.numel
             assert meta["entry_numels"] == [e.main_param.numel() for e in bucket.entries]
             shutil.copyfile(os.path.join(dirpath, meta["file"]), bucket.path)
+            if self._page_cache is not None:
+                self._page_cache.release(bucket.fd, nbytes=bucket.nbytes)
             for group, step in zip(bucket.adam.param_groups, meta["steps"], strict=True):
                 if step:
                     group["step"] = step

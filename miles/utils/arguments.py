@@ -419,11 +419,12 @@ def get_miles_extra_args_provider(add_custom_arguments=None):
                 help=(
                     "Per-rank cap (MiB) on the streamed Adam state that may sit in the host page cache "
                     "waiting to be written back. With a cap, a writer thread writes back and drops each "
-                    "flushed bucket off the step's critical path, and a flush waits only while more than "
-                    "the cap is still waiting, so none of the state stays cached between steps and the "
-                    "next step reads it from disk. Unset leaves the cache to the kernel, which is fastest "
-                    "when host RAM holds the whole state, but a colocated run then races that cache at "
-                    "every pinned allocation. Initialization never leaves its writes cached either way."
+                    "flushed bucket off the step's critical path, a flush waits only while more than the "
+                    "cap is still waiting, and the step finishes its writeback before returning, so none "
+                    "of the store's files stay cached past a step and the next step reads them from disk. "
+                    "Unset leaves the cache to the kernel, which is fastest when host RAM holds the whole "
+                    "state, but a colocated run then races that cache at every pinned allocation. "
+                    "Initialization never leaves its writes cached either way."
                 ),
             )
             parser.add_argument(
