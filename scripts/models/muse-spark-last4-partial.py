@@ -1,4 +1,4 @@
-"""Last-four-layer Muse Spark text partial, extracted by scripts/muse_spark_vlm/extract_partial_checkpoint.py."""
+"""Last-four-layer Muse Spark text partial, extracted by scripts/muse_spark/extract_partial_checkpoint.py."""
 
 from model_args_utils import load_sibling_model_args
 
