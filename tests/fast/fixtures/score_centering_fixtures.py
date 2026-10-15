@@ -16,6 +16,7 @@ class _Tokenizer:
 def _args(**overrides: object) -> Namespace:
     values = dict(
         ci_test=False,
+        enable_sample_ownership_checker=False,
         loss_type="score_centering",
         rollout_top_logprobs_num=3,
         rollout_sampling_logprobs_mode="selected",
@@ -30,6 +31,7 @@ def _args(**overrides: object) -> Namespace:
         rollout_top_p=1.0,
         rollout_top_k=-1,
         use_sampling_support_replay=False,
+        sglang_output_store_backend="none",
         advantage_estimator="grpo",
         rewards_normalization=False,
         reward_key=None,

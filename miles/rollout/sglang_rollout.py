@@ -21,8 +21,10 @@ from miles.rollout.generate_utils.rollout_topk_logprobs import (
     configure_rollout_topk_logprobs_request,
 )
 from miles.rollout.inference_rollout.compatibility import load_generate_function
+from miles.rollout.inference_rollout.inference_rollout_common import stamp_sample_lineage
 from miles.utils import dumper_utils
 from miles.utils.async_utils import run
+from miles.utils.audit_utils.sample_ownership.recorder import SampleOwnershipRecorder
 from miles.utils.data import Dataset
 from miles.utils.eval_config import EvalDatasetConfig
 from miles.utils.function_registry import load_function
@@ -42,10 +44,8 @@ from miles.utils.types import Sample
 from .generate_utils.generate_endpoint_utils import (
     compute_routing_headers,
     get_indexer_topk_from_response,
-    maybe_request_outputs_via_store,
     policy_uses_routing_key,
 )
-from .generate_utils.output_store import resolve_replay_outputs
 from .generate_utils.prefill_logprobs import recompute_samples_rollout_logprobs_via_prefill
 from .generate_utils.sample_utils import reward_log_summary, sample_text_preview
 from .generate_utils.sampling_mask import append_sampling_metadata, should_return_sampling_mask
@@ -201,6 +201,8 @@ async def generate(
     if not evaluation:
         configure_rollout_topk_logprobs_request(args, payload)
 
+    if (extra_key := sample.kv_cache_namespace) is not None:
+        payload["extra_key"] = extra_key
     if lora_rollout_enabled(args):
         payload["lora_path"] = LORA_ADAPTER_NAME
 
@@ -208,8 +210,6 @@ async def generate(
         payload["return_routed_experts"] = True
     if getattr(args, "use_rollout_indexer_replay", False):
         payload["return_indexer_topk"] = True
-    if not evaluation:
-        maybe_request_outputs_via_store(args, payload)
 
     if sample.multimodal_inputs and sample.multimodal_inputs["images"]:
         image_data = sample.multimodal_inputs["images"]
@@ -233,7 +233,6 @@ async def generate(
     headers = compute_routing_headers(args, sample)
 
     output = await post(url, payload, headers=headers)
-    replay = await resolve_replay_outputs(output["meta_info"])
     if getattr(args, "use_opd", False) and opd_top_k > 0 and opd_top_k_strategy != "only-teacher":
         output_top_logprobs = output.get("meta_info", {}).get("output_top_logprobs")
         if output_top_logprobs is not None:
@@ -252,7 +251,6 @@ async def generate(
             new_response_tokens,
             output["meta_info"],
             sampling_logprobs_mode=payload.get("sampling_logprobs_mode", "selected"),
-            replay=replay,
         )
 
     # Update sample with tokens directly - avoiding re-tokenization
@@ -276,17 +274,11 @@ async def generate(
         sample.rollout_log_probs = []
     sample.rollout_log_probs += new_response_log_probs
 
-    if replay is not None and replay.routed_experts is not None:
-        # Flattened, so the stop-edge handling below infers rows the same way for both sources.
-        _re = replay.routed_experts.reshape(-1)
-    elif "routed_experts" in output["meta_info"]:
+    if "routed_experts" in output["meta_info"]:
         _re = np.frombuffer(
             pybase64.b64decode(output["meta_info"]["routed_experts"].encode("ascii")),
             dtype=np.int32,
         )
-    else:
-        _re = None
-    if _re is not None:
         _ntok = int(output["meta_info"]["prompt_tokens"]) + len(new_response_tokens) - 1
         _topk = _re.size // max(1, _ntok * args.num_layers)
         if _re.size == (_ntok + 1) * args.num_layers * max(1, _topk):
@@ -303,8 +295,8 @@ async def generate(
             "(topk-bypassing --moe-runner-backend such as flashinfer_trtllm?)."
         )
         sample.rollout_routed_experts = _re.reshape(_ntok, args.num_layers, _topk)
-    if "indexer_topk" in output["meta_info"] or (replay is not None and replay.indexer_topk is not None):
-        sample.rollout_indexer_topk = get_indexer_topk_from_response(args, output, sample, replay=replay)
+    if "indexer_topk" in output["meta_info"]:
+        sample.rollout_indexer_topk = get_indexer_topk_from_response(args, output, sample)
 
     sample.update_from_meta_info(args, output["meta_info"])
 
@@ -317,6 +309,8 @@ async def generate_and_rm(
     sampling_params: dict[str, Any],
     evaluation: bool = False,
 ) -> Sample | list[Sample]:
+    input_sample_index = sample.index
+
     # mask previous off-policy generation for partial rollout
     if args.partial_rollout and args.mask_offpolicy_in_partial_rollout and sample.response_length > 0:
         sample.loss_mask = [0] * sample.response_length
@@ -358,6 +352,8 @@ async def generate_and_rm(
                 sample = output.samples
             else:
                 sample = await generate(args, sample, sampling_params, evaluation=evaluation)
+            if not evaluation:
+                stamp_sample_lineage(sample, source_sample_index=input_sample_index)
 
     if sink is not None:
         sink.attempt_end(sample)
@@ -455,6 +451,9 @@ async def abort(args: Namespace, rollout_id: int) -> list[list[Sample]]:
         done, state.pendings = await asyncio.wait(state.pendings, return_when=asyncio.FIRST_COMPLETED)
 
         if not args.partial_rollout:
+            if args.enable_sample_ownership_checker:
+                groups = [task.result() for task in done]
+                SampleOwnershipRecorder.log_dropped_groups(args=args, before=groups, after=[], reason="aborted")
             continue
 
         # for partial rollout, collect the partial samples into the data buffer
@@ -534,6 +533,7 @@ async def generate_rollout_async(
             filter_output = apply_preput_filters(args, dynamic_filter, group)
             if not filter_output.keep:
                 metric_gatherer.on_dynamic_filter_drop(reason=filter_output.reason)
+                SampleOwnershipRecorder.log_dropped_groups(args=args, before=group, after=[], reason="dynamic_filter")
                 state.remaining_batch_size -= 1
                 continue
 
@@ -542,6 +542,8 @@ async def generate_rollout_async(
             if len(data) < target_data_size:
                 data.append(group)
                 pbar.update(args.n_samples_per_prompt)
+            else:
+                SampleOwnershipRecorder.log_dropped_groups(args=args, before=group, after=[], reason="oversampling")
 
     pbar.close()
     sample = data[-1][0][0] if isinstance(data[-1][0], list) else data[-1][0]
@@ -563,9 +565,13 @@ async def generate_rollout_async(
 
     # reset the global state to prevent effects on the next rollout or eval.
     state.reset()
+    before_filter = SampleOwnershipRecorder.flatten_samples(data)
     if (x := args.rollout_sample_filter_path) is not None:
         filter_func = load_function(x)
         filter_func(args, data)
+    SampleOwnershipRecorder.log_dropped_groups(
+        args=args, before=before_filter, after=data, reason="rollout_sample_filter"
+    )
 
     # There can be circumstances where users want to process all samples including filtered ones.
     if (x := args.rollout_all_samples_process_path) is not None:
@@ -725,5 +731,6 @@ def generate_rollout(
         return output
 
     output, aborted_samples = run(generate_rollout_async(args, rollout_id, data_source.get_samples))
-    data_source.add_samples(aborted_samples)
+    if aborted_samples:
+        data_source.add_samples(aborted_samples)
     return output

@@ -1,13 +1,14 @@
 import functools
 import ipaddress
+import json
 import logging
 import os
 import shlex
 
 from sglang.srt.server_args import ServerArgs
 
-from miles.backends.sglang_utils.output_store_config import compute_engine_output_store_extra_config
 from miles.backends.sglang_utils.server_args_utils import server_args_to_argv
+from miles.backends.sglang_utils.sglang_api_client import WorkerType
 from miles.utils.lora.utils import (
     LORA_ADAPTER_NAME,
     engine_loads_adapter_from_disk,
@@ -15,9 +16,15 @@ from miles.utils.lora.utils import (
     lora_base_cpu_backup_enabled,
     lora_rollout_enabled,
 )
+from miles.utils.object_store import MOONCAKE_KEY_PREFIX
+from miles.utils.object_store_config import compute_mooncake_connection_config
 from miles.utils.workers.argv_utils import _record_field_names
 
 logger = logging.getLogger(__name__)
+
+# Arbitrary until measured. Miles' own 32 GiB default sizes trainer-side clients,
+# and every SGLang tokenizer worker allocates one such buffer.
+_ENGINE_OUTPUT_STORE_LOCAL_BUFFER_SIZE = "1gb"
 
 
 def format_v6_uri(addr: str | None) -> str | None:
@@ -40,7 +47,7 @@ def compute_engine_launch_cmd(
     *,
     interpreter_prefix: list[str],
     node_rank: int,
-    worker_type: str,
+    worker_type: WorkerType,
     base_gpu_id: int,
     sglang_overrides: dict,
     num_gpus_per_engine: int,
@@ -84,7 +91,7 @@ def _compute_server_args(
     nccl_port,
     host,
     port,
-    worker_type: str = "regular",
+    worker_type: WorkerType = WorkerType.REGULAR,
     disaggregation_bootstrap_port: int | None,
     base_gpu_id: int,
     engine_info_bootstrap_port: int | None,
@@ -127,21 +134,23 @@ def _compute_server_args(
     if os.environ.get("MILES_SGLANG_DUMMY_LOAD") == "1":
         kwargs["load_format"] = "dummy"
 
-    if worker_type == "prefill":
-        kwargs["disaggregation_mode"] = "prefill"
+    if worker_type == WorkerType.PREFILL:
+        kwargs["disaggregation_mode"] = WorkerType.PREFILL.value
         kwargs.setdefault("load_balance_method", "round_robin")
         assert (
             disaggregation_bootstrap_port is not None
         ), "disaggregation_bootstrap_port must be set for prefill worker"
         kwargs["disaggregation_bootstrap_port"] = disaggregation_bootstrap_port
-    elif worker_type == "decode":
-        kwargs["disaggregation_mode"] = "decode"
+    elif worker_type == WorkerType.DECODE:
+        kwargs["disaggregation_mode"] = WorkerType.DECODE.value
         kwargs["prefill_round_robin_balance"] = True
 
     if args.use_rollout_routing_replay:
         kwargs["enable_return_routed_experts"] = True
     if args.use_rollout_indexer_replay:
         kwargs["enable_return_indexer_topk"] = True
+    if args.sglang_output_store_backend != "none":
+        kwargs["output_store_backend"] = args.sglang_output_store_backend
     if args.fp16:
         kwargs["dtype"] = "float16"
     if engine_info_bootstrap_port is not None:
@@ -187,7 +196,7 @@ def _compute_server_args(
 
     unused_keys = set(kwargs.keys())
     for name in _record_field_names(ServerArgs):
-        if worker_type == "decode" and name == "enable_hierarchical_cache":
+        if worker_type == WorkerType.DECODE and name == "enable_hierarchical_cache":
             continue
         if hasattr(args, f"sglang_{name}") and name not in kwargs:
             kwargs[name] = getattr(args, f"sglang_{name}")
@@ -199,14 +208,15 @@ def _compute_server_args(
         for key in unused_keys:
             kwargs.pop(key)
 
+    # After the group overrides: the eval engines' "none" keeps them out of the store, and the derived
+    # extra config replaces any override of it, because the readers can only read what it describes.
     if kwargs.get("output_store_backend", "none") != "none":
-        if worker_type in ("prefill", "decode"):
-            raise ValueError(
-                f"--sglang-output-store-backend does not support PD disaggregation, but a {worker_type} engine enables it"
-            )
-        # Miles writes the whole extra config: output_store_config states which values win.
-        kwargs["output_store_backend_extra_config"] = compute_engine_output_store_extra_config(
-            args, user_config=kwargs.get("output_store_backend_extra_config"), local_hostname=host.strip("[]")
+        assert worker_type not in (WorkerType.PREFILL, WorkerType.DECODE), (
+            f"--sglang-output-store-backend does not support PD disaggregation, "
+            f"but a {worker_type.value} engine enables it"
+        )
+        kwargs["output_store_backend_extra_config"] = _compute_output_store_extra_config(
+            args, local_hostname=host.strip("[]")
         )
 
     if is_multi_lora_enabled(args):
@@ -220,6 +230,20 @@ def _compute_server_args(
         kwargs["device"] = "cuda"
 
     return kwargs
+
+
+def _compute_output_store_extra_config(args, *, local_hostname: str) -> str:
+    """One engine's ``--output-store-backend-extra-config``: a client of Miles' own Mooncake store."""
+    return json.dumps(
+        {
+            **compute_mooncake_connection_config(args.mooncake_store_init_kwargs or {}),
+            # Mooncake checks a bundle's key against the reader's prefix.
+            "key_prefix": MOONCAKE_KEY_PREFIX,
+            "replica_num": args.mooncake_replica_num,
+            "local_hostname": local_hostname,
+            "local_buffer_size": _ENGINE_OUTPUT_STORE_LOCAL_BUFFER_SIZE,
+        }
+    )
 
 
 @functools.cache

@@ -40,6 +40,8 @@ _SAMPLING_MASK_FIELDS = (
     "output_token_sampling_mask_token_ids",
     "output_token_sampling_logprobs",
 )
+# The inline meta_info keys of the same outputs.
+_INLINE_REPLAY_KEYS = ("routed_experts", "indexer_topk", "output_token_sampling_mask")
 
 
 @dataclass(frozen=True)
@@ -58,20 +60,24 @@ class ReplayOutputs:
 
 
 def output_store_enabled(args: Any) -> bool:
-    # The flag exists only when the installed SGLang has --output-store-backend.
-    return getattr(args, "sglang_output_store_backend", "none") == "mooncake"
+    return args.sglang_output_store_backend != "none"
 
 
 async def resolve_replay_outputs(
-    meta_info: Mapping[str, Any], *, store: BaseObjectStore | None = None
+    meta_info: Mapping[str, Any], *, via_store: bool, store: BaseObjectStore | None = None
 ) -> ReplayOutputs | None:
     """Read and remove the bundle ``meta_info`` references, off the event loop.
 
-    Returns ``None`` for a response without a ref. ``store`` defaults to the
-    process's object store, looked up only when a ref is present.
+    Returns ``None`` for a response without a ref. ``via_store`` says whether the
+    request set ``return_outputs_via_store``; such a request must not get its
+    outputs back inline. ``store`` defaults to the process's object store, looked
+    up only when a ref is present.
     """
     output_store_ref = meta_info.get(OUTPUT_STORE_REF_KEY)
     if output_store_ref is None:
+        if via_store and (inline := [key for key in _INLINE_REPLAY_KEYS if key in meta_info]):
+            # E.g. a router that drops the opt-in; the engine then serves the request inline.
+            raise ValueError(f"the request asked for replay outputs via the output store, but got {inline} inline")
         return None
     store = store if store is not None else object_store.get_instance()
     return await asyncio.to_thread(read_replay_outputs, output_store_ref, store=store)

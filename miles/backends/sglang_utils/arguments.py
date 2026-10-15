@@ -1,8 +1,11 @@
 import argparse
 
 from sglang.srt.server_args import ServerArgs
-from miles.backends.sglang_utils.output_store_config import validate_output_store_args
+from miles.utils.environ import use_legacy_rollout_v1
 from miles.utils.http_utils import wrap_ipv6
+from miles.utils.object_store import ObjectStoreBackend
+from miles.utils.workers.argv_utils import _record_field_names
+from miles.utils.workers.types import ClusterBackend
 
 
 # TODO: use all sglang router arguments with `--sglang-router` prefix
@@ -59,6 +62,9 @@ _SKIPPED_SERVER_ARGS = [
     "skip_server_warmup",
     "enable_return_routed_experts",
     "enable_return_indexer_topk",
+    # Set from --sglang-output-store-backend, declared below.
+    "output_store_backend",
+    "output_store_backend_extra_config",
 ]
 
 # tp_size comes from --eval-num-gpus-per-engine, which also places the engines.
@@ -152,6 +158,17 @@ def add_sglang_arguments(parser):
     """
     parser = add_sglang_router_arguments(parser)
     parser.add_argument("--sglang-server-concurrency", type=int, default=512)
+    parser.add_argument(
+        "--sglang-output-store-backend",
+        type=str,
+        choices=("none", "mooncake"),
+        default="none",
+        help=(
+            "Return training requests' replay outputs (routed experts, indexer top-k, sampling mask) through "
+            "SGLang's output store instead of inline. 'mooncake' makes every rollout engine a client of Miles' "
+            "Mooncake object store; Miles sets the engines' --output-store-backend and its extra config."
+        ),
+    )
 
     _add_prefixed_server_args(
         parser, flag_prefix="sglang", dest_prefix="sglang_", skipped_args=_SKIPPED_SERVER_ARGS, inherit=False
@@ -186,10 +203,18 @@ def add_sglang_arguments(parser):
 def validate_args(args):
     args.sglang_tp_size = args.rollout_num_gpus_per_engine
 
+    if getattr(args, "loss_type", None) == "score_centering":
+        # Score centering forces the base LM-head setting on, overriding the parsed
+        # value to avoid lower-precision logits rounding before rollout probabilities.
+        # This trades serving compute/memory for precision; per-engine overrides still win.
+        args.sglang_enable_fp32_lm_head = True
+
     if args.true_on_policy_mode:
+        # True on-policy mode overrides the parsed setting to keep inference deterministic.
         args.sglang_enable_deterministic_inference = True
 
     if getattr(args, "recompute_logprobs_via_prefill", False):
+        # Prefill logprob recomputation overrides both parsed settings for deterministic scoring.
         args.sglang_enable_prefill_only_deterministic_inference = True
         args.sglang_enable_deterministic_inference = True
 
@@ -207,4 +232,27 @@ def validate_args(args):
     if getattr(args, "sglang_router_ip", None):
         args.sglang_router_ip = wrap_ipv6(args.sglang_router_ip)
 
-    validate_output_store_args(args)
+    _validate_output_store_args(args)
+
+
+def _validate_output_store_args(args) -> None:
+    if args.sglang_output_store_backend == "none":
+        return
+    flag = f"--sglang-output-store-backend {args.sglang_output_store_backend}"
+    assert "output_store_backend" in _record_field_names(
+        ServerArgs
+    ), f"{flag} needs an SGLang with --output-store-backend"
+    assert ObjectStoreBackend(args.object_store_backend) == ObjectStoreBackend.MOONCAKE, (
+        f"{flag} needs --object-store-backend mooncake: the rollout executor and the session server "
+        "read the engines' outputs through that store"
+    )
+    assert (
+        args.use_rollout_routing_replay or args.use_rollout_indexer_replay or args.use_sampling_support_replay
+    ), f"{flag} only moves replay outputs; enable routing, indexer or sampling-support replay"
+    assert args.prefill_num_servers is None, f"{flag} does not support PD disaggregation yet"
+    assert not args.rollout_external, f"{flag} supports only the engines Miles launches"
+    # TODO: pass each pod's IP as the engine's local_hostname; the launcher renders --host 0.0.0.0.
+    assert (
+        ClusterBackend(args.cluster_backend) == ClusterBackend.RAY
+    ), f"{flag} does not support --cluster-backend {args.cluster_backend} yet"
+    assert not use_legacy_rollout_v1(), f"{flag} needs the class-based rollout API; unset MILES_USE_LEGACY_ROLLOUT_V1"

@@ -39,6 +39,7 @@ def test_generate_payload_automatically_requests_sampling_mask(
         rollout_max_context_len=None,
         use_rollout_routing_replay=False,
         use_rollout_indexer_replay=False,
+        sglang_output_store_backend="none",
         rollout_top_logprobs_num=0,
         rollout_sampling_logprobs_mode="selected",
     )

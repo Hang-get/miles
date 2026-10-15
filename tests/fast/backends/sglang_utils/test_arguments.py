@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import argparse
-
+import dataclasses
+from types import SimpleNamespace
 
 import pytest
 
@@ -9,7 +10,8 @@ pytest.importorskip("sglang")
 
 from sglang.srt.server_args import ServerArgs
 
-from miles.backends.sglang_utils.arguments import add_sglang_arguments, collect_eval_sglang_overrides
+from miles.backends.sglang_utils import arguments
+from miles.backends.sglang_utils.arguments import add_sglang_arguments, collect_eval_sglang_overrides, validate_args
 from miles.utils.workers.argv_utils import _record_field_names
 
 
@@ -66,3 +68,86 @@ class TestAllocatorOwnedServerArgs:
     def test_the_skipped_launch_gate_port_names_a_real_server_args_field(self):
         """A renamed upstream field would leave the skip entry stale and quietly re-expose the flag."""
         assert "gated_launch_port" in set(_record_field_names(ServerArgs))
+
+
+@pytest.mark.parametrize("loss_type", ["score_centering", "policy_loss", "sft_loss", None])
+@pytest.mark.parametrize("explicit_fp32", [False, True])
+def test_score_centering_enables_fp32_lm_head(loss_type: str | None, explicit_fp32: bool) -> None:
+    args = _parse_sglang_args(["--sglang-enable-fp32-lm-head"] if explicit_fp32 else [])
+    args.loss_type = loss_type
+    args.rollout_num_gpus_per_engine = 1
+    args.true_on_policy_mode = False
+    args.use_session_server = False
+
+    validate_args(args)
+
+    assert args.sglang_enable_fp32_lm_head is (explicit_fp32 or loss_type == "score_centering")
+
+
+class TestOutputStoreArgs:
+    def test_miles_declares_the_flag_and_derives_the_engine_args(self):
+        """Miles sets both engine args from its own store config, so neither passes through from the cli."""
+        flags = _sglang_flags()
+
+        assert "--sglang-output-store-backend" in flags
+        for flag in (
+            "--sglang-output-store-backend-extra-config",
+            "--eval-sglang-output-store-backend",
+            "--eval-sglang-output-store-backend-extra-config",
+        ):
+            assert flag not in flags
+        assert _parse_sglang_args([]).sglang_output_store_backend == "none"
+
+    @staticmethod
+    def _args(**overrides: object) -> SimpleNamespace:
+        values = dict(
+            sglang_output_store_backend="mooncake",
+            object_store_backend="mooncake",
+            use_rollout_routing_replay=True,
+            use_rollout_indexer_replay=False,
+            use_sampling_support_replay=False,
+            prefill_num_servers=None,
+            rollout_external=False,
+            cluster_backend="ray",
+        )
+        return SimpleNamespace(**(values | overrides))
+
+    @pytest.fixture
+    def sglang_with_output_store(self, monkeypatch):
+        server_args_type = dataclasses.make_dataclass("ServerArgs", [("output_store_backend", str)])
+        monkeypatch.setattr(arguments, "ServerArgs", server_args_type)
+        monkeypatch.delenv("MILES_USE_LEGACY_ROLLOUT_V1", raising=False)
+
+    def test_a_run_whose_readers_can_reach_the_store_passes(self, sglang_with_output_store):
+        arguments._validate_output_store_args(self._args())
+
+    @pytest.mark.parametrize(
+        ("overrides", "match"),
+        [
+            ({"object_store_backend": "ray"}, "--object-store-backend mooncake"),
+            ({"use_rollout_routing_replay": False}, "enable routing, indexer or sampling-support replay"),
+            ({"prefill_num_servers": 1}, "PD disaggregation"),
+            ({"rollout_external": True}, "engines Miles launches"),
+            ({"cluster_backend": "kubernetes"}, "--cluster-backend kubernetes"),
+        ],
+    )
+    def test_an_unsupported_run_fails_at_startup(self, sglang_with_output_store, overrides, match):
+        with pytest.raises(AssertionError, match=match):
+            arguments._validate_output_store_args(self._args(**overrides))
+
+    def test_the_legacy_rollout_fails_at_startup(self, sglang_with_output_store, monkeypatch):
+        monkeypatch.setenv("MILES_USE_LEGACY_ROLLOUT_V1", "1")
+
+        with pytest.raises(AssertionError, match="MILES_USE_LEGACY_ROLLOUT_V1"):
+            arguments._validate_output_store_args(self._args())
+
+    def test_an_sglang_without_the_output_store_fails_at_startup(self, monkeypatch):
+        monkeypatch.setattr(arguments, "ServerArgs", dataclasses.make_dataclass("ServerArgs", [("port", int)]))
+
+        with pytest.raises(AssertionError, match="needs an SGLang with --output-store-backend"):
+            arguments._validate_output_store_args(self._args())
+
+    def test_nothing_is_checked_while_the_backend_is_off(self):
+        arguments._validate_output_store_args(
+            self._args(sglang_output_store_backend="none", object_store_backend="ray")
+        )
