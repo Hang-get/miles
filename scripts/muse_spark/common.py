@@ -24,6 +24,7 @@ Args:
     max_tokens_per_gpu: Token budget per GPU of a dynamic training batch.
     sglang_mem_fraction_static / sglang_max_running_requests / sglang_cuda_graph_bs_decode: Engine memory
         fraction, running requests per engine, and decode CUDA graph batch sizes.
+    pin_rollout_manager_to_head: Run the rollout executor, router and session servers on the Ray head node.
     log_probs_chunk_size: Defaults 4096; -1 disables log-prob chunking.
     sglang_text_only: Serve only the language model from the omni checkpoint; defaults False.
     vlm: Train on geo3k images instead of DAPO-Math (frozen vision tower); defaults False.
@@ -61,6 +62,8 @@ class ScriptArgs(U.ExecuteTrainConfig):
     # Per engine; SGLang splits it across attention-DP ranks when --sglang-dp-size > 1.
     sglang_max_running_requests: int
     sglang_cuda_graph_bs_decode: tuple[int, ...]
+    # Runs the rollout executor, router and session servers on the Ray head node.
+    pin_rollout_manager_to_head: bool
     run_id: str = field(default_factory=U.create_run_id)
     model_org: str = "meta-models"
     model_name: str = "Muse-Spark-Open-816B-A42B"
@@ -314,6 +317,8 @@ def execute(args: ScriptArgs, entry_script: str):
         f"--num-gpus-per-node {args.num_gpus_per_node} "
         f"--update-weight-buffer-size {args.update_weight_buffer_size} "
     )
+    if args.pin_rollout_manager_to_head:
+        misc_args += "--pin-rollout-manager-to-head "
 
     train_args = (
         f"{ckpt_args} "

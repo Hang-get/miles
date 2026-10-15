@@ -29,6 +29,7 @@ class ScriptArgs(common.ScriptArgs):
     sglang_mem_fraction_static: float = 0.8
     sglang_max_running_requests: int = 64
     sglang_cuda_graph_bs_decode: tuple[int, ...] = (1, 2, 4, 8, 16, 32, 64)
+    pin_rollout_manager_to_head: bool = False
 
 
 @U.dataclass_cli

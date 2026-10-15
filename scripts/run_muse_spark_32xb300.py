@@ -30,6 +30,8 @@ class ScriptArgs(common.ScriptArgs):
     sglang_mem_fraction_static: float = 0.83
     sglang_max_running_requests: int = 128
     sglang_cuda_graph_bs_decode: tuple[int, ...] = (1, 2, 4, 8, 16, 32, 48, 64, 96, 128)
+    # As in the validated 30-step B300 run.
+    pin_rollout_manager_to_head: bool = True
 
 
 @U.dataclass_cli

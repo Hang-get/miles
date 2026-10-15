@@ -140,6 +140,7 @@ def test_dapo_recipe_survives_megatron_validation(monkeypatch, tmp_path, counts,
     assert not args.sglang_disable_cuda_graph and args.sglang_mem_fraction_static == mem_fraction
     assert args.sglang_max_running_requests == running and args.sglang_cuda_graph_bs_decode == graph_bs
     assert args.save_debug_rollout_data.endswith("/rollout_data/{rollout_id}.pt")
+    assert args.pin_rollout_manager_to_head == (script == _B300)
 
 
 @pytest.mark.parametrize("script,layout", [(_H200, (8, 8, 1, 8, 7)), (_B300, (8, 4, 1, 8, 15))])
