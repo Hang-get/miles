@@ -1933,6 +1933,29 @@ def test_stream_optimizer_state_to_disk_rejects_fault_tolerant_training():
         miles_validate_args(args)
 
 
+def test_debug_rollout_only_drops_the_disk_offload_target_of_the_trainer_it_skips():
+    """A colocated disk-offload recipe reused for a rollout-only run failed on the trainer's offload target."""
+    parser = argparse.ArgumentParser()
+    get_miles_extra_args_provider()(parser)
+    args = parser.parse_args(
+        [
+            "--debug-rollout-only",
+            "--colocate",
+            "--offload-train-target",
+            "disk",
+            "--num-rollout",
+            "1",
+        ]
+        + REQUIRED_ARGS
+    )
+    _set_megatron_parallel_sizes(args)
+
+    miles_validate_args(args)
+
+    assert args.offload_train is False
+    assert args.offload_train_target == "cpu"
+
+
 @pytest.mark.parametrize(
     ("megatron_args", "match"),
     [

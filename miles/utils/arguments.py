@@ -3781,6 +3781,9 @@ def miles_validate_args(args):
             args.actor_num_nodes = args.rollout_num_gpus // args.actor_num_gpus_per_node
         args.colocate = False
         args.offload_train = args.offload_rollout = False
+        # The forced value wins over the user's: no trainer runs, so a disk target would only trip
+        # its --offload-train requirement on a recipe reused for a rollout-only run.
+        args.offload_train_target = "cpu"
         if args.train_memory_margin_bytes > 0:
             logger.warning("Force train_memory_margin_bytes=0 since debug_rollout_only does not support it")
             args.train_memory_margin_bytes = 0
