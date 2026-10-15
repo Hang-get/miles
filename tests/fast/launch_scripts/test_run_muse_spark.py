@@ -15,12 +15,13 @@ _HARDWARE = {
     _H200: (8, 16, 4096, 0.8, 64, [1, 2, 4, 8, 16, 32, 64]),
     _B300: (4, 8, 8192, 0.83, 128, [1, 2, 4, 8, 16, 32, 48, 64, 96, 128]),
 }
-_LAYOUTS = {
-    "tp8_pp8_cp1": (8, 8, 1, 8, 7),
-    "tp4_pp8_cp2": (4, 8, 2, 8, 7),
-    "tp4_pp4_cp4_ep16": (4, 4, 4, 16, 15),
-    "tp8_pp4_cp1": (8, 4, 1, 8, 15),
-}
+_LAYOUT_FIELDS = (
+    "tensor_model_parallel_size",
+    "pipeline_model_parallel_size",
+    "context_parallel_size",
+    "expert_model_parallel_size",
+    "decoder_first_last_pipeline_num_layers",
+)
 
 
 def _train_args(monkeypatch, launcher, **kwargs) -> tuple[list[str], dict]:
@@ -34,14 +35,15 @@ def _train_args(monkeypatch, launcher, **kwargs) -> tuple[list[str], dict]:
     return shlex.split(call["train_args"]), call
 
 
+# Layouts as (TP, PP, CP, EP, layers on each edge stage); None keeps the entry point's own.
 @pytest.mark.parametrize(
     "script,layout,optimizer",
     [
-        (_H200, "tp8_pp8_cp1", "adam"),
-        (_H200, "tp4_pp8_cp2", "muon"),
-        (_H200, "tp4_pp4_cp4_ep16", "muon"),
-        (_B300, "tp8_pp4_cp1", "adam"),
-        (_B300, "tp8_pp4_cp1", "muon"),
+        (_H200, None, "adam"),
+        (_H200, (4, 8, 2, 8, 7), "muon"),
+        (_H200, (4, 4, 4, 16, 15), "muon"),
+        (_B300, None, "adam"),
+        (_B300, None, "muon"),
     ],
 )
 @pytest.mark.parametrize("counts", [(3, 8, 8), (100, 32, 16)])
@@ -53,14 +55,18 @@ def test_dapo_recipe_survives_megatron_validation(monkeypatch, tmp_path, counts,
     launcher = import_launch_script(U.repo_base_dir / script)
     template = tmp_path / "chat.jinja"
     template.write_text("{{ messages }}")
+    defaults = launcher.ScriptArgs()
+    if layout is None:
+        layout = tuple(getattr(defaults, name) for name in _LAYOUT_FIELDS)
+    use_r3 = script == _B300 or layout[2] > 1
     tokens, call = _train_args(
         monkeypatch,
         launcher,
-        training_layout=layout,
+        **dict(zip(_LAYOUT_FIELDS, layout, strict=True)),
         optimizer=optimizer,
         reasoning_effort="xhigh" if optimizer == "muon" else None,
         rollout_max_response_len=4096 if optimizer == "muon" else 2048,
-        use_rollout_routing_replay=layout != "tp8_pp8_cp1",
+        use_rollout_routing_replay=use_r3,
         num_rollout=counts[0],
         rollout_batch_size=counts[1],
         n_samples_per_prompt=counts[2],
@@ -91,11 +97,11 @@ def test_dapo_recipe_survives_megatron_validation(monkeypatch, tmp_path, counts,
     if optimizer == "muon":
         assert args.apply_chat_template_kwargs["reasoning_effort"] == "xhigh"
     assert args.use_dynamic_batch_size and args.max_tokens_per_gpu == max_tokens
-    assert args.use_rollout_routing_replay == (layout != "tp8_pp8_cp1")
+    assert args.use_rollout_routing_replay == use_r3
     assert args.use_routing_replay == args.use_rollout_routing_replay
     assert args.num_rollout == counts[0] and args.num_steps_per_rollout == 1
     assert args.dynamic_sampling_filter_path is None and not args.use_wandb
-    tp, pp, cp, ep, edge_layers = _LAYOUTS[layout]
+    tp, pp, cp, ep, edge_layers = layout
     assert (args.tensor_model_parallel_size, args.pipeline_model_parallel_size, args.expert_model_parallel_size) == (
         tp,
         pp,
@@ -136,19 +142,25 @@ def test_dapo_recipe_survives_megatron_validation(monkeypatch, tmp_path, counts,
     assert args.save_debug_rollout_data.endswith("/rollout_data/{rollout_id}.pt")
 
 
-@pytest.mark.parametrize("script,hardware,layout", [(_H200, "H200", "tp8_pp8_cp1"), (_B300, "B300", "tp8_pp4_cp1")])
-def test_entry_point_fills_the_profile_of_its_hardware(script, hardware, layout):
+@pytest.mark.parametrize("script,layout", [(_H200, (8, 8, 1, 8, 7)), (_B300, (8, 4, 1, 8, 15))])
+def test_entry_point_sets_its_cluster_and_engine_sizing(script, layout):
     args = import_launch_script(U.repo_base_dir / script).ScriptArgs()
-    num_nodes, _, max_tokens, mem_fraction, running, _ = _HARDWARE[script]
-    assert (args.hardware, args.num_nodes, args.training_layout) == (hardware, num_nodes, layout)
+    num_nodes, gpus_per_engine, max_tokens, mem_fraction, running, graph_bs = _HARDWARE[script]
+    assert (args.num_nodes, args.num_gpus_per_node, args.rollout_num_gpus_per_engine) == (
+        num_nodes,
+        8,
+        gpus_per_engine,
+    )
+    assert tuple(getattr(args, name) for name in _LAYOUT_FIELDS) == layout
     assert (args.max_tokens_per_gpu, args.sglang_mem_fraction_static, args.sglang_max_running_requests) == (
         max_tokens,
         mem_fraction,
         running,
     )
+    assert list(args.sglang_cuda_graph_bs_decode) == graph_bs
 
 
-def test_explicit_runtime_values_override_the_profile():
+def test_explicit_values_override_the_entry_point():
     args = import_launch_script(U.repo_base_dir / _B300).ScriptArgs(
         max_tokens_per_gpu=4096, sglang_mem_fraction_static=0.8, sglang_max_running_requests=64
     )
@@ -159,14 +171,10 @@ def test_explicit_runtime_values_override_the_profile():
     )
 
 
-def test_layouts_and_node_counts_stay_with_their_hardware():
+def test_the_shared_recipe_takes_cluster_values_only_from_an_entry_point():
     common = import_launch_script(U.repo_base_dir / _B300).common
-    with pytest.raises(ValueError, match="tp8_pp4_cp1"):
-        common.ScriptArgs(hardware="B300", training_layout="tp8_pp8_cp1")
-    with pytest.raises(ValueError, match="tp4_pp4_cp4_ep16"):
-        common.ScriptArgs(hardware="H200", training_layout="tp8_pp4_cp1")
-    with pytest.raises(ValueError, match="4 nodes"):
-        common.ScriptArgs(hardware="B300", num_nodes=8)
+    with pytest.raises(TypeError, match="num_nodes"):
+        common.ScriptArgs()
 
 
 @pytest.mark.parametrize("script", [_H200, _B300])

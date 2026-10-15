@@ -1,26 +1,29 @@
 """Train full Muse Spark with GRPO: DAPO-Math-17k, or Geometry3K images with --vlm.
 
-The recipe is shared; --hardware picks the node count, the parallel layouts and the engine sizing (HARDWARE_PROFILES).
-Entry points: scripts/run_muse_spark_64xh200.py (8 nodes of 8 H200) and scripts/run_muse_spark_32xb300.py (4 nodes
-of 8 B300). Requires storage shared by all nodes under model_dir (and under output_dir to save weights), and
+The recipe is shared by the entry points scripts/run_muse_spark_<gpus>x<hardware>.py, which set the cluster size,
+parallelism and engine sizing; this module only inserts those values. Requires storage shared by all nodes under model_dir (and under output_dir to save weights), and
 Muse-enabled Megatron/SGLang on every node. Join the Ray cluster before running with MILES_SCRIPT_EXTERNAL_RAY=1;
 the first run downloads the HF checkpoint and converts it into an adjacent _torch_dist release on that cluster.
 Adam streams optimizer state to node-local NVMe; Muon keeps state/master weights on CPU and computes
 updates in GPU chunks. Each rollout performs one update.
 
 Args:
-    hardware: H200 or B300.
     model_org / model_dir / model_name: HF repository <model_org>/<model_name>, downloaded to
         <model_dir>/<model_name>; its _torch_dist release is written next to it.
     data_dir / output_dir: Dataset root and run output root.
-    training_layout: H200: tp8_pp8_cp1 (default), tp4_pp8_cp2, or tp4_pp4_cp4_ep16; B300: tp8_pp4_cp1.
+    num_nodes / num_gpus_per_node: Cluster size.
+    tensor/pipeline/context/expert_model_parallel_size, decoder_first_last_pipeline_num_layers: Training layout;
+        the last is the decoder layer count of the first and of the last pipeline stage.
+    rollout_num_gpus_per_engine: GPUs per colocated SGLang engine, which is also its expert-parallel size.
     optimizer / learning_rate: adam or muon, with learning rate 1e-6.
     offload_train_disk_dir: Node-local NVMe for Adam's streamed optimizer state; unset keeps the Miles
         default under $SCRATCH (/scratch).
     num_rollout / rollout_batch_size / n_samples_per_prompt: Rollouts, prompts per rollout, samples per prompt.
     use_dynamic_sampling_filter: Keep only nonconstant-reward groups.
     rollout_max_response_len / rollout_max_context_len: Response and prompt-plus-response token limits.
-    max_tokens_per_gpu / sglang_mem_fraction_static / sglang_max_running_requests: Default to the hardware profile.
+    max_tokens_per_gpu: Token budget per GPU of a dynamic training batch.
+    sglang_mem_fraction_static / sglang_max_running_requests / sglang_cuda_graph_bs_decode: Engine memory
+        fraction, running requests per engine, and decode CUDA graph batch sizes.
     log_probs_chunk_size: Defaults 4096; -1 disables log-prob chunking.
     sglang_text_only: Serve only the language model from the omni checkpoint; defaults False.
     vlm: Train on geo3k images instead of DAPO-Math (frozen vision tower); defaults False.
@@ -42,55 +45,22 @@ from typing import Literal
 import miles.utils.external_utils.command_utils.legacy as U
 
 
-@dataclass(frozen=True)
-class HardwareProfile:
+@dataclass(kw_only=True)
+class ScriptArgs(U.ExecuteTrainConfig):
+    # Set by the entry point for its hardware and GPU count.
     num_nodes: int
-    # training_layout -> tensor, pipeline, context, expert parallel sizes and the decoder layers on the first/last
-    # stage; the first entry is the default.
-    layouts: dict[str, tuple[int, int, int, int, int]]
-    gpus_per_engine: int
+    num_gpus_per_node: int
+    tensor_model_parallel_size: int
+    pipeline_model_parallel_size: int
+    context_parallel_size: int
+    expert_model_parallel_size: int
+    decoder_first_last_pipeline_num_layers: int
+    rollout_num_gpus_per_engine: int
     max_tokens_per_gpu: int
     sglang_mem_fraction_static: float
     # Per engine; SGLang splits it across attention-DP ranks when --sglang-dp-size > 1.
     sglang_max_running_requests: int
     sglang_cuda_graph_bs_decode: tuple[int, ...]
-
-
-# Everything outside these profiles is the same recipe on every hardware. Both run 4 colocated engines.
-HARDWARE_PROFILES = {
-    "H200": HardwareProfile(
-        num_nodes=8,
-        layouts={
-            "tp8_pp8_cp1": (8, 8, 1, 8, 7),
-            "tp4_pp8_cp2": (4, 8, 2, 8, 7),
-            "tp4_pp4_cp4_ep16": (4, 4, 4, 16, 15),
-        },
-        gpus_per_engine=16,
-        max_tokens_per_gpu=4096,
-        sglang_mem_fraction_static=0.8,
-        sglang_max_running_requests=64,
-        sglang_cuda_graph_bs_decode=(1, 2, 4, 8, 16, 32, 64),
-    ),
-    # One node holds an engine (288 GB per GPU); four pipeline stages of 15/16/16/15 layers train. The KV pool at
-    # 0.83 covers 128 running requests per engine, which is all 512 samples of a rollout across 4 engines.
-    "B300": HardwareProfile(
-        num_nodes=4,
-        layouts={"tp8_pp4_cp1": (8, 4, 1, 8, 15)},
-        gpus_per_engine=8,
-        max_tokens_per_gpu=8192,
-        sglang_mem_fraction_static=0.83,
-        sglang_max_running_requests=128,
-        sglang_cuda_graph_bs_decode=(1, 2, 4, 8, 16, 32, 48, 64, 96, 128),
-    ),
-}
-
-
-@dataclass
-class ScriptArgs(U.ExecuteTrainConfig):
-    hardware: Literal["H200", "B300"] = "H200"
-    # Defaults to the hardware profile, which is the only node count its layouts fit.
-    num_nodes: int | None = None
-    num_gpus_per_node: int = 8
     run_id: str = field(default_factory=U.create_run_id)
     model_org: str = "meta-models"
     model_name: str = "Muse-Spark-Open-816B-A42B"
@@ -98,7 +68,6 @@ class ScriptArgs(U.ExecuteTrainConfig):
     model_dir: str = "/root/models"
     data_dir: str = "/root/datasets"
     megatron_path: str = "/root/Megatron-LM"
-    training_layout: Literal["tp8_pp8_cp1", "tp4_pp8_cp2", "tp4_pp4_cp4_ep16", "tp8_pp4_cp1"] | None = None
     optimizer: Literal["adam", "muon"] = "adam"
     learning_rate: float = 1e-6
     num_rollout: int = 30
@@ -108,16 +77,13 @@ class ScriptArgs(U.ExecuteTrainConfig):
     rollout_max_response_len: int = 4096
     rollout_max_context_len: int = 8192
     use_dynamic_batch_size: bool = True
-    max_tokens_per_gpu: int | None = None
     log_probs_chunk_size: int = 4096
     use_rollout_routing_replay: bool = True
     update_weight_buffer_size: int = 2 * 1024**3
     reasoning_effort: Literal["low", "medium", "high", "xhigh"] | None = "xhigh"
     chat_template_path: str | None = None
     offload_train_disk_dir: str | None = None
-    sglang_mem_fraction_static: float | None = None
     sglang_enable_dp_attention: bool = False
-    sglang_max_running_requests: int | None = None
     # Serve only the language model (skips the vision/audio towers of the omni checkpoint).
     sglang_text_only: bool = False
     # Image-grounded math on geo3k (scripts/muse_spark/prepare_geo3k.py under data_dir/geo3k): the
@@ -130,18 +96,6 @@ class ScriptArgs(U.ExecuteTrainConfig):
     extra_args: str = ""
 
     def __post_init__(self):
-        profile = HARDWARE_PROFILES[self.hardware]
-        if self.num_nodes is None:
-            self.num_nodes = profile.num_nodes
-        if self.num_nodes != profile.num_nodes or self.num_gpus_per_node != 8:
-            raise ValueError(f"Full-model layouts on {self.hardware} require {profile.num_nodes} nodes of 8 GPUs")
-        if self.training_layout is None:
-            self.training_layout = next(iter(profile.layouts))
-        if self.training_layout not in profile.layouts:
-            raise ValueError(f"--training-layout on {self.hardware} is one of {', '.join(profile.layouts)}")
-        for name in ("max_tokens_per_gpu", "sglang_mem_fraction_static", "sglang_max_running_requests"):
-            if getattr(self, name) is None:
-                setattr(self, name, getattr(profile, name))
         if self.optimizer == "muon" and self.offload_train_disk_dir is not None:
             raise ValueError("--offload-train-disk-dir requires --optimizer adam")
         if self.vlm and self.sglang_text_only:
@@ -156,14 +110,6 @@ class ScriptArgs(U.ExecuteTrainConfig):
                 if self.vlm
                 else f"{self.model_dir}/{self.model_name}/chat_template.jinja"
             )
-
-    @property
-    def profile(self) -> HardwareProfile:
-        return HARDWARE_PROFILES[self.hardware]
-
-    @property
-    def layout(self) -> tuple[int, int, int, int, int]:
-        return self.profile.layouts[self.training_layout]
 
     @property
     def run_dir(self) -> str:
@@ -189,14 +135,19 @@ def prepare(args: ScriptArgs):
     # Converts on all Ray nodes into <model_dir>/<model_name>_torch_dist; skipped once that release exists.
     # The release loads into any layout. Tensor/context parallelism would need CUDA_DEVICE_MAX_CONNECTIONS=1 on
     # every Ray node, so the conversion keeps only the pipeline and expert split of the training layout.
-    _, pp, _, ep, edge_layers = args.layout
     U.convert_checkpoint(
         model_name=args.model_name,
         megatron_model_type=args.megatron_model_type,
         num_gpus_per_node=args.num_gpus_per_node,
         multinode=True,
         num_nodes=args.num_nodes,
-        extra_args=_model_parallel_args(tp=1, pp=pp, cp=1, ep=ep, edge_layers=edge_layers),
+        extra_args=_model_parallel_args(
+            tp=1,
+            pp=args.pipeline_model_parallel_size,
+            cp=1,
+            ep=args.expert_model_parallel_size,
+            edge_layers=args.decoder_first_last_pipeline_num_layers,
+        ),
         dir_dst=args.model_dir,
         hf_checkpoint=str(hf_checkpoint),
         megatron_path=args.megatron_path,
@@ -274,8 +225,13 @@ def execute(args: ScriptArgs, entry_script: str):
     )
     if args.use_rollout_routing_replay:
         grpo_args += "--use-rollout-routing-replay "
-    perf_args = (
-        f"{_model_parallel_args(*args.layout)}"
+    perf_args = _model_parallel_args(
+        tp=args.tensor_model_parallel_size,
+        pp=args.pipeline_model_parallel_size,
+        cp=args.context_parallel_size,
+        ep=args.expert_model_parallel_size,
+        edge_layers=args.decoder_first_last_pipeline_num_layers,
+    ) + (
         "--sequence-parallel "
         "--qkv-format thd "
         "--seq-length 8192 "
@@ -325,8 +281,8 @@ def execute(args: ScriptArgs, entry_script: str):
         "--offload-train "
         "--offload-rollout "
         f"--offload-train-target {'disk' if args.optimizer == 'adam' else 'cpu'} "
-        f"--rollout-num-gpus-per-engine {args.profile.gpus_per_engine} "
-        f"--sglang-ep-size {args.profile.gpus_per_engine} "
+        f"--rollout-num-gpus-per-engine {args.rollout_num_gpus_per_engine} "
+        f"--sglang-ep-size {args.rollout_num_gpus_per_engine} "
         "--sglang-pp-size 1 "
         f"--sglang-dtype bfloat16 --sglang-mem-fraction-static {args.sglang_mem_fraction_static} "
         # SGLang would otherwise pick an FP8 KV cache, which widens the rollout/trainer log-prob gap.
@@ -334,7 +290,7 @@ def execute(args: ScriptArgs, entry_script: str):
         "--sglang-chunked-prefill-size 1024 "
         f"--sglang-context-length {args.rollout_max_context_len} "
         "--sglang-router-policy round_robin "
-        f"--sglang-cuda-graph-bs-decode {' '.join(map(str, args.profile.sglang_cuda_graph_bs_decode))} "
+        f"--sglang-cuda-graph-bs-decode {' '.join(map(str, args.sglang_cuda_graph_bs_decode))} "
         "--sglang-cuda-graph-backend-prefill disabled "
         f"--sglang-max-running-requests {args.sglang_max_running_requests} "
     )
