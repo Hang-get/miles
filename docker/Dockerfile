@@ -247,7 +247,7 @@ RUN bash /tmp/install-kube-tools.sh "${TARGETARCH}" && rm -f /tmp/install-kube-t
 
 # ====================================== Install main package ============================================
 
-ARG MILES_COMMIT=5aff2cb1109c4eb35708901c782f62c38925d93e
+ARG MILES_COMMIT=b31559fe131bd9ef742f2a744f7742379915458e
 RUN git clone https://github.com/radixark/miles.git /root/miles && \
     cd /root/miles && \
     git checkout ${MILES_COMMIT} && \
