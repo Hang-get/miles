@@ -810,6 +810,27 @@ async def test_two_roots_yield_two_samples(core):
     assert [first.reward, second.reward] == [None, None]
 
 
+async def test_each_leaf_path_mismatch_is_computed_once(core, monkeypatch):
+    """The latest generation is a leaf, so its sample reuses the session metadata's mismatch
+    instead of re-rendering and re-tokenizing the same path."""
+    sid, state = await _fresh_state(core)
+    _fabricate_node(state, None, _single_turn_record([1, 2, 3], [10, 11]), [1, 2, 3, 10, 11], completion_span=(3, 5))
+    _fabricate_node(state, None, _single_turn_record([7, 8], [70, 71]), [7, 8, 70, 71], completion_span=(2, 4))
+    rendered_paths = []
+    compute_mismatch = core.registry.compute_mismatch
+
+    def recording_compute_mismatch(messages, token_ids, *, turn_args):
+        rendered_paths.append(list(token_ids))
+        return compute_mismatch(messages, token_ids, turn_args=turn_args)
+
+    monkeypatch.setattr(core.registry, "compute_mismatch", recording_compute_mismatch)
+
+    status, _ = await _collect_via_op(core, sid)
+
+    assert status == 200
+    assert sorted(rendered_paths) == [[1, 2, 3, 10, 11], [7, 8, 70, 71]]
+
+
 @pytest.mark.parametrize("core_name", ["core", "same_prompt_core"])
 async def test_resent_first_turn_root_is_trimmed(core_name, request):
     """A re-sent first turn opens a root with the same prompt; both pickers trim the abandoned root."""
@@ -1045,6 +1066,26 @@ async def test_duplicate_picker_maps_to_422(core):
 
 def _exploding_postprocessor(picked_samples, session_metadata):
     raise RuntimeError("postprocess bug")
+
+
+def _clear_session_mismatch(picked_samples, session_metadata):
+    session_metadata["tito_session_mismatch"].clear()
+    return picked_samples
+
+
+async def test_postprocessor_editing_session_mismatch_keeps_the_latest_sample_mismatch(monkeypatch):
+    """The latest leaf reuses the session's mismatch; a hook editing the session's must not change the sample's."""
+    with function_registry.temporary("test_hooks.clear_mismatch", _clear_session_mismatch):
+        hooked = _build_core_with_hooks(session_sample_postprocessor_path="test_hooks.clear_mismatch")
+        monkeypatch.setattr(hooked.registry, "compute_mismatch", lambda *args, **kwargs: [{"type": "planted"}])
+        sid = await _rolled_back_session(hooked)
+
+        response = await hooked.collect_samples(sid, max_seq_len=None)
+
+        assert response.status_code == 200
+        reply = decode_samples_and_merge_input_sample(bytes(response.body), Sample(), fields=COMPUTED_FIELDS_V2)
+        (sample,) = reply.samples
+        assert sample.metadata["tito_session_mismatch"] == [{"type": "planted"}]
 
 
 class TestConfiguredPostprocessor:
