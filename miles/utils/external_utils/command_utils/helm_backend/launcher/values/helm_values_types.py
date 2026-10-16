@@ -14,7 +14,6 @@ from miles.utils.workers.env_vars import (
     CELL_INDEX_ENV_VAR,
     NAMESPACE_ENV_VAR,
     POD_INDEX_ENV_VAR,
-    POD_IP_ENV_VAR,
     RELEASE_ENV_VAR,
 )
 from miles.utils.workers.naming import (
@@ -35,7 +34,6 @@ _PLATFORM_OWNED_ENV_VARS = [
     "PYTHONPATH",
     CELL_INDEX_ENV_VAR,
     POD_INDEX_ENV_VAR,
-    POD_IP_ENV_VAR,
     BASE_GPU_ID_ENV_VAR,
     NAMESPACE_ENV_VAR,
     RELEASE_ENV_VAR,
