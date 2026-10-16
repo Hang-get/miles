@@ -1436,16 +1436,6 @@ def get_miles_extra_args_provider(add_custom_arguments=None):
                     "`max_response_len // cp_size` instead of `max_response_len`."
                 ),
             )
-            parser.add_argument(
-                "--log-probs-max-tokens-per-gpu",
-                type=int,
-                default=None,
-                help=(
-                    "The maximum number of tokens per GPU for calculating log probs. "
-                    "This is used to calculate the log probs of the responses during rollout, "
-                    "and should be set to a larger value than `max_tokens_per_gpu` if you want better performance. "
-                ),
-            )
             return parser
 
         def add_eval_arguments(parser):
@@ -1817,7 +1807,9 @@ def get_miles_extra_args_provider(add_custom_arguments=None):
                     "Skip the standalone Megatron actor forward-only pass. With --use-rollout-logprobs, "
                     "those log-probs remain the old-policy baseline; otherwise detached training log-probs "
                     "are reused and the actor importance log-ratio is exactly 0. This requires a single "
-                    "optimizer step. The skipped pass's rollout/log_probs metric is not emitted."
+                    "optimizer step. The skipped pass's rollout/log_probs metric is not emitted. "
+                    "Custom model providers and the before-train-step hook must not make the training "
+                    "forward differ from the skipped forward."
                 ),
             )
             # Off-Policy Correction using Importance Sampling: https://fengyao.notion.site/off-policy-rl
@@ -3694,8 +3686,6 @@ def miles_validate_args(args):
 
     if args.use_dynamic_batch_size:
         assert args.max_tokens_per_gpu is not None, "max_tokens_per_gpu must be set when use_dynamic_batch_size is set"
-        if args.log_probs_max_tokens_per_gpu is None:
-            args.log_probs_max_tokens_per_gpu = args.max_tokens_per_gpu
 
     # --use-dynamic-global-batch-size has two motivations:
     # 1. compaction/subagent rollouts: static micro-batching cannot guarantee alignment
@@ -4223,16 +4213,10 @@ def validate_skip_actor_forward_only(args) -> None:
             ("--use-rollout-entropy", args.use_rollout_entropy),
             ("--true-on-policy-mode", args.true_on_policy_mode),
             ("--log-correct-samples", args.log_correct_samples),
-            ("--rollout-data-postprocess-path", args.rollout_data_postprocess_path is not None),
             (
                 "--custom-megatron-before-log-prob-hook-path",
                 args.custom_megatron_before_log_prob_hook_path is not None,
             ),
-            (
-                "--custom-megatron-before-train-step-hook-path",
-                args.custom_megatron_before_train_step_hook_path is not None,
-            ),
-            ("--custom-model-provider-path", args.custom_model_provider_path is not None),
             (
                 "--dumper-source-patcher-config-train",
                 args.dumper_source_patcher_config_train is not None,
