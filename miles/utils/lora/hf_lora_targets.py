@@ -186,12 +186,13 @@ def _inkling_targets(config):
 
 
 def _step5_targets(config):
-    # Routed experts (moe.experts.*) are not LoRA targets: only the shared expert of an MoE layer is.
+    # The converter names routed expert E moe.experts.E.*; the shared expert is share_expert.
     num_moe_layers = len(config["moe_layer_list"])
     mlp = []
     if num_moe_layers < config["num_hidden_layers"]:
         mlp.extend(_DENSE_MLP)
     if num_moe_layers:
+        mlp.extend(_prefix_paths("moe.experts.*", "gate_proj", "up_proj", "down_proj"))
         mlp.extend(_prefix_paths("share_expert", "gate_proj", "up_proj", "down_proj"))
     return _QKVO_ATTENTION, tuple(mlp)
 
