@@ -28,10 +28,17 @@ from miles.ray.specs.train import (
 )
 from miles.ray.train_actor import WeightUpdateOutput
 from miles.ray.wiring import get_backend_capability
-from miles.utils.audit_utils.checksum_utils import InferenceEngineChecksumSnapshot, merge_inference_engine_ranks
+from miles.utils.audit_utils.checksum_utils import (
+    ChecksumCollectionFailure,
+    InferenceEngineChecksumSnapshot,
+    merge_inference_engine_ranks,
+)
 from miles.utils.audit_utils.event_logger import checkpoint as event_logger_checkpoint
 from miles.utils.audit_utils.event_logger.logger import get_event_logger, is_event_logger_initialized
-from miles.utils.audit_utils.event_logger.models import InferenceEngineWeightChecksumEvent
+from miles.utils.audit_utils.event_logger.models import (
+    InferenceEngineChecksumCollectionFailedEvent,
+    InferenceEngineWeightChecksumEvent,
+)
 from miles.utils.ft_utils.api_server.server import ApiServerHandle, start_api_server
 from miles.utils.hot_restart import (
     init_or_reset_inference_controller,
@@ -344,7 +351,7 @@ async def update_weights(
 def _log_inference_engine_weight_checksums(
     args,
     *,
-    checksum_results: list,
+    checksum_results: list | ChecksumCollectionFailure,
     rollout_id: int | None,
     trainer_model_id: str | None,
     output: WeightUpdateOutput,
@@ -359,25 +366,39 @@ def _log_inference_engine_weight_checksums(
         if cell_id not in output.failed_cell_ids
     }
     try:
-        get_event_logger().log(
-            InferenceEngineWeightChecksumEvent,
-            dict(
-                rollout_id=args.start_rollout_id - 1 if rollout_id is None else rollout_id,
-                trainer_model_id=trainer_model_id,
-                weight_version=output.weight_version,
-                debug_trainer_load_state_timestamp=output.debug_trainer_load_state_timestamp,
-                debug_weight_update_id=output.debug_weight_update_id,
-                engine_snapshots=[
-                    InferenceEngineChecksumSnapshot(
-                        cell_id=meta.cell_id,
-                        workers_hash=meta.workers_hash,
-                        tensor_checksums=merge_inference_engine_ranks(body),
-                    )
-                    for meta, body in checksum_results
-                    if published.get(meta.cell_id) == meta.workers_hash
-                ],
-            ),
+        common = dict(
+            rollout_id=args.start_rollout_id - 1 if rollout_id is None else rollout_id,
+            trainer_model_id=trainer_model_id,
+            weight_version=output.weight_version,
+            debug_trainer_load_state_timestamp=output.debug_trainer_load_state_timestamp,
+            debug_weight_update_id=output.debug_weight_update_id,
         )
+
+        if isinstance(checksum_results, ChecksumCollectionFailure):
+            get_event_logger().log(
+                InferenceEngineChecksumCollectionFailedEvent,
+                dict(
+                    **common,
+                    published_cell_id_to_hashes=published,
+                    reason=checksum_results.reason,
+                ),
+            )
+        else:
+            get_event_logger().log(
+                InferenceEngineWeightChecksumEvent,
+                dict(
+                    **common,
+                    engine_snapshots=[
+                        InferenceEngineChecksumSnapshot(
+                            cell_id=meta.cell_id,
+                            workers_hash=meta.workers_hash,
+                            tensor_checksums=merge_inference_engine_ranks(body),
+                        )
+                        for meta, body in checksum_results
+                        if published.get(meta.cell_id) == meta.workers_hash
+                    ],
+                ),
+            )
     except Exception:
         logger.exception("Could not record inference engine checksum observation")
 
