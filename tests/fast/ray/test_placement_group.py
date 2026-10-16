@@ -23,6 +23,7 @@ from miles.ray.rollout.inference_controller import UpdatableEngines
 from miles.ray.rollout.server_cell import ServerCellMetadata
 from miles.ray.train_actor import WeightUpdateOutput
 from miles.rollout.session.types import SessionServerInstance
+from miles.utils.audit_utils.checksum_utils import ChecksumCollectionFailure
 from miles.utils.init_once import InitState
 from miles.utils.test_utils.fault_injector.models import FaultHookName
 from miles.utils.workers.types import DeployComponent, DeploymentIdentity
@@ -486,6 +487,30 @@ class TestUpdateWeights:
         )
 
         assert [payload["rollout_id"] for payload in logged] == [-1]
+
+    async def test_failed_checksum_collection_records_the_published_incarnation(self, monkeypatch) -> None:
+        """A failed observation remains tied to the published version without undoing publication."""
+        actor_model, rollout_executor = self._fakes(weight_version=7)
+        inference_controller = self._checksum_controller()
+        inference_controller.end_update_weights.return_value = ChecksumCollectionFailure(reason="TimeoutError()")
+        logged = self._record_checksum_events(monkeypatch)
+
+        await placement_group_module.update_weights(
+            self._checksum_args(), actor_model, rollout_executor, inference_controller
+        )
+
+        assert logged == [
+            dict(
+                rollout_id=-1,
+                trainer_model_id=None,
+                weight_version=7,
+                debug_trainer_load_state_timestamp=1.0,
+                debug_weight_update_id="update-7",
+                published_cell_id_to_hashes={"cell-0": "incarnation-0"},
+                reason="TimeoutError()",
+            )
+        ]
+        rollout_executor.set_weight_version.assert_awaited_once_with(7, trainer_model_id=None)
 
     async def test_a_startup_sync_after_a_restore_stamps_the_restored_rollout_id(self, monkeypatch):
         """The restored rollout never runs again, so only this push can record the checksum of its weights."""

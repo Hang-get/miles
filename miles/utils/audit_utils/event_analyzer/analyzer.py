@@ -14,6 +14,9 @@ from miles.utils.audit_utils.event_analyzer.rules import (
     inference_engine_weight_movement,
 )
 from miles.utils.audit_utils.event_analyzer.rules import witness as witness_rule
+from miles.utils.audit_utils.event_analyzer.rules.inference_engine_weight_checksum_coverage import (
+    WeightUpdateCoverageIssue,
+)
 from miles.utils.audit_utils.event_analyzer.rules.inference_engine_weight_movement import WeightMovementIssue
 from miles.utils.audit_utils.event_analyzer.rules.sample_ownership import check as sample_ownership_check
 from miles.utils.audit_utils.event_analyzer.rules.sample_ownership.models import SampleOwnershipViolation
@@ -40,7 +43,8 @@ def run_analysis_from_args(args: Namespace) -> None:
         logger.info(f"Event analysis of {event_dir} took {time.monotonic() - started_at:.3f} seconds")
 
     failures, warnings = partition(
-        issues, lambda issue: isinstance(issue, WeightMovementIssue) and issue.is_warning_only
+        issues,
+        lambda issue: isinstance(issue, (WeightMovementIssue, WeightUpdateCoverageIssue)) and issue.is_warning_only,
     )
     for issue in warnings:
         logger.warning(f"Event analysis warning: {issue}")

@@ -15,6 +15,7 @@ from tests.utils.soak.deploy.checkers.publications import assert_publications_af
 
 from miles.utils.audit_utils.event_logger.models import (
     Event,
+    InferenceEngineChecksumCollectionFailedEvent,
     InferenceEngineWeightChecksumEvent,
     WeightUpdateResultEvent,
 )
@@ -59,6 +60,27 @@ def _source(tmp_path: Path, results: list[WeightUpdateResultEvent], *, records: 
 
 
 class TestAssertPublicationsAfterTakeOvers:
+    def test_two_collection_failures_do_not_prove_post_takeover_audit(self, tmp_path: Path) -> None:
+        """The three-failure allowance must not let the entire recovery tail go unaudited."""
+        results = [_published("u1", second=20), _published("u2", second=30)]
+        failures = [
+            InferenceEngineChecksumCollectionFailedEvent(
+                timestamp=result.timestamp,
+                source=result.source,
+                rollout_id=result.rollout_id,
+                weight_version=result.published_version,
+                debug_trainer_load_state_timestamp=result.debug_trainer_load_state_timestamp,
+                debug_weight_update_id=result.debug_weight_update_id,
+                published_cell_id_to_hashes=_HASHES,
+                reason="collection timed out",
+            )
+            for result in results
+        ]
+        source = _source(tmp_path, results, records=failures)
+
+        with pytest.raises(AssertionError, match="No successfully audited"):
+            assert_publications_after_take_overs(_soak(closed_at=10), source=source)
+
     @pytest.mark.parametrize("invalid", ["missing", "old_publication", "wrong_incarnation", "wrong_version"])
     def test_unrelated_or_invalid_checksums_do_not_prove_recovery(self, tmp_path: Path, invalid: str) -> None:
         """Recovery needs a successful checksum for the publication and receivers after takeover."""
