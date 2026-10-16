@@ -91,8 +91,7 @@ writeback overlaps the buckets after it instead of stalling its own flush. A flu
 while more than the cap is still waiting to be written back; the bucket being read comes on top
 of it. The step finishes its writeback before it returns, so none of the store's files stay
 cached past a step and each step reads its state back from disk. Checkpoint save and resume
-copy the store's files through the same cap; the checkpoint's own copy is cached like any other
-checkpoint file.
+copy the store's files through the same cap and drop the checkpoint's copy from the cache too.
 
 With `fp32` storage the state round-trips bit for bit and only the grad norm's summation
 order differs from keeping it on GPU, so turning this on changes results by rounding at

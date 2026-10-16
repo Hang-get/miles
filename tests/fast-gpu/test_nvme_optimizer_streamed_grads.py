@@ -190,6 +190,16 @@ def test_capped_store_leaves_no_page_cache_after_a_step_save_or_load(tmp_path):
     def resident() -> list[int]:
         return [_resident_pages(bucket.fd) for bucket in store.buckets]
 
+    def checkpoint_resident() -> int:
+        total = 0
+        for path in (tmp_path / "ckpt").rglob("bucket*.bin"):
+            fd = os.open(path, os.O_RDWR)
+            try:
+                total += _resident_pages(fd)
+            finally:
+                os.close(fd)
+        return total
+
     try:
         (norm,) = store.grads_for_norm()
         store.record_grad_norm(norm if multi_tensor_scale_tensor_impl is not None else float(norm))
@@ -200,12 +210,14 @@ def test_capped_store_leaves_no_page_cache_after_a_step_save_or_load(tmp_path):
         store.save_to(str(tmp_path / "ckpt"))
         store._page_cache.drain()
         assert resident() == [0, 0]
+        assert checkpoint_resident() == 0, "the checkpoint's copy is dropped too"
 
         for bucket in store.buckets:
             os.pwrite(bucket.fd, bytes(bucket.nbytes), 0)
         assert store.load_from(str(tmp_path / "ckpt"))
         store._page_cache.drain()
         assert resident() == [0, 0]
+        assert checkpoint_resident() == 0, "reading the checkpoint leaves it uncached"
         for bucket, before in zip(store.buckets, stepped, strict=True):
             torch.testing.assert_close(_read_main(bucket, 0, before.numel()), before, atol=0, rtol=0)
     finally:

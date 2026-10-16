@@ -154,6 +154,14 @@ def _drop_from_page_cache(fd: int) -> None:
     os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
 
 
+def _drop_path_from_page_cache(path: str) -> None:
+    fd = os.open(path, os.O_RDONLY | os.O_CLOEXEC)
+    try:
+        _drop_from_page_cache(fd)
+    finally:
+        os.close(fd)
+
+
 class _PageCacheWindow:
     """Caps how much of the store's files the host page cache holds, without a flush waiting on its own writeback.
 
@@ -588,9 +596,13 @@ class NVMeOptimizerStateStore:
             ],
         }
         for bucket in self.buckets:
-            shutil.copyfile(bucket.path, os.path.join(dirpath, os.path.basename(bucket.path)))
+            copy = os.path.join(dirpath, os.path.basename(bucket.path))
+            shutil.copyfile(bucket.path, copy)
             if self._page_cache is not None:
+                # Both ends of the copy are a full bucket in the cache: the store's file through the window, the
+                # checkpoint's at once, since its fd does not outlive this loop.
                 self._page_cache.release(bucket.fd, nbytes=bucket.nbytes)
+                _drop_path_from_page_cache(copy)
         if self._fp32_adam is not None:
             torch.save(self._fp32_adam.state_dict(), os.path.join(dirpath, "fp32_resident_optimizer.pt"))
         with open(os.path.join(dirpath, "manifest.json"), "w") as f:
@@ -631,9 +643,11 @@ class NVMeOptimizerStateStore:
         for bucket, meta in zip(self.buckets, manifest["buckets"], strict=True):
             assert meta["numel"] == bucket.numel
             assert meta["entry_numels"] == [e.main_param.numel() for e in bucket.entries]
-            shutil.copyfile(os.path.join(dirpath, meta["file"]), bucket.path)
+            source = os.path.join(dirpath, meta["file"])
+            shutil.copyfile(source, bucket.path)
             if self._page_cache is not None:
                 self._page_cache.release(bucket.fd, nbytes=bucket.nbytes)
+                _drop_path_from_page_cache(source)
             for group, step in zip(bucket.adam.param_groups, meta["steps"], strict=True):
                 if step:
                     group["step"] = step
