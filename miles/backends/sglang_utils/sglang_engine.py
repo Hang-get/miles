@@ -9,6 +9,7 @@ from sglang.srt.server_args import ServerArgs
 
 from miles.backends.sglang_utils.server_args_utils import server_args_to_argv
 from miles.backends.sglang_utils.sglang_api_client import WorkerType
+from miles.utils.external_utils.command_utils.helm_backend.launcher.values.placeholders import POD_IP_PLACEHOLDER
 from miles.utils.lora.utils import (
     LORA_ADAPTER_NAME,
     engine_loads_adapter_from_disk,
@@ -19,12 +20,9 @@ from miles.utils.lora.utils import (
 from miles.utils.object_store import MOONCAKE_KEY_PREFIX
 from miles.utils.object_store_config import compute_mooncake_connection_config
 from miles.utils.workers.argv_utils import _record_field_names
+from miles.utils.workers.types import ClusterBackend
 
 logger = logging.getLogger(__name__)
-
-# Arbitrary until measured. Miles' own 32 GiB default sizes trainer-side clients,
-# and every SGLang tokenizer worker allocates one such buffer.
-_ENGINE_OUTPUT_STORE_LOCAL_BUFFER_SIZE = "1gb"
 
 
 def format_v6_uri(addr: str | None) -> str | None:
@@ -211,12 +209,15 @@ def _compute_server_args(
     # After the group overrides: the eval engines' "none" keeps them out of the store, and the derived
     # extra config replaces any override of it, because the readers can only read what it describes.
     if kwargs.get("output_store_backend", "none") != "none":
+        # TODO: support PD. Prefill and decode would each write a bundle, but the PD router merges only
+        # inline routed_experts, so the decode ref keeps prompt rows decode never computed. One option:
+        # hand prefill's rows to decode with the KV, so decode writes one complete bundle.
         assert worker_type not in (WorkerType.PREFILL, WorkerType.DECODE), (
             f"--sglang-output-store-backend does not support PD disaggregation, "
             f"but a {worker_type.value} engine enables it"
         )
         kwargs["output_store_backend_extra_config"] = _compute_output_store_extra_config(
-            args, local_hostname=host.strip("[]")
+            args, local_hostname=_compute_engine_local_hostname(args, host=host)
         )
 
     if is_multi_lora_enabled(args):
@@ -232,18 +233,35 @@ def _compute_server_args(
     return kwargs
 
 
+def _compute_engine_local_hostname(args, *, host: str) -> str:
+    """The address other Mooncake clients reach this engine at."""
+    if ClusterBackend(args.cluster_backend) == ClusterBackend.KUBERNETES:
+        # One command serves every pod of a pool and binds 0.0.0.0, so each pod fills in its own IP.
+        return POD_IP_PLACEHOLDER
+    return host.strip("[]")
+
+
 def _compute_output_store_extra_config(args, *, local_hostname: str) -> str:
-    """One engine's ``--output-store-backend-extra-config``: a client of Miles' own Mooncake store."""
-    return json.dumps(
-        {
-            **compute_mooncake_connection_config(args.mooncake_store_init_kwargs or {}),
-            # Mooncake checks a bundle's key against the reader's prefix.
-            "key_prefix": MOONCAKE_KEY_PREFIX,
-            "replica_num": args.mooncake_replica_num,
-            "local_hostname": local_hostname,
-            "local_buffer_size": _ENGINE_OUTPUT_STORE_LOCAL_BUFFER_SIZE,
-        }
+    """One engine's ``--output-store-backend-extra-config``: a client of Miles' own Mooncake store,
+    built and checked by the class the engine parses it with."""
+    # Deferred: SGLang builds without the output store lack this module, and only this path needs it.
+    import msgspec
+    from sglang.srt.managers.output_store import OutputStoreConfig
+
+    config = OutputStoreConfig.from_extra_config(
+        json.dumps(
+            {
+                # Startup validation keeps the user's keys apart from the derived ones below.
+                **args.sglang_output_store_client_config,
+                **compute_mooncake_connection_config(args.mooncake_store_init_kwargs or {}),
+                # Mooncake checks a bundle's key against the reader's prefix.
+                "key_prefix": MOONCAKE_KEY_PREFIX,
+                "replica_num": args.mooncake_replica_num,
+                "local_hostname": local_hostname,
+            }
+        )
     )
+    return msgspec.json.encode(config).decode()
 
 
 @functools.cache

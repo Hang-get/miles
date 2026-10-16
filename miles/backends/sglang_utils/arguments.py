@@ -1,11 +1,11 @@
 import argparse
+import json
 
 from sglang.srt.server_args import ServerArgs
 from miles.utils.environ import use_legacy_rollout_v1
 from miles.utils.http_utils import wrap_ipv6
 from miles.utils.object_store import ObjectStoreBackend
 from miles.utils.workers.argv_utils import _record_field_names
-from miles.utils.workers.types import ClusterBackend
 
 
 # TODO: use all sglang router arguments with `--sglang-router` prefix
@@ -62,10 +62,16 @@ _SKIPPED_SERVER_ARGS = [
     "skip_server_warmup",
     "enable_return_routed_experts",
     "enable_return_indexer_topk",
-    # Set from --sglang-output-store-backend, declared below.
+    # Set from --sglang-output-store-backend and --sglang-output-store-client-config, declared below. The
+    # client config is only part of the extra config, so its flag must not share this field's name: the
+    # engine copies every args.sglang_<field> through.
     "output_store_backend",
     "output_store_backend_extra_config",
 ]
+
+# The engines' output-store keys that shape only each engine's own Mooncake client. Miles derives
+# every other key, so all engines write where the readers read.
+_OUTPUT_STORE_CLIENT_KEYS = ("local_buffer_size", "chunk_bytes", "namespace", "partition")
 
 # tp_size comes from --eval-num-gpus-per-engine, which also places the engines.
 _EVAL_SKIPPED_SERVER_ARGS = _SKIPPED_SERVER_ARGS + ["tp_size"]
@@ -169,6 +175,17 @@ def add_sglang_arguments(parser):
             "Mooncake object store; Miles sets the engines' --output-store-backend and its extra config."
         ),
     )
+    parser.add_argument(
+        "--sglang-output-store-client-config",
+        type=json.loads,
+        default=None,
+        help=(
+            "JSON settings of each engine's own output-store client, merged into the extra config Miles derives. "
+            f"Mooncake accepts {', '.join(_OUTPUT_STORE_CLIENT_KEYS)}; local_buffer_size, the host buffer every put "
+            "is staged through (e.g. '4gb'), is required. Miles derives the connection, key prefix, replica "
+            "count and local hostname."
+        ),
+    )
 
     _add_prefixed_server_args(
         parser, flag_prefix="sglang", dest_prefix="sglang_", skipped_args=_SKIPPED_SERVER_ARGS, inherit=False
@@ -251,8 +268,15 @@ def _validate_output_store_args(args) -> None:
     ), f"{flag} only moves replay outputs; enable routing, indexer or sampling-support replay"
     assert args.prefill_num_servers is None, f"{flag} does not support PD disaggregation yet"
     assert not args.rollout_external, f"{flag} supports only the engines Miles launches"
-    # TODO: pass each pod's IP as the engine's local_hostname; the launcher renders --host 0.0.0.0.
-    assert (
-        ClusterBackend(args.cluster_backend) == ClusterBackend.RAY
-    ), f"{flag} does not support --cluster-backend {args.cluster_backend} yet"
     assert not use_legacy_rollout_v1(), f"{flag} needs the class-based rollout API; unset MILES_USE_LEGACY_ROLLOUT_V1"
+
+    client_config = args.sglang_output_store_client_config or {}
+    rejected = sorted(set(client_config) - set(_OUTPUT_STORE_CLIENT_KEYS))
+    assert not rejected, (
+        f"--sglang-output-store-client-config accepts only {', '.join(_OUTPUT_STORE_CLIENT_KEYS)}, "
+        f"got {rejected}; Miles derives the connection, key prefix, replica count and local hostname"
+    )
+    assert "local_buffer_size" in client_config, (
+        f'{flag} needs --sglang-output-store-client-config \'{{"local_buffer_size": "<size>"}}\': '
+        "the host buffer each engine stages its puts through has no measured default"
+    )
