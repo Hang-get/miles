@@ -184,15 +184,22 @@ class TestOutputStore:
         for name in ("MOONCAKE_MASTER", "MOONCAKE_PROTOCOL", "MOONCAKE_TE_META_DATA_SERVER", "MOONCAKE_DEVICE"):
             monkeypatch.delenv(name, raising=False)
 
+    @pytest.fixture
+    def output_store_config(self):
+        """The class each engine parses its extra config with; Miles builds the config through it."""
+        return pytest.importorskip("sglang.srt.managers.output_store").OutputStoreConfig
+
     @staticmethod
-    def _args() -> SimpleNamespace:
+    def _args(cluster_backend: str = "ray", local_buffer_size: object = "4gb") -> SimpleNamespace:
         return make_args(
             sglang_output_store_backend="mooncake",
+            sglang_output_store_client_config={"local_buffer_size": local_buffer_size, "chunk_bytes": 1 << 20},
             mooncake_store_init_kwargs={"master_server_address": "10.0.0.1:50051", "protocol": "tcp"},
             mooncake_replica_num=2,
+            cluster_backend=cluster_backend,
         )
 
-    def test_each_engine_joins_the_miles_store_with_its_own_address(self):
+    def test_each_engine_joins_the_miles_store_with_its_own_address(self, output_store_config):
         server_args = compute(
             self._args(),
             host="10.0.0.7",
@@ -201,16 +208,29 @@ class TestOutputStore:
 
         assert server_args["output_store_backend"] == "mooncake"
         # The derived config replaces a group override: the readers can only read what it describes.
-        assert json.loads(server_args["output_store_backend_extra_config"]) == {
-            "master_server_address": "10.0.0.1:50051",
-            "protocol": "tcp",
-            "metadata_server": "P2PHANDSHAKE",
-            "device_name": "",
-            "key_prefix": "miles-object-store",
-            "replica_num": 2,
-            "local_hostname": "10.0.0.7",
-            "local_buffer_size": "1gb",
-        }
+        assert output_store_config.from_extra_config(
+            server_args["output_store_backend_extra_config"]
+        ) == output_store_config(
+            master_server_address="10.0.0.1:50051",
+            protocol="tcp",
+            metadata_server="P2PHANDSHAKE",
+            device_name="",
+            key_prefix="miles-object-store",
+            replica_num=2,
+            local_hostname="10.0.0.7",
+            local_buffer_size=4 * 1024**3,
+            chunk_bytes=1 << 20,
+        )
+
+    def test_sglangs_parser_rejects_a_bad_user_value_when_miles_builds_the_config(self, output_store_config):
+        with pytest.raises(ValueError, match="Invalid size"):
+            compute(self._args(local_buffer_size=["4gb"]))
+
+    def test_a_kubernetes_engine_takes_its_pod_ip_from_the_pod(self, output_store_config):
+        """The rendered command serves every pod of a pool and binds 0.0.0.0, which no peer can reach."""
+        server_args = compute(self._args(cluster_backend="kubernetes"), host="0.0.0.0")
+
+        assert json.loads(server_args["output_store_backend_extra_config"])["local_hostname"] == "$(MILES_POD_IP)"
 
     def test_a_group_that_turns_it_off_gets_no_extra_config(self):
         server_args = compute(self._args(), sglang_overrides={"output_store_backend": "none"})

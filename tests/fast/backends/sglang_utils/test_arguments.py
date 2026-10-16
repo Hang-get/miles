@@ -85,30 +85,32 @@ def test_score_centering_enables_fp32_lm_head(loss_type: str | None, explicit_fp
 
 
 class TestOutputStoreArgs:
-    def test_miles_declares_the_flag_and_derives_the_engine_args(self):
-        """Miles sets both engine args from its own store config, so neither passes through from the cli."""
+    def test_miles_declares_the_flags_and_derives_the_engine_args(self):
+        """Miles sets both engine args from its own flags, so neither passes through from the cli."""
         flags = _sglang_flags()
 
-        assert "--sglang-output-store-backend" in flags
+        assert {"--sglang-output-store-backend", "--sglang-output-store-client-config"} <= flags
         for flag in (
             "--sglang-output-store-backend-extra-config",
             "--eval-sglang-output-store-backend",
             "--eval-sglang-output-store-backend-extra-config",
         ):
             assert flag not in flags
-        assert _parse_sglang_args([]).sglang_output_store_backend == "none"
+        args = _parse_sglang_args(["--sglang-output-store-client-config", '{"local_buffer_size": "4gb"}'])
+        assert args.sglang_output_store_backend == "none"
+        assert args.sglang_output_store_client_config == {"local_buffer_size": "4gb"}
 
     @staticmethod
     def _args(**overrides: object) -> SimpleNamespace:
         values = dict(
             sglang_output_store_backend="mooncake",
+            sglang_output_store_client_config={"local_buffer_size": "4gb", "chunk_bytes": 1 << 20},
             object_store_backend="mooncake",
             use_rollout_routing_replay=True,
             use_rollout_indexer_replay=False,
             use_sampling_support_replay=False,
             prefill_num_servers=None,
             rollout_external=False,
-            cluster_backend="ray",
         )
         return SimpleNamespace(**(values | overrides))
 
@@ -128,7 +130,17 @@ class TestOutputStoreArgs:
             ({"use_rollout_routing_replay": False}, "enable routing, indexer or sampling-support replay"),
             ({"prefill_num_servers": 1}, "PD disaggregation"),
             ({"rollout_external": True}, "engines Miles launches"),
-            ({"cluster_backend": "kubernetes"}, "--cluster-backend kubernetes"),
+            ({"sglang_output_store_client_config": None}, "local_buffer_size"),
+            ({"sglang_output_store_client_config": {"chunk_bytes": 1 << 20}}, "local_buffer_size"),
+            # Each derived key has one owner: a second value would split the engines from the readers.
+            (
+                {"sglang_output_store_client_config": {"local_buffer_size": "4gb", "protocol": "rdma"}},
+                r"got \['protocol'\]",
+            ),
+            (
+                {"sglang_output_store_client_config": {"local_buffer_size": "4gb", "local_buffer": 1}},
+                r"got \['local_buffer'\]",
+            ),
         ],
     )
     def test_an_unsupported_run_fails_at_startup(self, sglang_with_output_store, overrides, match):
