@@ -1264,10 +1264,6 @@ spec:
                 valueFrom:
                   fieldRef:
                     fieldPath: metadata.labels['leaderworkerset.sigs.k8s.io/worker-index']
-              - name: MILES_POD_IP
-                valueFrom:
-                  fieldRef:
-                    fieldPath: status.podIP
               - name: MILES_BASE_GPU_ID
                 valueFrom:
                   fieldRef:
@@ -1475,10 +1471,6 @@ spec:
                 valueFrom:
                   fieldRef:
                     fieldPath: metadata.labels['leaderworkerset.sigs.k8s.io/worker-index']
-              - name: MILES_POD_IP
-                valueFrom:
-                  fieldRef:
-                    fieldPath: status.podIP
               - name: MILES_BASE_GPU_ID
                 valueFrom:
                   fieldRef:
@@ -1647,10 +1639,6 @@ spec:
                 valueFrom:
                   fieldRef:
                     fieldPath: metadata.labels['leaderworkerset.sigs.k8s.io/worker-index']
-              - name: MILES_POD_IP
-                valueFrom:
-                  fieldRef:
-                    fieldPath: status.podIP
               - name: "CUDA_DEVICE_MAX_CONNECTIONS"
                 value: "1"
               - name: "HF_ENDPOINT"
