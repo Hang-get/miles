@@ -26,8 +26,10 @@ def test_cli_defaults_match_the_dataclass(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 def test_list_fields_take_several_values(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A list field such as Megatron's --profile-ranks takes space-separated values, not one."""
+    """A list field such as --profile-ranks takes one or more space-separated values, as Megatron's parser does."""
     assert _parse(monkeypatch, "--profile-ranks", "0", "8").profile_ranks == [0, 8]
+    with pytest.raises(SystemExit):
+        _parse(monkeypatch, "--profile-ranks")
 
 
 def test_true_default_bools_can_be_turned_off(monkeypatch: pytest.MonkeyPatch) -> None:

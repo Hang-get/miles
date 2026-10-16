@@ -39,8 +39,7 @@ def _args(tmp_path, **overrides) -> SimpleNamespace:
 def test_only_listed_ranks_build_a_torch_profiler(
     monkeypatch: pytest.MonkeyPatch, tmp_path, profiles_built, rank, profile_ranks, expected_profilers
 ):
-    """Miles built a profiler on every rank whatever --profile-ranks said (empty still means every rank), so a
-    64-rank job wrote 64 traces; both the train_overall and the per-loop profilers must follow the list."""
+    """Both the train_overall and the per-loop profilers follow --profile-ranks; an empty list traces every rank."""
     monkeypatch.setattr(torch.distributed, "get_rank", lambda: rank)
     prof = TrainProfiler(_args(tmp_path, profile_ranks=profile_ranks))
 
@@ -50,9 +49,10 @@ def test_only_listed_ranks_build_a_torch_profiler(
 
 @pytest.mark.parametrize("collect", [False, True])
 def test_trace_options_follow_the_megatron_flags(monkeypatch: pytest.MonkeyPatch, tmp_path, profiles_built, collect):
-    """Shapes and call stacks were recorded unconditionally, ignoring --pytorch-profiler-collect-{shapes,callstack}."""
+    """Shapes and stacks follow --pytorch-profiler-collect-{shapes,callstack}; memory and FLOPs are never recorded."""
     monkeypatch.setattr(torch.distributed, "get_rank", lambda: 0)
     TrainProfiler(_args(tmp_path, pytorch_profiler_collect_shapes=collect, pytorch_profiler_collect_callstack=collect))
 
     (kwargs,) = profiles_built
     assert (kwargs["record_shapes"], kwargs["with_stack"]) == (collect, collect)
+    assert not kwargs.get("profile_memory") and not kwargs.get("with_flops")

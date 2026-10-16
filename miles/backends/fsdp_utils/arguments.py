@@ -94,7 +94,7 @@ def build_dataclass_parser(
         if typing.get_origin(f.type) is list:
             (item_type,) = typing.get_args(f.type)
             parser.add_argument(
-                f"--{f.name.replace('_', '-')}", type=item_type, nargs="*", default=f.default_factory()
+                f"--{f.name.replace('_', '-')}", type=item_type, nargs="+", default=f.default_factory()
             )
             continue
 

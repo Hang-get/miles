@@ -78,8 +78,8 @@ def _create_torch_profiler(args, name):
             worker_name=f"{name}_rank_{torch.distributed.get_rank()}",
             use_gzip=True,
         ),
-        # Megatron's --pytorch-profiler-collect-{shapes,callstack}, off by default as in Megatron: recording stacks,
-        # shapes and memory for every op made one large-model train step a tens-of-GB trace per rank.
+        # As in Megatron's own profiler: shapes and stacks only on request, memory and FLOPs never (no Megatron flag).
+        # Per-op recording turns one large-model train step into a trace of tens of GB per rank.
         record_shapes=args.pytorch_profiler_collect_shapes,
         with_stack=args.pytorch_profiler_collect_callstack,
     )
