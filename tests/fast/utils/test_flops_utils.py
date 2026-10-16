@@ -398,3 +398,12 @@ def test_deepseek_v4_sizes_the_same_from_transformers_per_type_compress_rates():
 @pytest.mark.parametrize("repo_id", ["deepseek-ai/DeepSeek-V4-Flash", "deepseek-ai/DeepSeek-V4.1-Flash"])
 def test_deepseek_v4_config_objects_size_like_their_checkpoint_configs(repo_id):
     assert model_flops_from_hf_config(load_hf_config(repo_id)) == released_model_flops(repo_id)
+
+
+@pytest.mark.parametrize(
+    "unknown_structure",
+    [{"layer_types": ["chunked_attention"]}, {"mlp_layer_types": ["mystery_mlp"]}, {"hybrid_override_pattern": "X"}],
+)
+def test_unknown_layer_structure_has_no_flops_definition(unknown_structure):
+    with pytest.raises(ValueError, match="no FLOPs definition"):
+        model_flops_from_hf_config(config(**(LLAMA_8B | {"num_hidden_layers": 1} | unknown_structure)))
