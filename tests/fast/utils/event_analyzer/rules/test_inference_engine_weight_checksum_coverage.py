@@ -4,7 +4,11 @@ from miles.utils.audit_utils.event_analyzer.rules.inference_engine_weight_checks
     check,
     settled_published_updates,
 )
-from miles.utils.audit_utils.event_logger.models import InferenceEngineWeightChecksumEvent, WeightUpdateResultEvent
+from miles.utils.audit_utils.event_logger.models import (
+    InferenceEngineChecksumCollectionFailedEvent,
+    InferenceEngineWeightChecksumEvent,
+    WeightUpdateResultEvent,
+)
 
 _HASHES: dict[str, str] = {"a": "hash-a", "b": "hash-b"}
 _TENSORS: dict[str, str] = {"rank0/w": "w1"}
@@ -34,6 +38,46 @@ def _record(
 
 
 class TestCheck:
+    def test_an_explicit_collection_failure_is_a_warning_not_missing_evidence(self) -> None:
+        """A receiver dying after publication leaves an explicit incomplete observation."""
+        record = _record()
+        failure = InferenceEngineChecksumCollectionFailedEvent(
+            **record.model_dump(exclude={"type", "engine_snapshots"}),
+            published_cell_id_to_hashes=_HASHES,
+            reason="TimeoutError()",
+        )
+
+        [issue] = check([_published(), failure, make_step_end(second=2.0)])
+
+        assert issue.is_warning_only
+        assert issue.description == "checksum collection failed: TimeoutError()"
+
+    def test_a_failure_for_replacement_receivers_cannot_excuse_missing_checksums(self) -> None:
+        """An interruption record must name the incarnations that received this publication."""
+        failure = InferenceEngineChecksumCollectionFailedEvent(
+            **_record().model_dump(exclude={"type", "engine_snapshots"}),
+            published_cell_id_to_hashes={"a": "replacement", "b": "hash-b"},
+            reason="TimeoutError()",
+        )
+
+        [issue] = check([_published(), failure, make_step_end(second=2.0)])
+
+        assert not issue.is_warning_only
+        assert "another publication" in issue.description
+
+    def test_success_and_failure_for_one_publication_are_conflicting_evidence(self) -> None:
+        """Recording both outcomes must not downgrade duplicate evidence to a warning."""
+        failure = InferenceEngineChecksumCollectionFailedEvent(
+            **_record().model_dump(exclude={"type", "engine_snapshots"}),
+            published_cell_id_to_hashes=_HASHES,
+            reason="TimeoutError()",
+        )
+
+        [issue] = check([_published(), _record(), failure, make_step_end(second=2.0)])
+
+        assert not issue.is_warning_only
+        assert "2 engine checksum records" in issue.description
+
     def test_a_settled_update_covered_by_exactly_its_updated_engines_passes(self) -> None:
         """One record naming every updated cell with its snapshot incarnation is the passing shape."""
         assert check([_published(), _record(), make_step_end(second=2.0)]) == []

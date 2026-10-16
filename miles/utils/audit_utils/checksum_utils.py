@@ -7,6 +7,10 @@ from miles.utils.pydantic_utils import FrozenStrictBaseModel
 InferenceEngineChecksums = dict[str, str]
 
 
+class ChecksumCollectionFailure(FrozenStrictBaseModel):
+    reason: str
+
+
 class InferenceEngineChecksumSnapshot(FrozenStrictBaseModel):
     cell_id: str = Field(min_length=1)
     workers_hash: str = Field(min_length=1)
