@@ -15,6 +15,7 @@ from miles.backends.megatron_utils.lora.native.spec.attention import (
     InklingAttentionSpec,
     KimiK3AttentionSpec,
     MLAAttentionSpec,
+    Step5AttentionSpec,
 )
 from miles.backends.megatron_utils.lora.native.spec.base import FixedTargets, LoRAArchSpec
 from miles.backends.megatron_utils.lora.native.spec.layout import AttentionSpecBase
@@ -75,6 +76,14 @@ def _kimi_k3_arch_spec() -> LoRAArchSpec:
     )
 
 
+def _step5_arch_spec() -> LoRAArchSpec:
+    attention = Step5AttentionSpec()
+    # Routed experts carry no adapters; the shared expert is HF ``share_expert``, an MLP like the dense layers'.
+    return LoRAArchSpec(
+        name=attention.name, attention=attention, mlp=SplitGateUpMLPSpec(), mlp_hf_blocks="mlp|share_expert"
+    )
+
+
 def _shared_outer_serving_targets(targets: list[str]) -> list[str]:
     """Shared-outer export stores the expert dimension in each tensor, not in its name."""
     return [target.replace(".experts.*.", ".experts.") for target in targets]
@@ -108,6 +117,8 @@ def _build_model_specs() -> dict[str, LoRAArchSpec]:
         "kimi_k25": mla,
         "joyai_llm_flash": mla,
         "kimi_k3": _kimi_k3_arch_spec(),
+        # also step5_vl, whose text config is step5
+        "step5": _step5_arch_spec(),
         "inkling_text": inkling,
         "inkling_model": inkling,
         "inkling_mm_model": inkling,

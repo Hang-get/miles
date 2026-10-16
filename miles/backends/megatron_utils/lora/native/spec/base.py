@@ -129,6 +129,8 @@ class LoRAArchSpec:
     fixed_targets: FixedTargets | None = None
     # None names adapters after the raw-mode converter's HF weight names
     declared_naming: Any = None
+    # HF blocks (regex alternatives) the MLP spec adapts: dense MLPs and MLP-shaped shared experts
+    mlp_hf_blocks: str = r"mlp(?:\.shared_experts?)?"
 
     def attaches(self, hf_module: str) -> bool:
         """Whether this spec implements an adapter for the HF module (``*`` stands for any layer)."""
@@ -136,7 +138,7 @@ class LoRAArchSpec:
         if leaf in self.attention.supported_targets:
             return re.search(f"{_HF_LAYER}{re.escape(self.attention.hf_block)}$", block) is not None
         if leaf in self.mlp.supported_targets:
-            return re.search(rf"{_HF_LAYER}mlp(?:\.shared_experts?)?$", block) is not None
+            return re.search(rf"{_HF_LAYER}(?:{self.mlp_hf_blocks})$", block) is not None
         return False
 
     def validate(self, context: AttachContext) -> None:
