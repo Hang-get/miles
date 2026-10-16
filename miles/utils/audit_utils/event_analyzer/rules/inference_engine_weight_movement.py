@@ -1,3 +1,4 @@
+from datetime import datetime
 from itertools import pairwise
 from typing import Any, Literal
 
@@ -30,25 +31,32 @@ class WeightMovementIssue(FrozenStrictBaseModel):
 
 def check(events: list[Event], *, include_latest: bool = False) -> list[WeightMovementIssue]:
     """Check: every tensor changes between adjacent published versions of one trainer load state."""
-    if (args := trainer_args(events, names=_APPLICABILITY_ARG_NAMES)) is None or not _applies(args):
-        return []
-
     latest = max(
         (event.timestamp for event in events if isinstance(event, (WeightUpdateResultEvent, TrainGroupStepEndEvent))),
         default=None,
     )
     versions: dict[tuple[str | None, float], dict[int, dict[str, str]]] = {}
-    for event in events:
+    first_observed_at: dict[tuple[str | None, float], datetime] = {}
+    for event in sorted(events, key=lambda event: event.timestamp):
         if not isinstance(event, InferenceEngineWeightChecksumEvent):
             continue
         if not include_latest and (latest is None or event.timestamp >= latest):
             continue
         lineage = (event.trainer_model_id, event.debug_trainer_load_state_timestamp)
+        first_observed_at.setdefault(lineage, event.timestamp)
         for snapshot in event.engine_snapshots:
             versions.setdefault(lineage, {}).setdefault(event.weight_version, snapshot.tensor_checksums)
 
     issues: list[WeightMovementIssue] = []
     for (trainer_model_id, load_state_timestamp), by_version in versions.items():
+        args = trainer_args(
+            events,
+            names=_APPLICABILITY_ARG_NAMES,
+            at=first_observed_at[trainer_model_id, load_state_timestamp],
+            model_id=trainer_model_id,
+        )
+        if args is None or not _applies(args):
+            continue
         for before, after in pairwise(sorted(by_version)):
             previous, current = by_version[before], by_version[after]
             if previous.keys() != current.keys():

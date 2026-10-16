@@ -87,10 +87,12 @@ def make_step_end(
     )
 
 
-def make_trainer_args(*, rank: int = 0, **overrides: Any) -> EnvReportEvent:
+def make_trainer_args(
+    *, rank: int = 0, second: float = 0, model_id: str | None = None, **overrides: Any
+) -> EnvReportEvent:
     return EnvReportEvent(
-        timestamp=START,
-        source=TrainProcessIdentity(component="actor", cell_index=0, rank_within_cell=rank),
+        timestamp=at(second),
+        source=TrainProcessIdentity(component="actor", cell_index=0, rank_within_cell=rank, model_id=model_id),
         report=EnvReport(
             process=EnvReportProcessFacts(
                 hostname="node-0",
