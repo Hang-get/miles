@@ -43,6 +43,7 @@ def compute(args: SimpleNamespace, **overrides: object) -> dict:
         dist_init_addr="127.0.0.1:1234",
         nccl_port=5000,
         host="127.0.0.1",
+        peer_host="127.0.0.1",
         port=30000,
         worker_type=WorkerType.REGULAR,
         disaggregation_bootstrap_port=None,
@@ -190,19 +191,19 @@ class TestOutputStore:
         return pytest.importorskip("sglang.srt.managers.output_store").OutputStoreConfig
 
     @staticmethod
-    def _args(cluster_backend: str = "ray", local_buffer_size: object = "4gb") -> SimpleNamespace:
+    def _args(local_buffer_size: object = "4gb") -> SimpleNamespace:
         return make_args(
             sglang_output_store_backend="mooncake",
             sglang_output_store_client_config={"local_buffer_size": local_buffer_size, "chunk_bytes": 1 << 20},
             mooncake_store_init_kwargs={"master_server_address": "10.0.0.1:50051", "protocol": "tcp"},
             mooncake_replica_num=2,
-            cluster_backend=cluster_backend,
         )
 
     def test_each_engine_joins_the_miles_store_with_its_own_address(self, output_store_config):
         server_args = compute(
             self._args(),
             host="10.0.0.7",
+            peer_host="10.0.0.7",
             sglang_overrides={"output_store_backend_extra_config": '{"key_prefix": "other"}'},
         )
 
@@ -226,9 +227,9 @@ class TestOutputStore:
         with pytest.raises(ValueError, match="Invalid size"):
             compute(self._args(local_buffer_size=["4gb"]))
 
-    def test_a_kubernetes_engine_takes_its_pod_ip_from_the_pod(self, output_store_config):
-        """The rendered command serves every pod of a pool and binds 0.0.0.0, which no peer can reach."""
-        server_args = compute(self._args(cluster_backend="kubernetes"), host="0.0.0.0")
+    def test_an_engine_bound_to_every_address_names_its_peer_host(self, output_store_config):
+        """A bind-all host such as Kubernetes' 0.0.0.0 is no address a peer can reach."""
+        server_args = compute(self._args(), host="0.0.0.0", peer_host="$(MILES_POD_IP)")
 
         assert json.loads(server_args["output_store_backend_extra_config"])["local_hostname"] == "$(MILES_POD_IP)"
 

@@ -9,7 +9,6 @@ from sglang.srt.server_args import ServerArgs
 
 from miles.backends.sglang_utils.server_args_utils import server_args_to_argv
 from miles.backends.sglang_utils.sglang_api_client import WorkerType
-from miles.utils.external_utils.command_utils.helm_backend.launcher.values.placeholders import POD_IP_PLACEHOLDER
 from miles.utils.lora.utils import (
     LORA_ADAPTER_NAME,
     engine_loads_adapter_from_disk,
@@ -20,7 +19,6 @@ from miles.utils.lora.utils import (
 from miles.utils.object_store import MOONCAKE_KEY_PREFIX
 from miles.utils.object_store_config import compute_mooncake_connection_config
 from miles.utils.workers.argv_utils import _record_field_names
-from miles.utils.workers.types import ClusterBackend
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +50,7 @@ def compute_engine_launch_cmd(
     dist_init_addr: str,
     nccl_port: int,
     host: str,
+    peer_host: str,
     port: int,
     disaggregation_bootstrap_port: int | None,
     engine_info_bootstrap_port: int,
@@ -66,6 +65,7 @@ def compute_engine_launch_cmd(
         dist_init_addr=dist_init_addr,
         nccl_port=nccl_port,
         host=host,
+        peer_host=peer_host,
         port=port,
         worker_type=worker_type,
         disaggregation_bootstrap_port=disaggregation_bootstrap_port,
@@ -88,6 +88,7 @@ def _compute_server_args(
     dist_init_addr,
     nccl_port,
     host,
+    peer_host: str,
     port,
     worker_type: WorkerType = WorkerType.REGULAR,
     disaggregation_bootstrap_port: int | None,
@@ -216,8 +217,9 @@ def _compute_server_args(
             f"--sglang-output-store-backend does not support PD disaggregation, "
             f"but a {worker_type.value} engine enables it"
         )
+        # The peer host, not the bind host: other Mooncake clients reach the engine at this address.
         kwargs["output_store_backend_extra_config"] = _compute_output_store_extra_config(
-            args, local_hostname=_compute_engine_local_hostname(args, host=host)
+            args, local_hostname=peer_host.strip("[]")
         )
 
     if is_multi_lora_enabled(args):
@@ -231,14 +233,6 @@ def _compute_server_args(
         kwargs["device"] = "cuda"
 
     return kwargs
-
-
-def _compute_engine_local_hostname(args, *, host: str) -> str:
-    """The address other Mooncake clients reach this engine at."""
-    if ClusterBackend(args.cluster_backend) == ClusterBackend.KUBERNETES:
-        # One command serves every pod of a pool and binds 0.0.0.0, so each pod fills in its own IP.
-        return POD_IP_PLACEHOLDER
-    return host.strip("[]")
 
 
 def _compute_output_store_extra_config(args, *, local_hostname: str) -> str:

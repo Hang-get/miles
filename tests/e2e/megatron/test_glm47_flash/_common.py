@@ -292,7 +292,7 @@ def build_train_args(case: CaseConfig, *, wandb_file: str) -> str:
         misc_args += command_utils.get_mooncake_object_store_args(protocol="rdma")
         misc_args += "--sglang-output-store-backend mooncake "
         # Each engine stages its puts through this buffer; an 8k-token R3 bundle here is about 6 MB.
-        misc_args += "--sglang-output-store-client-config '{\"local_buffer_size\": \"1gb\"}' "
+        misc_args += '--sglang-output-store-client-config \'{"local_buffer_size": "1gb"}\' '
 
     if case.use_deepep:
         misc_args += "--moe-token-dispatcher-type flex --moe-enable-deepep "
