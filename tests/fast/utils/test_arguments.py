@@ -1957,6 +1957,32 @@ def test_stream_optimizer_state_to_disk_rejects_reading_grads_outside_the_step(m
         miles_validate_args(args)
 
 
+def _parse_offload_args(extra: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    get_miles_extra_args_provider()(parser)
+    args = parser.parse_args(extra + ["--num-rollout", "1"] + REQUIRED_ARGS)
+    _set_megatron_parallel_sizes(args)
+    return args
+
+
+def test_debug_rollout_only_drops_a_disk_train_offload_target():
+    """Rollout-only mode turns train offload off, so a recipe passing --offload-train-target disk (the
+    Adam disk-offload launchers) failed the disk-target-needs-offload assert at startup."""
+    args = _parse_offload_args(["--debug-rollout-only", "--colocate", "--offload-train-target", "disk"])
+
+    miles_validate_args(args)
+
+    assert (args.offload_train, args.offload_train_target) == (False, "cpu")
+
+
+def test_disk_train_offload_target_without_offload_is_rejected():
+    """Outside rollout-only mode a disk target without --offload-train would be a silent no-op."""
+    args = _parse_offload_args(["--offload-train-target", "disk"])
+
+    with pytest.raises(AssertionError, match="requires --offload-train"):
+        miles_validate_args(args)
+
+
 class TestMtpTrainingValidation:
     """--mtp-num-layers describes the model; only --enable-mtp-training builds and trains the MTP layers."""
 
@@ -2909,6 +2935,7 @@ class TestValidateRematerializeParamFromMasterWeight:
             compute_advantages_and_returns=True,
             num_critic_only_steps=0,
             debug_train_only=False,
+            debug_rollout_only=False,
             ci_test=False,
             check_rematerialize_param_from_master_weight=False,
             disable_param_buffers_cpu_backup=False,
@@ -2947,6 +2974,14 @@ class TestValidateRematerializeParamFromMasterWeight:
         assert args.rematerialize_param_from_master_weight is False
         assert args.disable_param_buffers_cpu_backup is False
 
+    def test_debug_rollout_only_silently_disables(self):
+        """Rollout-only mode builds no trainer model and turns colocate and train offload off, so the
+        colocated-offload asserts rejected every launcher that sets the flag (the GLM-5 ones)."""
+        args = self._make_args(debug_rollout_only=True, colocate=False, offload_train=False)
+        _validate_rematerialize_param_from_master_weight(args)
+        assert args.rematerialize_param_from_master_weight is False
+        assert args.disable_param_buffers_cpu_backup is False
+
     def test_noop_when_disabled(self):
         args = self._make_args(rematerialize_param_from_master_weight=False, colocate=False)
         _validate_rematerialize_param_from_master_weight(args)
@@ -2981,6 +3016,7 @@ class TestValidateRematerializeParamFromMasterWeight:
             rematerialize_param_from_master_weight=True,
             train_backend="fsdp",
             debug_train_only=False,
+            debug_rollout_only=False,
         )
         with pytest.raises(AssertionError, match="Megatron"):
             _validate_rematerialize_param_from_master_weight(args)
