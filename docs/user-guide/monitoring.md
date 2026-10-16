@@ -74,24 +74,21 @@ def my_log(rollout_id, args, samples, extra, rollout_time) -> bool:
 
 ### Built-in PyTorch profiler
 
-The PyTorch profiler is wired into Miles via `miles/utils/profile_utils.py`. Flags
-differ by backend:
-
-**Megatron** — choose which sub-loop to profile:
-
-```bash
---profile-target train_overall    # or train_actor, train_log_probs (multi-arg)
-```
-
-**FSDP** — additionally exposes the standard FSDPArgs window:
+The PyTorch profiler is wired into Miles via `miles/utils/profile_utils.py`. It reads
+Megatron's profiling flags on every backend (FSDP and torchtitan mirror them):
 
 ```bash
 --use-pytorch-profiler
---profile-step-start 10
---profile-step-end 12
---memory-snapshot-path snapshot.pickle
---tensorboard-dir /data/tb-run-42
+--profile-step-start 1 --profile-step-end 2   # trace steps start .. end-1 (rollout steps for train_overall)
+--profile-ranks 0 8                           # global ranks to trace; unset traces every rank
+--tensorboard-dir /data/tb-run-42             # one gzipped trace per traced rank
+--pytorch-profiler-collect-callstack          # optional: Python call stacks (much larger traces)
+--pytorch-profiler-collect-shapes             # optional: tensor shapes
 ```
+
+`--profile-target train_overall` (the default) traces whole training steps on every backend;
+`train_actor` and `train_log_probs` trace the per-batch loops; the Megatron backend rejects them.
+`--record-memory-history` with `--memory-snapshot-path` records a CUDA memory snapshot instead.
 
 Open the trace in `chrome://tracing` or [Perfetto](https://ui.perfetto.dev/).
 
