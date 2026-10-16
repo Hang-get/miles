@@ -97,6 +97,19 @@ Adam at `--lr 1e-6`. With EP 16 on 16 GPUs, expert data parallelism is 1, so the
 - **`--sglang-max-total-tokens 2097152`** is a correctness bound: an unbounded KV pool overflows the DSA kernels' int32 strides.
 - **`--sglang-moe-runner-backend triton`**: routing replay needs the engine's materialized top-k ids.
 
+### 5.5 LoRA
+
+Native LoRA (`--megatron-to-hf-mode raw`, the recipe's mode) adapts the text decoder's Q/K/V/O projections, the dense MLPs and the shared expert. The head-wise attention gate (`g_proj`, which shares `linear_qkv` with Q/K/V) and the routed experts stay frozen, and selecting either fails at startup. `all-linear` selects exactly the supported set. Pass the flags through `--extra-args`:
+
+```bash
+python scripts/run_step5.py train --model-name Step5-5layer --num-gpus-per-node 8 \
+    --extra-args "--lora-rank 16 --lora-alpha 32 --target-modules all-linear --lora-base-cpu-backup --lr 1e-5"
+```
+
+The engine needs SGLang's Step5 LoRA support: per-layer adapter widths (the shared expert is 1536 wide, a dense MLP 13824), the routed experts left out of LoRA, and the MoE layers completing their own all-reduce when LoRA disables the deferred one.
+
+On the 5-layer slice on 8 × H200 (TP1, EP8, routing replay), a zero-initialized adapter reproduces the full-parameter recipe's train-rollout gap (`train_rollout_logprob_abs_diff` 0.033, KL 0.0010); a random rank-16 adapter that moves the rollout's mean log-prob by 0.4 nats gives 0.043–0.050 (0.035–0.039 at a quarter of that scale). The 11 MiB adapter syncs in under 0.12 s per step instead of 1.5–2.5 s for the full weights, and the trainer holds 8.7 GB per GPU instead of 57.5 GB.
+
 ## 6. Pairs Well With
 
 - [Rollout Routing Replay (R3)](/advanced/miles-router)
