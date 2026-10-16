@@ -1,4 +1,5 @@
 from enum import StrEnum
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field
@@ -32,6 +33,7 @@ class InjectFaultDetails(FrozenStrictBaseModel):
     form: Literal["inject_fault"] = "inject_fault"
     fault_target: ObservedFaultHookTarget
     hook_target: ObservedFaultHookTarget
+    training_events_dir: Path | None = None
     hook_name: FaultHookName | None = None
     delay_ms: float = Field(default=0, ge=0, le=300_000, allow_inf_nan=False)
 

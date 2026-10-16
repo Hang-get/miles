@@ -1,5 +1,6 @@
 import argparse
 import random
+from pathlib import Path
 
 import httpx
 import pytest
@@ -13,6 +14,7 @@ from tests.fast.utils.soak.soak_fakes import (
     _patch_http,
     _raising_hook_transport,
     _requested,
+    _run_context,
     _with_fault_target,
 )
 from tests.utils.soak.core.events import SoakEvent
@@ -22,11 +24,19 @@ from tests.utils.soak.ft.actions.inject_fault import InjectFaultForm
 from tests.utils.soak.ft.types import CellTarget, InjectFaultDetails, ObservedCellFault, ObservedCellFaultKind
 
 from miles.utils.arguments import get_miles_extra_args_provider
+from miles.utils.audit_utils.event_logger.logger import EventLogger
+from miles.utils.audit_utils.event_logger.models import FaultHookEvent
+from miles.utils.audit_utils.process_identity import TrainProcessIdentity
 from miles.utils.ft_utils.api_server.models import TriState
 from miles.utils.test_utils.fault_injector.actions.process import KillProcessAction
 from miles.utils.test_utils.fault_injector.actions.remote import ApiServerFaultAction
 from miles.utils.test_utils.fault_injector.controller import FaultHookOperation
-from miles.utils.test_utils.fault_injector.models import FaultHookName
+from miles.utils.test_utils.fault_injector.models import (
+    FaultHookName,
+    FaultHookRecord,
+    FaultHookRequest,
+    FaultHookStatus,
+)
 from miles.utils.workers.naming import compute_cell_id
 
 _BASE_URL = "http://api:18080"
@@ -150,6 +160,95 @@ class TestInjectFaultFormRequest:
 
 
 class TestInjectFaultFormExecute:
+    @pytest.mark.parametrize("post", [500, 504, "transport"])
+    @pytest.mark.parametrize("late_status", [None, FaultHookStatus.FAILED, FaultHookStatus.FIRED])
+    async def test_a_lost_reply_with_matching_dispatch_and_effect_is_applied(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, post: int | str, late_status: FaultHookStatus | None
+    ) -> None:
+        """A lost reply is accepted only if dispatch evidence remains valid when the effect arrives."""
+        api = _FakeCellApi([])
+        if isinstance(post, int):
+            api.hook_status = post
+        form = _form()
+        request = _create(
+            form,
+            _with_fault_target(_cell_target()),
+            events=[_run_context({"training_events": tmp_path}, at=_at(0))],
+        )
+        event_logger = EventLogger(
+            log_dir=tmp_path,
+            source=TrainProcessIdentity(component="actor", cell_index=0, rank_within_cell=0),
+        )
+        event_logger.log(
+            FaultHookEvent,
+            dict(
+                record=FaultHookRecord(
+                    request=FaultHookRequest(
+                        request_id=request.request_id,
+                        action=form.action,
+                        target=request.details.hook_target,
+                    ),
+                    status=FaultHookStatus.FIRED,
+                    set_at=0,
+                    changed_at=1,
+                )
+            ),
+        )
+
+        original_handle = api.handle
+
+        def handle(http_request: httpx.Request) -> httpx.Response:
+            if http_request.method == "GET" and late_status is not None:
+                event_logger.log(
+                    FaultHookEvent,
+                    dict(
+                        record=FaultHookRecord(
+                            request=FaultHookRequest(
+                                request_id=request.request_id, action=form.action, target=request.details.hook_target
+                            ),
+                            status=late_status,
+                            set_at=0,
+                            changed_at=2,
+                        )
+                    ),
+                )
+            return original_handle(http_request)
+
+        monkeypatch.setattr(api, "handle", handle)
+        _patch_http(monkeypatch, _raising_hook_transport(api) if post == "transport" else api)
+        if late_status is not None:
+            reported: list[SoakActionEvidence] = []
+            with pytest.raises(AssertionError, match="dispatch failed|dispatched more than once"):
+                await form.execute(request, report_applied=reported.append)
+            assert reported == []
+            return
+
+        [evidence] = await _execute(form, request)
+
+        assert evidence.request_id == request.request_id
+        assert evidence.observed is ObservedCellFaultKind.MISSING
+
+    async def test_a_server_error_and_missing_cell_without_dispatch_evidence_are_not_applied(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """An unrelated dead cell cannot turn a failed request into a successful injection."""
+        api = _FakeCellApi([])
+        api.hook_status = 504
+        _patch_http(monkeypatch, api)
+        monkeypatch.setattr(inject_fault_module, "EFFECT_TIMEOUT_SECONDS", 0.01)
+        form = _form()
+        request = _create(
+            form,
+            _with_fault_target(_cell_target()),
+            events=[_run_context({"training_events": tmp_path}, at=_at(0))],
+        )
+        reported: list[SoakActionEvidence] = []
+
+        with pytest.raises(TimeoutError):
+            await form.execute(request, report_applied=reported.append)
+
+        assert reported == []
+
     async def test_the_fault_is_set_on_the_target_and_a_missing_cell_is_the_effect(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
