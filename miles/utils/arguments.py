@@ -3264,8 +3264,9 @@ def _resolve_ft_components(args: argparse.Namespace) -> list[str]:
 def _validate_rematerialize_param_from_master_weight(args):
     if not args.rematerialize_param_from_master_weight:
         return
-    if args.debug_train_only:
-        # update_weights never runs, so the param buffer would never be paused.
+    if args.debug_train_only or args.debug_rollout_only:
+        # update_weights never runs (rollout-only builds no trainer model at all), so the param buffer would
+        # never be paused.
         args.rematerialize_param_from_master_weight = False
         return
     assert (

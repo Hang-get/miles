@@ -2932,6 +2932,7 @@ class TestValidateRematerializeParamFromMasterWeight:
             compute_advantages_and_returns=True,
             num_critic_only_steps=0,
             debug_train_only=False,
+            debug_rollout_only=False,
             ci_test=False,
             check_rematerialize_param_from_master_weight=False,
             disable_param_buffers_cpu_backup=False,
@@ -2970,6 +2971,13 @@ class TestValidateRematerializeParamFromMasterWeight:
         assert args.rematerialize_param_from_master_weight is False
         assert args.disable_param_buffers_cpu_backup is False
 
+    def test_debug_rollout_only_silently_disables(self):
+        # --debug-rollout-only has already turned colocate and offload_train off, which tripped the asserts.
+        args = self._make_args(debug_rollout_only=True, colocate=False, offload_train=False)
+        _validate_rematerialize_param_from_master_weight(args)
+        assert args.rematerialize_param_from_master_weight is False
+        assert args.disable_param_buffers_cpu_backup is False
+
     def test_noop_when_disabled(self):
         args = self._make_args(rematerialize_param_from_master_weight=False, colocate=False)
         _validate_rematerialize_param_from_master_weight(args)
@@ -3004,6 +3012,7 @@ class TestValidateRematerializeParamFromMasterWeight:
             rematerialize_param_from_master_weight=True,
             train_backend="fsdp",
             debug_train_only=False,
+            debug_rollout_only=False,
         )
         with pytest.raises(AssertionError, match="Megatron"):
             _validate_rematerialize_param_from_master_weight(args)
