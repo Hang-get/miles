@@ -14,6 +14,7 @@ from miles.ray.rollout.rollout_server import RolloutServer, create_rollout_serve
 from miles.ray.rollout.router_manager import resolve_router_addrs
 from miles.ray.rollout.server_cell import ServerCell, ServerCellMetadata
 from miles.utils import async_utils
+from miles.utils.audit_utils.checksum_utils import ChecksumCollectionFailure
 from miles.utils.audit_utils.process_identity import SimpleProcessIdentity
 from miles.utils.context_lock import (
     ContextLock,
@@ -245,8 +246,8 @@ class InferenceController:
         failed_cell_ids: Sequence[str],
         checksum_model_id: str | None = None,
         collect_checksums: bool = False,
-    ) -> list[tuple[ServerCellMetadata, Any]]:
-        checksum_results = []
+    ) -> list[tuple[ServerCellMetadata, Any]] | ChecksumCollectionFailure:
+        checksum_results: list[tuple[ServerCellMetadata, Any]] | ChecksumCollectionFailure = []
         if collect_checksums:
             try:
                 async with asyncio.timeout(self.args.update_weight_engine_request_timeout):
@@ -254,8 +255,9 @@ class InferenceController:
                         model_id=checksum_model_id,
                         cell_ids=sorted(set(snapshot_cell_id_to_hashes) - set(failed_cell_ids)),
                     )
-            except Exception:
+            except Exception as error:
                 logger.exception("Could not collect inference engine checksum observation")
+                checksum_results = ChecksumCollectionFailure(reason=repr(error))
 
         cells = [
             (cell_id, cell)

@@ -19,6 +19,7 @@ from miles.ray.rollout.inference_controller import (
 from miles.ray.rollout.rollout_server import RolloutServer
 from miles.ray.rollout.server_cell import ServerCell, ServerCellMetadata
 from miles.ray.specs.inference import compute_engine_pool_ids, compute_router_pool_id, specs_inference_engine
+from miles.utils.audit_utils.checksum_utils import ChecksumCollectionFailure
 from miles.utils.context_lock import ContextLock
 from miles.utils.ft_utils.health_checker import ActivenessTracker
 from miles.utils.workers.registration.hub import RegistrationHub
@@ -81,6 +82,7 @@ class _RecordingServer:
         model_name: str = "model",
         update_weights: bool = False,
         cells_gate: asyncio.Event | None = None,
+        checksum_gate: asyncio.Event | None = None,
     ):
         self.all_server_cells = all_server_cells or {}
         self.health_checker_activeness = ActivenessTracker(active=True)
@@ -97,6 +99,7 @@ class _RecordingServer:
         self.cells_timeouts: list[float] = []
         self.dispose_count = 0
         self._cells_gate = cells_gate
+        self._checksum_gate = checksum_gate
 
     @property
     def normal_server_cells(self) -> dict:
@@ -134,6 +137,8 @@ class _RecordingServer:
         self.dispose_count += 1
 
     async def check_weights(self, action, allow_quant_error=False, selector="all", skip_list=None, cell_ids=None):
+        if self._checksum_gate is not None:
+            await self._checksum_gate.wait()
         self.calls.append(("check_weights", action))
         self.check_weights_kwargs.append(
             dict(
@@ -1636,6 +1641,27 @@ class TestErroredCellsLeaveTheUpdateWindow:
 
 
 class TestEndUpdateWeightsTakesFailedCellsOutOfService:
+    async def test_checksum_timeout_returns_failure_and_releases_the_update_window(self) -> None:
+        """A published receiver that stops answering leaves explicit evidence without holding the update lock."""
+        cell = _FakeUpdatableCell("hash-0", cell_id="engine-0", gpu_offset=0)
+        server = _RecordingServer({"engine-0": cell}, update_weights=True, checksum_gate=asyncio.Event())
+        controller = _make_controller({"actor": server})
+        controller.args.update_weight_engine_request_timeout = 0
+        updatable = await controller.start_update_weights()
+
+        result = await controller.end_update_weights(
+            snapshot_cell_id_to_hashes=updatable.snapshot_cell_id_to_hashes,
+            failed_cell_ids=[],
+            collect_checksums=True,
+        )
+
+        assert isinstance(result, ChecksumCollectionFailure)
+        assert "TimeoutError" in result.reason
+        assert cell.marked_ready == 1
+        async with asyncio.timeout(1):
+            await controller.start_update_weights()
+            await controller.abort_update_weights()
+
     @staticmethod
     def _controller() -> tuple[InferenceController, dict[str, _FakeUpdatableCell]]:
         cells = {

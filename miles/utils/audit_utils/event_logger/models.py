@@ -116,8 +116,7 @@ class CellReconfigureEvent(EventBase):
     cell_incarnations_after: dict[str, str] = Field(default_factory=dict)
 
 
-class InferenceEngineWeightChecksumEvent(EventBase):
-    type: Literal["inference_engine_weight_checksum"] = "inference_engine_weight_checksum"
+class _InferenceEngineChecksumEventBase(EventBase):
     # The out-of-loop startup sync stamps start_rollout_id - 1, so -1 is a fresh run's initial sync.
     rollout_id: int
     # The policy whose weights were pushed, or None for a run that trains one unnamed policy.
@@ -125,8 +124,18 @@ class InferenceEngineWeightChecksumEvent(EventBase):
     weight_version: int
     debug_trainer_load_state_timestamp: float
     debug_weight_update_id: str
+
+
+class InferenceEngineWeightChecksumEvent(_InferenceEngineChecksumEventBase):
+    type: Literal["inference_engine_weight_checksum"] = "inference_engine_weight_checksum"
     # One {tensor -> hash} dict per rollout engine; a TP>1 engine's ranks merge with a rank{r}/ prefix.
     engine_snapshots: list[InferenceEngineChecksumSnapshot] = Field(min_length=1)
+
+
+class InferenceEngineChecksumCollectionFailedEvent(_InferenceEngineChecksumEventBase):
+    type: Literal["inference_engine_checksum_collection_failed"] = "inference_engine_checksum_collection_failed"
+    published_cell_id_to_hashes: dict[str, str]
+    reason: str
 
 
 class TrainAdvantageComputationEvent(_ActorTrainEventBase):
@@ -226,6 +235,7 @@ Event = Annotated[
     | TrainGroupStepEndEvent
     | CellReconfigureEvent
     | InferenceEngineWeightChecksumEvent
+    | InferenceEngineChecksumCollectionFailedEvent
     | TrainAdvantageComputationEvent
     | EnvReportEvent
     | EngineEnvReportEvent
