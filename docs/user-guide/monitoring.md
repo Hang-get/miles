@@ -85,7 +85,9 @@ The PyTorch profiler is wired into Miles via `miles/utils/profile_utils.py`. It 
 --pytorch-profiler-collect-shapes             # optional: tensor shapes
 ```
 
-`--profile-target train_overall` (the default) traces whole training steps on every backend. `train_actor` and `train_log_probs` trace the batches of each training call, so the step window applies to batches and repeats every rollout; the Megatron backend rejects them. `--record-memory-history` records a CUDA memory snapshot instead, written under `--memory-snapshot-dir` after `--memory-snapshot-num-steps` rollouts or on an OOM.
+`--profile-target train_overall` (the default) traces whole training steps on every backend. `train_actor` and `train_log_probs` trace the microbatch loop of each optimizer step, so their window counts microbatches and restarts at every step; the Megatron backend rejects them.
+
+`--record-memory-history` records a memory snapshot instead (CUDA with the default `--memory-recorder torch`, host memory with `memray`; it needs `train_overall` in `--profile-target`). It is written under `--memory-snapshot-dir` once rollout id `--memory-snapshot-num-steps` - 1 has trained, and the torch recorder also writes one on a CUDA OOM.
 
 Open the trace in `chrome://tracing` or [Perfetto](https://ui.perfetto.dev/).
 
