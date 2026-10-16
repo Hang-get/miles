@@ -18,6 +18,13 @@ from dataclasses import dataclass
 from typing import Any
 
 _GATED_QUERY_MODEL_TYPES = ("qwen3_next", "qwen3_5", "qwen3_5_text", "qwen3_5_moe", "qwen3_5_moe_text")
+_ATTENTION_LAYER_KINDS = {
+    "full_attention": "full",
+    "sliding_attention": "sliding",
+    "linear_attention": "linear",
+    "deepseek_sparse_attention": "full",
+}
+_MOE_MLP_LAYER_TYPES = {"dense": False, "sparse": True, "moe": True, "hash_moe": True}
 
 
 @dataclass(frozen=True)
@@ -108,6 +115,12 @@ def _first(config: Any, *names: str, default: Any = None) -> Any:
     return default
 
 
+def _known(table: dict[str, Any], name: str, what: str) -> Any:
+    if name not in table:
+        raise ValueError(f"no FLOPs definition for {what} {name!r}")
+    return table[name]
+
+
 def _field(container: Any, name: str, default: Any = None) -> Any:
     value = container.get(name) if isinstance(container, dict) else getattr(container, name, None)
     return default if value is None else value
@@ -131,12 +144,7 @@ def _attention(config: Any, layer: int) -> LayerFlops:
 def _attention_kind(config: Any, layer: int) -> str:
     layer_types = _first(config, "layer_types")
     if layer_types is not None:
-        name = layer_types[layer]
-        if "sliding" in name:
-            return "sliding"
-        if "linear" in name or "kda" in name or "delta" in name:
-            return "linear"
-        return "full"
+        return _known(_ATTENTION_LAYER_KINDS, layer_types[layer], "attention layer type")
     hybrid_pattern = _first(config, "hybrid_layer_pattern")
     if hybrid_pattern is not None:
         return "sliding" if hybrid_pattern[layer] else "full"
@@ -251,7 +259,7 @@ def _num_experts(config: Any) -> int | None:
 def _is_moe_layer(config: Any, layer: int) -> bool:
     mlp_layer_types = _first(config, "mlp_layer_types")
     if mlp_layer_types is not None:
-        return mlp_layer_types[layer] == "sparse"
+        return _known(_MOE_MLP_LAYER_TYPES, mlp_layer_types[layer], "MLP layer type")
     if not _num_experts(config):
         return False
     freq = _first(config, "moe_layer_freq", default=1)
@@ -297,6 +305,8 @@ def _nemotron_h_layer(config: Any, pattern: str | list[str], layer: int) -> Laye
         return _gqa(config)
     if kind in ("E", "moe"):
         return _moe(config, gemms=2)
+    if kind not in ("-", "mlp"):
+        raise ValueError(f"no FLOPs definition for Nemotron-H block {kind!r}")
     width = config.intermediate_size
     if isinstance(width, list):
         width = width[sum(1 for earlier in pattern[:layer] if earlier in ("-", "mlp"))]

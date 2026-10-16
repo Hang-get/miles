@@ -313,3 +313,12 @@ def test_released_config_flops(repo_id):
     per_token, at_128k = RELEASED_MODEL_FLOPS[repo_id]
     assert flops.per_token == pytest.approx(per_token, rel=1e-9)
     assert flops.fwd_flops([131072]) == pytest.approx(at_128k, rel=1e-9)
+
+
+@pytest.mark.parametrize(
+    "unknown_structure",
+    [{"layer_types": ["chunked_attention"]}, {"mlp_layer_types": ["mystery_mlp"]}, {"hybrid_override_pattern": "X"}],
+)
+def test_unknown_layer_structure_has_no_flops_definition(unknown_structure):
+    with pytest.raises(ValueError, match="no FLOPs definition"):
+        model_flops_from_hf_config(config(**(LLAMA_8B | {"num_hidden_layers": 1} | unknown_structure)))
