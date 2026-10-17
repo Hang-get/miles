@@ -296,10 +296,14 @@ def _load_hf_weights_with_mbridge(ddp_model, args, load_path: str) -> None:
         ModelCompanionInstallationUtils.hide(ddp_model),
         _hide_critic_value_head_from_hf_load(ddp_model),
         _exclude_native_lora_from_hf_load(ddp_model),
-        bypass,
     ):
-        bridge = AutoBridge.from_pretrained(load_path, trust_remote_code=True)
-        bridge.load_weights(ddp_model, load_path, memory_efficient=True)
+        if args.offload_train:
+            # MCore's state hooks replace router bias storage; keep those allocations tracked.
+            for model in ddp_model:
+                model.state_dict()
+        with bypass:
+            bridge = AutoBridge.from_pretrained(load_path, trust_remote_code=True)
+            bridge.load_weights(ddp_model, load_path, memory_efficient=True)
     torch.cuda.synchronize()
 
 
