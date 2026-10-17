@@ -150,6 +150,8 @@ class TestTheLaunchATakeOverResumes:
         assert "--save-inference-engine-weight-checksum" not in launch.argv
         assert "--no-log-inference-engine-weight-checksums" not in launch.argv
         assert "--ci-disable-weight-update-checker" in launch.argv
+        assert "--enable-event-analyzer" in launch.argv
+        assert "--enable-witness" in launch.argv
         assert parsed.ft_components == []
         assert not parsed.mini_ft_controller_enable
         assert not parsed.namespace.colocate
