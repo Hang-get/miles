@@ -1,3 +1,4 @@
+import sys
 from argparse import Namespace
 from collections.abc import Callable
 from contextlib import contextmanager, nullcontext
@@ -140,7 +141,6 @@ class TestRawMbridgeNativeLoRAIsolation:
 def test_raw_hf_load_normalizes_state_before_disabling_memory_saver(raw_mbridge_loader, monkeypatch):
     """State hooks can replace persistent storage; staging-copy bypass must start afterward."""
     from megatron.core.transformer.moe.router import TopKRouter
-    from torch_memory_saver import torch_memory_saver
 
     raw_mbridge_loader(False)
     router = TopKRouter.__new__(TopKRouter)
@@ -156,7 +156,10 @@ def test_raw_hf_load_normalizes_state_before_disabling_memory_saver(raw_mbridge_
         yield
         assert router.expert_bias.data_ptr() == storage
 
-    monkeypatch.setattr(torch_memory_saver, "disable", disable)
+    # the CPU runner has no torch_memory_saver; the loader imports it at call time
+    monkeypatch.setitem(
+        sys.modules, "torch_memory_saver", SimpleNamespace(torch_memory_saver=SimpleNamespace(disable=disable))
+    )
     checkpoint._load_hf_weights_with_mbridge([model], Namespace(offload_train=True), "/unused/hf")
     torch.testing.assert_close(router.expert_bias, torch.zeros(4))
     torch.testing.assert_close(model.weight, torch.full_like(model.weight, 5))
