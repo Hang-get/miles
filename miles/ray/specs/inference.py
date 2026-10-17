@@ -372,7 +372,8 @@ def _compute_spec_inference_engine(
                 if server_group_config.worker_type == WorkerType.PREFILL
                 else []
             ),
-            PortInfo(name="engine_info_bootstrap", static_port=12000, allow_dynamic=True),
+            # the bootstrap server runs on node 0 only; every rank of a multi-node engine registers there
+            PortInfo(name="engine_info_bootstrap", static_port=12000, mode="master", allow_dynamic=True),
             PortInfo(name=GATE_PORT_NAME, static_port=13000, mode="master", allow_dynamic=True),
         ],
         env_var=lambda _ctx: envs,
