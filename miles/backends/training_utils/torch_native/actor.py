@@ -14,6 +14,7 @@ from miles.backends.training_utils.data.rollout import DataIterator, get_batch, 
 from miles.backends.training_utils.data.sampling_mask import get_rollout_sampling_masks
 from miles.backends.training_utils.loss.objective import (
     compute_advantages_and_returns,
+    count_loss_tokens,
     get_log_probs_and_entropy,
     loss_function,
 )
@@ -89,6 +90,7 @@ class TorchNativeTrainRayActor(TrainRayActor):
         return {"dp_size": get_parallel_state().intra_dp.size}
 
     def _build_weight_updater(self, model, iterator_factory: Callable) -> WeightUpdater:
+        self._published_weight_version = 0
         model_name = self.args.model_name
         if model_name is None:
             model_name = type(self.hf_config).__name__.lower()
@@ -239,6 +241,7 @@ class TorchNativeTrainRayActor(TrainRayActor):
         self, runner: StepRunner, data_iterator: DataIterator, num_microbatches: list[int], rollout_id: int
     ) -> None:
         args = self.args
+        num_step_tokens = _count_step_loss_tokens(data_iterator, num_microbatches)
         data_iterator.reset()
         state = get_parallel_state()
         keys = TRAIN_KEYS + SAMPLING_MASK_KEYS if args.use_sampling_support_replay else TRAIN_KEYS
@@ -247,7 +250,9 @@ class TorchNativeTrainRayActor(TrainRayActor):
             runner.zero_grad()
             progress = tqdm(range(microbatches), desc="actor_train", disable=dist.get_rank() != 0)
             batches = self._fetch_batches(self.prof.iterate_train_actor(progress), data_iterator, keys)
-            losses_reduced = runner.forward_backward_step(batches, partial(_step_loss, args, microbatches))
+            losses_reduced = runner.forward_backward_step(
+                batches, partial(_step_loss, args, microbatches, num_step_tokens[step_id])
+            )
             metrics = runner.apply_step()
 
             if args.ci_test:
@@ -287,20 +292,41 @@ class TorchNativeTrainRayActor(TrainRayActor):
             return None
         self.weight_updater.reconnect_if_needed(info)
         print_memory("before update_weights")
-        self.weight_updater.update_weights()
+        next_version = self._published_weight_version + 1
+        if self.weight_updater.update_weights(weight_version=next_version):
+            self._published_weight_version = next_version
         print_memory("after update_weights")
-        if self.args.ci_test:
-            self.weight_updater.verify_engine_version(info.rollout_engines)
+        if self.args.ci_test and self._published_weight_version > 0:
+            self.weight_updater.verify_engine_version(
+                info.rollout_engines, weight_version=self._published_weight_version
+            )
         clear_memory()
-        return self.weight_updater.weight_version
+        return self._published_weight_version
 
 
-def _step_loss(args, num_microbatches: int, logits: torch.Tensor, batch: dict) -> tuple[torch.Tensor, dict]:
+def _count_step_loss_tokens(data_iterator: DataIterator, num_microbatches: list[int]) -> torch.Tensor:
+    """Each step's loss-token count summed over DP, needed before backward to normalize the per-token loss."""
+    data_iterator.reset()
+    local_counts = []
+    for microbatches in num_microbatches:
+        step_loss_masks = []
+        for _ in range(microbatches):
+            step_loss_masks.extend(data_iterator.get_next(["loss_masks"])["loss_masks"])
+        local_counts.append(count_loss_tokens(step_loss_masks))
+    counts = torch.stack(local_counts)
+    dist.all_reduce(counts, group=get_parallel_state().intra_dp.group)
+    return counts
+
+
+def _step_loss(
+    args, num_microbatches: int, num_step_tokens: torch.Tensor, logits: torch.Tensor, batch: dict
+) -> tuple[torch.Tensor, dict]:
     loss, _normalizer, log_dict = loss_function(
         args=args,
         batch=batch,
         num_microbatches=num_microbatches,
         logits=logits,
         apply_megatron_loss_scaling=False,
+        num_step_tokens=num_step_tokens,
     )
     return loss, log_dict
