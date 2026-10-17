@@ -40,12 +40,29 @@ def install(args: Namespace) -> None:
                 _save(path, value)
                 weight_files[f"{chunk_index}:{name}"] = str(path.relative_to(root))
 
-        _save(root / "initial.pt", dict(
-            keywords=keywords,
-            weight_files=weight_files,
-            micro_batch_indices=iterators[0].micro_batch_indices,
-            rollout_data={k: v for k, v in iterators[0].rollout_data.items() if k in ("tokens", "total_lengths", "response_lengths", "sample_indices", "loss_masks", "rollout_log_probs", "log_probs", "weight_versions")},
-        ))
+        _save(
+            root / "initial.pt",
+            dict(
+                keywords=keywords,
+                weight_files=weight_files,
+                micro_batch_indices=iterators[0].micro_batch_indices,
+                rollout_data={
+                    k: v
+                    for k, v in iterators[0].rollout_data.items()
+                    if k
+                    in (
+                        "tokens",
+                        "total_lengths",
+                        "response_lengths",
+                        "sample_indices",
+                        "loss_masks",
+                        "rollout_log_probs",
+                        "log_probs",
+                        "weight_versions",
+                    )
+                },
+            ),
+        )
         original_get_batch = model.get_batch
         original_get_packed = model.get_packed_seq_params
         batch_index = 0
@@ -69,7 +86,10 @@ def install(args: Namespace) -> None:
         def capture_result(*a: Any, **kw: Any) -> Any:
             nonlocal result_index
             result = f(*a, **kw)
-            _save(root / f"result-{result_index}.pt", dict(inputs={k: v for k, v in kw.items() if k != "args"}, result=result))
+            _save(
+                root / f"result-{result_index}.pt",
+                dict(inputs={k: v for k, v in kw.items() if k != "args"}, result=result),
+            )
             result_index += 1
             return result
 
@@ -90,15 +110,23 @@ def install(args: Namespace) -> None:
 def _save(path: Path, value: Any) -> None:
     frozen = _freeze(value)
     if path.parent.name == "weights" and isinstance(frozen, torch.Tensor):
-        value = dict(shape=list(frozen.shape), dtype=str(frozen.dtype), finite=bool(torch.isfinite(frozen).all()), sha256=hashlib.sha256(frozen.contiguous().view(torch.uint8).numpy().tobytes()).hexdigest())
+        value = dict(
+            shape=list(frozen.shape),
+            dtype=str(frozen.dtype),
+            finite=bool(torch.isfinite(frozen).all()),
+            sha256=hashlib.sha256(frozen.contiguous().reshape(-1).view(torch.uint8).numpy().tobytes()).hexdigest(),
+        )
     else:
         value = _json_value(frozen)
     payload = json.dumps(value).encode()
     digest = hashlib.sha256(payload).hexdigest()
     encoded = base64.b64encode(zlib.compress(payload)).decode()
-    chunks = [encoded[i:i + 6000] for i in range(0, len(encoded), 6000)]
+    chunks = [encoded[i : i + 6000] for i in range(0, len(encoded), 6000)]
     for index, chunk in enumerate(chunks):
-        logger.info("MILES_NUMERIC_RECORD %s", json.dumps(dict(path=str(path), index=index, count=len(chunks), sha256=digest, data=chunk)))
+        logger.info(
+            "MILES_NUMERIC_RECORD %s",
+            json.dumps(dict(path=str(path), index=index, count=len(chunks), sha256=digest, data=chunk)),
+        )
 
 
 def _json_value(value: Any) -> Any:
