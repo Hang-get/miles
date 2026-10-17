@@ -147,7 +147,8 @@ def top_regions(scores: torch.Tensor, candidates: torch.Tensor) -> torch.Tensor:
     tie_rank = _deepselect_visit_rank(candidates, scores.shape[-1])
     ranked = _ordered_keys(scores) * (1 << _REGION_ID_BITS) + ((1 << _REGION_ID_BITS) - 1 - tie_rank[:, None])
     ranked = ranked.masked_fill(region >= candidates[:, None, None], -1)
-    return ranked.topk(TOP_REGIONS, dim=-1).indices.sort(dim=-1).values.to(torch.int32)
+    # Only membership matters here; the selected ids are sorted below, not their scores.
+    return ranked.topk(TOP_REGIONS, dim=-1, sorted=False).indices.sort(dim=-1).values.to(torch.int32)
 
 
 def _deepselect_visit_rank(candidates: torch.Tensor, width: int) -> torch.Tensor:
