@@ -114,7 +114,7 @@ Adam at `--lr 1e-6`. With EP 16 on 16 GPUs, expert data parallelism is 1, so the
 
 ### 5.5 LoRA
 
-Native LoRA (`--megatron-to-hf-mode raw`, the recipe's mode) adapts the text decoder's Q/K/V/O projections, dense MLPs and shared expert. The head-wise attention gate (`g_proj`, which shares `linear_qkv` with Q/K/V) stays frozen. Routed-expert adapters require `--experts-shared-outer-loras`; the four-node H200 recipe excludes them. To use the same frozen-expert adapter scope on a slice, pass the exclusion explicitly:
+Native LoRA (`--megatron-to-hf-mode raw`, the recipe's mode) adapts the text decoder's Q/K/V/O projections, dense MLPs and shared expert. The head-wise attention gate (`g_proj`, which shares `linear_qkv` with Q/K/V) stays frozen. Routed-expert adapters require `--experts-shared-outer-loras` and all-expert selectors (`moe.experts.*`); selecting individual experts is rejected. Gate and up projections must be selected together in each layer. The four-node H200 recipe excludes routed-expert adapters. To use the same frozen-expert adapter scope on a slice, pass the exclusion explicitly:
 
 ```bash
 python scripts/run_step5.py train --model-name Step5-5layer --num-gpus-per-node 8 \

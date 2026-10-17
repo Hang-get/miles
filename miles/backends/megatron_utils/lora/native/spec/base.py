@@ -95,6 +95,7 @@ class ExpertsLoRASpec(Protocol):
     """Routed-expert attachment for architectures whose experts carry adapters."""
 
     supported_targets: frozenset[str]
+    fc1_leaves: tuple[str, str]
 
     def attach(self, mlp: nn.Module, layer: nn.Module, context: AttachContext) -> int: ...
 

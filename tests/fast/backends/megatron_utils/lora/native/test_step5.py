@@ -469,3 +469,16 @@ def test_the_gate_up_delta_lands_before_the_clamped_swiglu(tmp_path, _ep):
     assert (fc1_output.abs() > SWIGLU_LIMIT).any(), "the clamp must be active for this test to mean anything"
     torch.testing.assert_close(output, torch.cat(expected), rtol=1e-4, atol=1e-4)
     assert not torch.allclose(output, torch.cat(wrong_order), rtol=1e-2, atol=1e-2)
+
+
+@pytest.mark.parametrize("expert", [0, 7], ids=["first-expert", "other-expert"])
+def test_shared_outer_adapters_reject_single_expert_targets(expert):
+    targets = [f"model.layers.3.moe.experts.{expert}.{leaf}" for leaf in _LEAVES]
+    with pytest.raises(AssertionError, match="covers all routed experts"):
+        _resolve(_step5_vl_config(), targets)
+
+
+def test_routed_gate_and_up_must_pair_within_the_same_layer():
+    targets = ["model.layers.3.moe.experts.*.gate_proj", "model.layers.4.moe.experts.*.up_proj"]
+    with pytest.raises(AssertionError, match="select both or neither"):
+        _resolve(_step5_vl_config(), targets)

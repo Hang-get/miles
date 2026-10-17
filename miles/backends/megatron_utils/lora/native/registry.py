@@ -184,7 +184,7 @@ def resolve_adapter_targets(
         f"--target-modules {attention_target_modules_csv(hf_config)}) or use --megatron-to-hf-mode bridge."
     )
     _assert_shared_expert_up_proj_has_gate_proj(selected or hf_targets)
-    _assert_routed_expert_gate_up_selected_together(spec, hf_targets)
+    _assert_routed_expert_selection(spec, hf_targets)
     return _shared_outer_serving_targets(hf_targets)
 
 
@@ -248,16 +248,26 @@ def _assert_shared_expert_up_proj_has_gate_proj(hf_targets: list[str]) -> None:
     ), f"native LoRA needs gate_proj selected with {lone_up_projs}: SGLang drops a shared expert's lone up_proj"
 
 
-def _assert_routed_expert_gate_up_selected_together(spec: LoRAArchSpec, hf_targets: list[str]) -> None:
-    """One grouped adapter covers the experts' fused gate/up host, so it trains both or neither."""
+def _assert_routed_expert_selection(spec: LoRAArchSpec, hf_targets: list[str]) -> None:
+    """Shared-outer adapters cover every expert and both halves of each selected fused gate/up host."""
     if spec.experts is None:
         return
+    selected_by_block: dict[str, set[str]] = {}
+    for target in hf_targets:
+        if not spec.adapts_routed_expert(target):
+            continue
+        block, _, leaf = target.rpartition(".")
+        assert block.rpartition(".")[2] == "*", (
+            f"native {spec.name} shared-outer LoRA covers all routed experts; "
+            f"replace the expert index in {target!r} with '*' or exclude routed experts"
+        )
+        selected_by_block.setdefault(block, set()).add(leaf)
     fc1_leaves = set(spec.experts.fc1_leaves)
-    selected = {target.rpartition(".")[2] for target in hf_targets if spec.adapts_routed_expert(target)}
-    assert not (selected & fc1_leaves) or fc1_leaves <= selected, (
-        f"native {spec.name} LoRA adapts the routed experts' {sorted(fc1_leaves)} as one fused host; "
-        f"select both or neither (selected {sorted(selected)})"
-    )
+    for block, selected in selected_by_block.items():
+        assert not (selected & fc1_leaves) or fc1_leaves <= selected, (
+            f"native {spec.name} LoRA adapts {block}'s {sorted(fc1_leaves)} as one fused host; "
+            f"select both or neither (selected {sorted(selected)})"
+        )
 
 
 def attention_target_modules_csv(hf_config: dict) -> str:
