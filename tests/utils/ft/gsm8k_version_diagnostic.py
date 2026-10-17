@@ -1,4 +1,5 @@
 import gc
+import hashlib
 import json
 import logging
 import os
@@ -33,26 +34,39 @@ def run_diagnostic(run: Callable[[], None]) -> None:
     finally:
         try:
             run_shell_command("ray stop --force")
-            _replay_last_batch(root)
+            _replay_saved_batches(root)
         except Exception:
             logger.exception("Independent logprob replay could not complete")
             raise
 
 
-def _replay_last_batch(root: Path) -> None:
+def _replay_saved_batches(root: Path) -> None:
     files = [path for path in root.rglob("samples/*.pt") if path.stem.isdigit()]
     assert files, "No rollout samples were saved"
-    sample_path = max(files, key=lambda path: int(path.stem))
+    files.sort(key=lambda path: int(path.stem))
+    for sample_path in dict.fromkeys([files[0], files[-1]]):
+        _replay_batch(sample_path)
+
+
+def _replay_batch(sample_path: Path) -> None:
     batch = torch.load(sample_path, weights_only=False, map_location="cpu")
     samples = batch["samples"]
     rollout_id = batch["rollout_id"]
     weights_root = sample_path.parent.parent / "weights"
     current = weights_root / f"before_rollout_{rollout_id}"
     current_metadata = json.loads((current / "diagnostic-version.json").read_text())
+    assert current_metadata["rollout_id"] == rollout_id
     snapshots = {}
     for path in sorted(weights_root.glob("*/diagnostic-version.json")):
         metadata = json.loads(path.read_text())
-        snapshots[metadata["weight_version"]] = path.parent
+        version = metadata["weight_version"]
+        if version in snapshots:
+            existing = snapshots[version]
+            assert _weight_digests(existing) == _weight_digests(path.parent), (
+                f"Version {version} identifies different weights: {existing}, {path.parent}"
+            )
+        else:
+            snapshots[version] = path.parent
 
     by_version: dict[int, list[dict[str, Any]]] = {}
     excluded = []
@@ -91,16 +105,17 @@ def _replay_last_batch(root: Path) -> None:
 
 @torch.inference_mode()
 def _recompute(*, checkpoint: Path, samples: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    model = (
-        Qwen2ForCausalLM.from_pretrained(
-            checkpoint,
-            config=load_hf_config(str(checkpoint)),
-            torch_dtype=torch.bfloat16,
-            attn_implementation="sdpa",
-        )
-        .to("cuda")
-        .eval()
+    assert (checkpoint / ".complete").is_file(), f"Incomplete export: {checkpoint}"
+    model, loading_info = Qwen2ForCausalLM.from_pretrained(
+        checkpoint,
+        config=load_hf_config(str(checkpoint)),
+        torch_dtype=torch.bfloat16,
+        attn_implementation="sdpa",
+        output_loading_info=True,
     )
+    for key in ("missing_keys", "unexpected_keys", "mismatched_keys", "error_msgs"):
+        assert not loading_info[key], (checkpoint, key, loading_info[key])
+    model = model.to("cuda").eval()
     results = []
     for sample in samples:
         tokens = torch.tensor(sample["tokens"], device="cuda", dtype=torch.long).unsqueeze(0)
@@ -113,6 +128,7 @@ def _recompute(*, checkpoint: Path, samples: list[dict[str, Any]]) -> list[dict[
         mask = torch.tensor(sample["loss_mask"] or [1] * response_length, device="cuda", dtype=torch.float32)
         assert recomputed.shape == saved.shape == mask.shape
         assert mask.sum() > 0
+        assert torch.isfinite(recomputed).all() and torch.isfinite(saved).all()
         results.append(
             dict(
                 index=sample["index"],
@@ -126,3 +142,13 @@ def _recompute(*, checkpoint: Path, samples: list[dict[str, Any]]) -> list[dict[
     gc.collect()
     torch.cuda.empty_cache()
     return results
+
+
+def _weight_digests(checkpoint: Path) -> dict[str, str]:
+    paths = sorted(checkpoint.glob("*.safetensors"))
+    assert paths, f"No exported weights in {checkpoint}"
+    result = {}
+    for path in paths:
+        with path.open("rb") as stream:
+            result[path.name] = hashlib.file_digest(stream, "sha256").hexdigest()
+    return result
