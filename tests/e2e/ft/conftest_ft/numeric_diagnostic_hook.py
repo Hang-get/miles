@@ -16,10 +16,10 @@ logger = logging.getLogger(__name__)
 
 
 def install(args: Namespace) -> None:
+    import transformer_engine.pytorch.attention.dot_product_attention.context_parallel as te_context_parallel
+
     from miles.backends.megatron_utils import actor, model
     from miles.utils.audit_utils.event_logger.logger import get_event_logger
-
-    import transformer_engine.pytorch.attention.dot_product_attention.context_parallel as te_context_parallel
 
     versions = {}
     for package in ("torch", "transformer-engine", "flash-attn", "flash-attn-3"):
@@ -28,7 +28,12 @@ def install(args: Namespace) -> None:
         except importlib.metadata.PackageNotFoundError:
             versions[package] = "not installed"
     source_path = Path(te_context_parallel.__file__)
-    logger.info("Numeric diagnostic libraries: %s; CP source %s sha256=%s", versions, source_path, hashlib.sha256(source_path.read_bytes()).hexdigest())
+    logger.info(
+        "Numeric diagnostic libraries: %s; CP source %s sha256=%s",
+        versions,
+        source_path,
+        hashlib.sha256(source_path.read_bytes()).hexdigest(),
+    )
 
     original_loss = model.loss_function
     loss_index = 0
@@ -44,7 +49,11 @@ def install(args: Namespace) -> None:
             root / f"loss-input-{index}.pt",
             dict(
                 logits_stats=_logits_stats(logits),
-                batch={key: batch[key] for key in ("log_probs", "advantages", "loss_masks", "sample_indices") if key in batch},
+                batch={
+                    key: batch[key]
+                    for key in ("log_probs", "advantages", "loss_masks", "sample_indices")
+                    if key in batch
+                },
             ),
         )
         result = original_loss(*positional, **keywords)
