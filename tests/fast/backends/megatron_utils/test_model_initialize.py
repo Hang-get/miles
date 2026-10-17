@@ -47,6 +47,10 @@ class _DummyScheduler:
     pass
 
 
+class _DummyPackedSeqParams:
+    pass
+
+
 class _DummyOptimizerConfig:
     def __init__(self, **kwargs):
         self.__dict__.update(kwargs)
@@ -106,7 +110,7 @@ def _mock_megatron_environment():
             },
         )
         _stub_module("megatron.core.optimizer_param_scheduler", {"OptimizerParamScheduler": _DummyScheduler})
-        _stub_module("megatron.core.packed_seq_params", {"PackedSeqParams": MagicMock()})
+        _stub_module("megatron.core.packed_seq_params", {"PackedSeqParams": _DummyPackedSeqParams})
         _stub_module("megatron.core.pipeline_parallel", {"get_forward_backward_func": MagicMock()})
         _stub_module("megatron.core.transformer", is_package=True)
         _stub_module("megatron.core.transformer.utils", {"sharded_state_dict_default": MagicMock()})
@@ -126,6 +130,7 @@ def _mock_megatron_environment():
         _stub_module(
             "megatron.training.checkpointing",
             {
+                "get_checkpoint_name": MagicMock(),
                 "load_checkpoint": MagicMock(),
                 "save_checkpoint": MagicMock(),
             },
@@ -343,7 +348,7 @@ class TestTheFirstForwardAfterALoad:
         def load_hf_checkpoint(model, optimizer, *args, **kwargs):
             # as _load_checkpoint_hf does after writing the weights
             optimizer.reload_model_params()
-            return 0, 0, False
+            return 0, 0
 
         with ExitStack() as stack:
             stack.enter_context(
