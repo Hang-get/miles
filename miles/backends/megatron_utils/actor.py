@@ -912,6 +912,8 @@ class MegatronTrainRayActor(TrainRayActor):
         return dict(self._named_actor_weights(include_model_companion=include_model_companion))
 
     def _get_actor_weight_version(self) -> int:
+        if self._weight_sync_reads_tms_backup:
+            return ModelCompanionWeightVersionUtils.weight_version(self.model)
         return ModelCompanionWeightVersionUtils.from_params(
             self._get_actor_weights(include_model_companion=True).items()
         )
