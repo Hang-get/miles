@@ -104,17 +104,28 @@ _TASKS = {
     ),
 }
 
-# (nodes, GPUs per node) of the 2 x 8 B300 recipe: TP4 puts one of the 4 KV groups on each rank, EP16 splits the 352
-# experts 22 per GPU.
-_TWO_NODE_LAYOUT = (2, 8)
-_TWO_NODE_TENSOR_PARALLEL = 4
-_TWO_NODE_MAX_RESPONSE_LEN = 32768
+# The full model's layouts put one of the 4 KV groups on each TP rank and spread the 352 experts over every GPU, so
+# expert data parallelism is 1.
+_FULL_MODEL_TENSOR_PARALLEL = 4
 # AIME 2026 every 10 steps, besides the evals miles runs before the first step and after the last
-_TWO_NODE_EVAL_INTERVAL = 10
+_FULL_MODEL_EVAL_INTERVAL = 10
 # With the chat template DAPO prompts reach 1,461 tokens (p99 382) and AIME ones stay shorter.
 _MAX_PROMPT_LEN = 2048
 # One node's micro-batch while prompt plus response fit in it.
 _ONE_NODE_MAX_TOKENS_PER_GPU = 16384
+
+
+@dataclass(frozen=True)
+class _FullModelLayout:
+    """What the full model trains on one cluster shape, and how it fits."""
+
+    hardware: str
+    max_response_len: int
+    lr: float
+    # what the trainer updates and where its state lives
+    trainer_args: str
+    sglang_attention_backend: str
+    sglang_mem_fraction_static: float
 
 
 @dataclass
@@ -133,17 +144,20 @@ class ScriptArgs(U.ExecuteTrainConfig):
     extra_args: str = ""
 
     def __post_init__(self):
+        layout = self.full_model_layout
         if self.rollout_max_response_len is None:
-            self.rollout_max_response_len = _TWO_NODE_MAX_RESPONSE_LEN if self.is_two_node_layout else 1024
-        assert self.model_name != "Step5" or self.is_two_node_layout, "the full model is laid out for 2 x 8 B300"
-        if self.is_two_node_layout:
-            self._check_two_node_recipe()
+            self.rollout_max_response_len = layout.max_response_len if layout is not None else 1024
+        assert (
+            self.model_name != "Step5" or layout is not None
+        ), "the full model is laid out for 2 x 8 B300 and 4 x 8 H200"
+        if layout is not None:
+            self._check_full_model_recipe(layout)
 
-    def _check_two_node_recipe(self) -> None:
-        assert self.task == "dapo_math", "the 2 x 8 recipe trains the text decoder only"
-        assert self.rollout_max_response_len <= _TWO_NODE_MAX_RESPONSE_LEN, (
+    def _check_full_model_recipe(self, layout: _FullModelLayout) -> None:
+        assert self.task == "dapo_math", f"the {layout.hardware} recipe trains the text decoder only"
+        assert self.rollout_max_response_len <= layout.max_response_len, (
             f"a micro-batch holds {self.max_tokens_per_gpu} tokens, one prompt plus a "
-            f"{_TWO_NODE_MAX_RESPONSE_LEN}-token response"
+            f"{layout.max_response_len}-token response"
         )
 
     @property
@@ -151,8 +165,9 @@ class ScriptArgs(U.ExecuteTrainConfig):
         return _TASKS[self.task]
 
     @property
-    def is_two_node_layout(self) -> bool:
-        return (self.num_nodes, self.num_gpus_per_node) == _TWO_NODE_LAYOUT
+    def full_model_layout(self) -> _FullModelLayout | None:
+        """The full model's recipe for this cluster shape; any other shape runs the slice at TP1."""
+        return _FULL_MODEL_LAYOUTS.get((self.num_nodes, self.num_gpus_per_node))
 
     @property
     def megatron_model_type(self) -> str:
@@ -169,18 +184,18 @@ class ScriptArgs(U.ExecuteTrainConfig):
     @property
     def trainer_init_checkpoint(self) -> str:
         # With no --load the trainer starts from --ref-load, and an HF directory there is read through the model's
-        # bridge: the full model's torch_dist copy would not fit the node disk, and a slice on 2 x 8 rehearses that.
-        return self.hf_checkpoint if self.is_two_node_layout else self.torch_dist_checkpoint
+        # bridge: the full model's torch_dist copy would not fit the node disk, and a slice on its layouts rehearses that.
+        return self.hf_checkpoint if self.full_model_layout is not None else self.torch_dist_checkpoint
 
     @property
     def tensor_parallel_size(self) -> int:
-        return _TWO_NODE_TENSOR_PARALLEL if self.is_two_node_layout else 1
+        return _FULL_MODEL_TENSOR_PARALLEL if self.full_model_layout is not None else 1
 
     @property
     def max_tokens_per_gpu(self) -> int:
         """A micro-batch holds one prompt beside a full-length response."""
-        if self.is_two_node_layout:
-            return _MAX_PROMPT_LEN + _TWO_NODE_MAX_RESPONSE_LEN
+        if self.full_model_layout is not None:
+            return _MAX_PROMPT_LEN + self.full_model_layout.max_response_len
         return max(_ONE_NODE_MAX_TOKENS_PER_GPU, _MAX_PROMPT_LEN + self.rollout_max_response_len)
 
     @property
@@ -196,7 +211,7 @@ def prepare(args: ScriptArgs):
     U = args.create_backend()
     U.exec_command_cpu(f"mkdir -p {args.data_dir}")
     U.hf_download_dataset(args.task_recipe.dataset, data_dir=args.data_dir)
-    if args.is_two_node_layout:
+    if args.full_model_layout is not None:
         # its trainer reads the HF checkpoint
         return
     # Shard the experts across every GPU.
@@ -217,6 +232,7 @@ def prepare(args: ScriptArgs):
 @U.dataclass_cli
 def train(args: ScriptArgs):
     """Submit the GRPO job."""
+    layout = args.full_model_layout
     ckpt_args = f"--hf-checkpoint {args.hf_checkpoint} --ref-load {args.trainer_init_checkpoint} "
 
     task = args.task_recipe
@@ -226,7 +242,7 @@ def train(args: ScriptArgs):
         "--rollout-shuffle "
         "--rm-type math "
         f"--num-rollout {args.num_rollout} "
-        f"--rollout-batch-size {32 if args.is_two_node_layout else 4} "
+        f"--rollout-batch-size {4 if layout is None else 32} "
         "--n-samples-per-prompt 8 "
         "--rollout-temperature 1.0 "
         "--num-steps-per-rollout 1 "
@@ -236,8 +252,8 @@ def train(args: ScriptArgs):
     if not task.has_images:
         # An image prompt counts one token per image here, not the tokens SGLang expands it into.
         rollout_args += f"--rollout-max-prompt-len {args.max_prompt_len} "
-    if args.is_two_node_layout:
-        rollout_args += _two_node_sampling_args(args)
+    if layout is not None:
+        rollout_args += _full_model_sampling_args(args, layout)
 
     # Step5 attention allows TP 1, 2 or 4 (4 KV groups); experts split 352 ways by EP.
     perf_args = (
@@ -269,31 +285,31 @@ def train(args: ScriptArgs):
 
     optimizer_args = (
         "--optimizer adam "
-        "--lr 1e-6 "
+        f"--lr {1e-6 if layout is None else layout.lr} "
         "--lr-decay-style constant "
         "--weight-decay 0.1 "
         "--adam-beta1 0.9 "
         "--adam-beta2 0.98 "
     )
-    if args.is_two_node_layout:
-        optimizer_args += _TWO_NODE_OPTIMIZER_OFFLOAD_ARGS
+    if layout is not None:
+        optimizer_args += layout.trainer_args
 
     sglang_args = (
         f"--rollout-num-gpus-per-engine {args.num_gpus_per_node} "
         f"--sglang-tp-size {args.num_gpus_per_node} "
         f"--sglang-ep-size {args.num_gpus_per_node} "
-        "--sglang-attention-backend fa4 "
+        f"--sglang-attention-backend {'fa4' if layout is None else layout.sglang_attention_backend} "
         "--sglang-page-size 64 "
         # routing replay needs materialized top-k ids, and triton is the runner validated so far
         "--sglang-moe-runner-backend triton "
         "--sglang-disable-prefill-cuda-graph "
         # fp32 logits: rounding them to bf16 adds ~2.5% to the train-rollout log-prob gap
         "--sglang-enable-fp32-lm-head "
-        f"--sglang-cuda-graph-max-bs-decode {128 if args.is_two_node_layout else 32} "
-        f"--sglang-mem-fraction-static {0.75 if args.is_two_node_layout else 0.5} "
+        f"--sglang-cuda-graph-max-bs-decode {32 if layout is None else 128} "
+        f"--sglang-mem-fraction-static {0.5 if layout is None else layout.sglang_mem_fraction_static} "
         # a slice has few full-attention layers, and an unbounded pool overflows the DSA kernels' int32 strides;
-        # on 2 x 8, 2M tokens (64 full-length sequences per engine) keep one layer's K and V under 2 GiB
-        f"--sglang-max-total-tokens {2 * 1024**2 if args.is_two_node_layout else 1024**2} "
+        # for the full model, 2M tokens (64 32K sequences per engine) keep one layer's K and V under 2 GiB
+        f"--sglang-max-total-tokens {1024**2 if layout is None else 2 * 1024**2} "
     )
     if task.has_images:
         sglang_args += "--sglang-enable-multimodal "
@@ -301,7 +317,7 @@ def train(args: ScriptArgs):
     misc_args = (
         "--attention-dropout 0.0 "
         "--hidden-dropout 0.0 "
-        f"{'' if args.is_two_node_layout else '--accumulate-allreduce-grads-in-fp32 '}"
+        f"{'--accumulate-allreduce-grads-in-fp32 ' if layout is None else ''}"
         f"--update-weight-buffer-size {1 * 1024**3} "
         f"--actor-num-nodes {args.num_nodes} "
         f"--actor-num-gpus-per-node {args.num_gpus_per_node} "
@@ -330,7 +346,7 @@ def train(args: ScriptArgs):
     )
 
 
-def _two_node_sampling_args(args: ScriptArgs) -> str:
+def _full_model_sampling_args(args: ScriptArgs, layout: _FullModelLayout) -> str:
     # The rollout samples the whole distribution; only the eval truncates it.
     sampling_args = "--rollout-top-p 1.0 --rollout-top-k -1 "
     if not args.eval_aime:
@@ -339,11 +355,11 @@ def _two_node_sampling_args(args: ScriptArgs) -> str:
     # whatever the interval: steps 0, 10 and 20 of a 20-step run. Eval samples never reach the trainer, so its
     # context caps do not bind them.
     return sampling_args + (
-        f"--eval-interval {_TWO_NODE_EVAL_INTERVAL} "
+        f"--eval-interval {_FULL_MODEL_EVAL_INTERVAL} "
         f"--eval-prompt-data aime26 {args.data_dir}/aime-2026/aime-2026.jsonl "
         "--n-samples-per-eval-prompt 16 "
-        f"--eval-max-response-len {_TWO_NODE_MAX_RESPONSE_LEN} "
-        f"--eval-max-context-len {_MAX_PROMPT_LEN + _TWO_NODE_MAX_RESPONSE_LEN} "
+        f"--eval-max-response-len {layout.max_response_len} "
+        f"--eval-max-context-len {_MAX_PROMPT_LEN + layout.max_response_len} "
         "--eval-temperature 1.0 "
         "--eval-top-p 0.95 "
         # StepFun's top_k 0 (off)
@@ -351,9 +367,9 @@ def _two_node_sampling_args(args: ScriptArgs) -> str:
     )
 
 
-# Expert DP is 1, so each GPU owns the Adam state of its experts plus a quarter of its other params: for the full
-# model, 36.5B and 0.84B (13.4B non-expert params, split TP4 then sharded over DP4).
-_TWO_NODE_OPTIMIZER_OFFLOAD_ARGS = (
+# On 2 x 8 expert DP is 1, so each GPU owns the Adam state of its experts plus a quarter of its other params: for the
+# full model, 36.5B and 0.84B (13.4B non-expert params, split TP4 then sharded over DP4).
+_OPTIMIZER_STATE_OFFLOAD_ARGS = (
     # TE FusedAdam keeps the fp32 masters as int16 remainders of the bf16 params and the moments in bf16.
     "--use-precision-aware-optimizer "
     "--main-params-dtype fp32 "
@@ -371,6 +387,42 @@ _TWO_NODE_OPTIMIZER_OFFLOAD_ARGS = (
     # cache exact-size blocks in the power-of-two free lists, and torch 2.13 hands those to larger requests.)
     """--train-env-vars '{"PYTORCH_ALLOC_CONF": "pinned_max_cached_size_mb:4"}' """
 )
+
+# LoRA on the frozen base: Q/K/V/O, the dense MLPs and the shared expert (all-linear less the routed experts; the
+# head-wise attention gate is never a target). The adapters' optimizer state is small enough to stay on the GPU, and
+# each engine keeps a host copy of the base so a step syncs only the adapters.
+_LORA_ARGS = (
+    "--lora-rank 16 "
+    "--lora-alpha 32 "
+    "--lora-dropout 0.0 "
+    "--target-modules all-linear "
+    "--exclude-modules 'model.layers.*.moe.experts.*' "
+    "--lora-base-cpu-backup "
+    "--accumulate-allreduce-grads-in-fp32 "
+)
+
+# Keyed by (nodes, GPUs per node).
+_FULL_MODEL_LAYOUTS = {
+    # 2 x 8 B300, EP16: full-parameter training with 32K responses.
+    (2, 8): _FullModelLayout(
+        hardware="2 x 8 B300",
+        max_response_len=32768,
+        lr=1e-6,
+        trainer_args=_OPTIMIZER_STATE_OFFLOAD_ARGS,
+        sglang_attention_backend="fa4",
+        sglang_mem_fraction_static=0.75,
+    ),
+    # 4 x 8 H200, EP32: the FP8 checkpoint takes 81 GB of each GPU's 141 in the TP8 engine, and Hopper serves
+    # Step5 with FA3.
+    (4, 8): _FullModelLayout(
+        hardware="4 x 8 H200",
+        max_response_len=8192,
+        lr=1e-5,
+        trainer_args=_LORA_ARGS,
+        sglang_attention_backend="fa3",
+        sglang_mem_fraction_static=0.8,
+    ),
+}
 
 
 def _ray_worker_joiner(backend: BaseCommandBackend, args: ScriptArgs) -> Callable[[], None] | None:
