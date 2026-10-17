@@ -251,6 +251,29 @@ def _hide_critic_value_head_from_hf_load(ddp_model):
             setattr(chunk, name, head)
 
 
+@contextmanager
+def _exclude_native_lora_from_hf_load(ddp_model):
+    """Expose only base tensors to mbridge without changing the model's module tree."""
+    from .lora.native.modules.linear import NativeLoRAAdapter
+
+    def exclude_adapter_state(module, state_dict, prefix, local_metadata):
+        for key in list(state_dict):
+            if key.startswith(prefix):
+                del state_dict[key]
+
+    handles = [
+        module.register_state_dict_post_hook(exclude_adapter_state)
+        for chunk in unwrap_model(ddp_model)
+        for module in chunk.modules()
+        if isinstance(module, NativeLoRAAdapter)
+    ]
+    try:
+        yield
+    finally:
+        for handle in handles:
+            handle.remove()
+
+
 def _load_hf_weights_with_mbridge(ddp_model, args, load_path: str) -> None:
     """Raw-mode HF load through mbridge for models Megatron-Bridge lacks; staging copies bypass the memory saver."""
     from contextlib import nullcontext
@@ -270,6 +293,7 @@ def _load_hf_weights_with_mbridge(ddp_model, args, load_path: str) -> None:
     with (
         ModelCompanionInstallationUtils.hide(ddp_model),
         _hide_critic_value_head_from_hf_load(ddp_model),
+        _exclude_native_lora_from_hf_load(ddp_model),
         bypass,
     ):
         bridge = AutoBridge.from_pretrained(load_path, trust_remote_code=True)

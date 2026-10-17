@@ -105,3 +105,31 @@ class TestRawMbridgeCompanionIsolation:
             assert companion.weight_version.item() == 7
             assert companion.sample_consumptions.tolist() == [[1, 2, 3, 4, 0]]
             torch.testing.assert_close(model.weight, torch.full_like(model.weight, 5))
+
+
+class TestRawMbridgeNativeLoRAIsolation:
+    @pytest.mark.parametrize("fail", [False, True])
+    def test_base_load_preserves_nested_adapter_state(self, raw_mbridge_loader, fail):
+        from miles.backends.megatron_utils.lora.native.modules.linear import NativeLoRAAdapter
+        from miles.backends.megatron_utils.lora.native.spec.base import ProjectionSpec, ShardLayout
+
+        observed = raw_mbridge_loader(fail)
+        model = torch.nn.Linear(2, 2)
+        model.self_attention = torch.nn.Module()
+        adapter = NativeLoRAAdapter(
+            "model.layers.0.self_attn", (ProjectionSpec("q_proj", "q", ShardLayout.COLUMN),), tp_rank=0
+        )
+        adapter.register_parameter("q_A", torch.nn.Parameter(torch.full((2, 2), 7.0)))
+        adapter.register_parameter("q_B", torch.nn.Parameter(torch.zeros(2, 2)))
+        model.self_attention.lora_qkv_adapter = adapter
+        before = {name: value.clone() for name, value in adapter.state_dict().items()}
+
+        with pytest.raises(RuntimeError, match="HF loading failed") if fail else nullcontext():
+            checkpoint._load_hf_weights_with_mbridge([model], Namespace(offload_train=False), "/unused/hf")
+
+        assert observed == [{"weight", "bias"}]
+        assert model.self_attention.lora_qkv_adapter is adapter
+        torch.testing.assert_close(model.weight, torch.full_like(model.weight, 5))
+        for name, value in before.items():
+            torch.testing.assert_close(adapter.state_dict()[name], value)
+            torch.testing.assert_close(model.state_dict()[f"self_attention.lora_qkv_adapter.{name}"], value)
