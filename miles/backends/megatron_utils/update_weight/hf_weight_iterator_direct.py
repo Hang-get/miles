@@ -12,13 +12,14 @@ from miles.backends.megatron_utils.lora.native import export_lora_hf_named
 from miles.backends.megatron_utils.megatron_to_hf import convert_to_hf
 from miles.backends.megatron_utils.named_weights import named_params_and_buffers
 from miles.backends.megatron_utils.sglang import monkey_patch_torch_reductions
+from miles.backends.megatron_utils.update_weight.expert_exchange import ExpertExchange
 from miles.backends.megatron_utils.update_weight.expert_gather import ExpertGather
 from miles.backends.megatron_utils.update_weight.hf_weight_iterator import (
     MegatronHfWeightIteratorBase,
     _iter_mm_tower_units,
 )
 from miles.backends.training_utils.parallel import get_parallel_state
-from miles.backends.training_utils.weight_update.hf_weight_iterator import WeightUpdatePlacement
+from miles.backends.training_utils.weight_update.hf_weight_iterator import HfNameRoute, WeightUpdatePlacement
 from miles.utils.distributed_utils import get_gloo_group
 from miles.utils.types import ParamInfo
 
@@ -41,6 +42,8 @@ class HfWeightIteratorDirect(MegatronHfWeightIteratorBase):
             self.args, self.model, gather_pp=self.placement.gather_pp
         )
         ep_size = parallel.ep.size
+        self._exchanges_route: HfNameRoute | None = None
+        self._exchanges: list[ExpertExchange] = []
         self._non_expert_batches = _pack_param_infos_by_size(self.args, non_expert_infos)
         self._expert_batches = []
         if not self._convert_experts_before_gather:
@@ -75,7 +78,7 @@ class HfWeightIteratorDirect(MegatronHfWeightIteratorBase):
                 for batches in itertools.zip_longest(*owner_batches, fillvalue=())
             ]
 
-    def _iter_hf_param_units(self, weights, *, materialize):
+    def _iter_hf_param_units(self, weights, *, materialize, route):
         rank = dist.get_rank()
 
         pbar = tqdm(
@@ -91,9 +94,11 @@ class HfWeightIteratorDirect(MegatronHfWeightIteratorBase):
                 yield from self._convert_to_hf_param_units(named_params)
             del named_params
             pbar.update(1)
-        for batch in self._expert_batches:
+        for batch_index, batch in enumerate(self._expert_batches):
             if self._convert_experts_before_gather:
-                units = self._convert_and_gather_expert_batch(batch, weights)
+                units = self._convert_and_gather_expert_batch(
+                    batch, weights, self._expert_exchanges(batch_index, route)
+                )
                 if materialize:
                     yield from units
                 del units
@@ -109,8 +114,17 @@ class HfWeightIteratorDirect(MegatronHfWeightIteratorBase):
         pbar.close()
         yield from _iter_mm_tower_units(self.args, materialize=materialize)
 
-    def _convert_and_gather_expert_batch(self, batch: _ExpertBatch, weights):
-        """Convert once per expert across EP/EDP, then gather HF weights and scales."""
+    def _expert_exchanges(self, batch_index: int, route: HfNameRoute | None):
+        if route is None:
+            return self._expert_batches[batch_index].gathers
+        # a route names ranks globally, so one exchange over the whole world delivers each unit
+        if self._exchanges_route is not route:
+            self._exchanges = [ExpertExchange(group=dist.group.WORLD, route=route) for _ in self._expert_batches]
+            self._exchanges_route = route
+        return (self._exchanges[batch_index],)
+
+    def _convert_and_gather_expert_batch(self, batch: _ExpertBatch, weights, exchanges):
+        """Convert once per expert across EP/EDP, then gather or route HF weights and scales."""
         device = torch.device("cuda", torch.cuda.current_device())
         rank = dist.get_rank()
         # Sender placement is independent of ownership: non-senders also
@@ -121,8 +135,8 @@ class HfWeightIteratorDirect(MegatronHfWeightIteratorBase):
             if info.src_rank == rank
         )
         units = list(self._convert_to_hf_param_units(local_params))
-        for gather in batch.gathers:
-            units = gather(units, device=device)
+        for exchange in exchanges:
+            units = exchange(units, device=device)
         return units
 
     def _export_pp_local_lora(self, adapter):
