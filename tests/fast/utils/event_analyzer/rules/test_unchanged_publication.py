@@ -1,5 +1,6 @@
-from miles.utils.audit_utils.event_analyzer.rules.inference_engine_weight_movement import check
 from tests.fast.utils.event_analyzer.rules.test_inference_engine_weight_movement import _settled, _version
+
+from miles.utils.audit_utils.event_analyzer.rules.inference_engine_weight_movement import check
 
 
 class TestUnchangedPublicationBoundary:

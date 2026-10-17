@@ -1,13 +1,13 @@
 from pathlib import Path
 
 import pytest
+from tests.fast.utils.external_utils.command_utils.helm_backend.orchestrator.observer_fakes import _ObserverProbe
 
 from miles.utils.external_utils.command_utils.helm_backend.orchestrator import observer
 from miles.utils.external_utils.command_utils.helm_backend.orchestrator.state import (
     OrchestratorState,
     OrchestratorStatus,
 )
-from tests.fast.utils.external_utils.command_utils.helm_backend.orchestrator.observer_fakes import _ObserverProbe
 
 
 class TestUnreadableGenerationBudget:

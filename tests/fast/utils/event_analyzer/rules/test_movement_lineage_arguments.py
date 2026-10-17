@@ -1,6 +1,7 @@
-from miles.utils.audit_utils.event_analyzer.rules.inference_engine_weight_movement import check
 from tests.fast.utils.event_analyzer.rules.test_inference_engine_weight_movement import _version
 from tests.fast.utils.event_analyzer.rules.weight_event_fakes import make_step_end, make_trainer_args
+
+from miles.utils.audit_utils.event_analyzer.rules.inference_engine_weight_movement import check
 
 
 class TestLineageArgumentBoundary:

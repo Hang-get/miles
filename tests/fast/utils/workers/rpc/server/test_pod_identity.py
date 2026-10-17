@@ -1,8 +1,8 @@
 import pytest
+from tests.fast.utils.workers.rpc.server.test_app import _client, _Worker
 
 from miles.utils.workers.env_vars import POD_UID_ENV_VAR
 from miles.utils.workers.rpc.common.protocol import BOOT_UUID_HEADER, EXPECTED_BOOT_UUID_HEADER, POD_UID_HEADER
-from tests.fast.utils.workers.rpc.server.test_app import _Worker, _client
 
 
 class TestPodIdentityHeaders:

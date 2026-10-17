@@ -1,11 +1,11 @@
 from subprocess import TimeoutExpired
 
 import pytest
-
-from miles.utils.workers.k8s_types import Pod, PodMetadata
 from tests.fast.e2e.deploy.hot_restart.conftest import InstallReleaseCluster
 from tests.fast.e2e.deploy.hot_restart.release_timeout_fakes import _TimedOutCommand
 from tests.utils.deploy.hot_restart import release as release_module
+
+from miles.utils.workers.k8s_types import Pod, PodMetadata
 
 
 class TestReleaseCommandTimeout:

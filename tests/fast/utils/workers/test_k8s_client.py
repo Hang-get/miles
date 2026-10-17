@@ -1,7 +1,7 @@
 import pytest
+from tests.fast.utils.workers.k8s_client_fakes import _ConfigException, _KubernetesClientProbe
 
 from miles.utils.workers.k8s_client import core_v1_api
-from tests.fast.utils.workers.k8s_client_fakes import _ConfigException, _KubernetesClientProbe
 
 
 class TestCoreV1Api:
