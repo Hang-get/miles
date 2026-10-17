@@ -41,7 +41,7 @@ def _build_target_args(
 def _get_live_rollout_args(mode: FTTestMode) -> str:
     if not mode.has_real_rollout:
         return ""
-    return "--debug-deterministic-collective --clip-grad 10.0 "
+    return "--clip-grad 10.0 "
 
 
 def _compare(dump_dir: str, mode: FTTestMode) -> None:
