@@ -4,6 +4,7 @@ import re
 import shutil
 from collections.abc import Sequence
 from contextlib import contextmanager
+from itertools import chain
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -257,9 +258,10 @@ def _exclude_native_lora_from_hf_load(ddp_model):
     from .lora.native.modules.linear import NativeLoRAAdapter
 
     def exclude_adapter_state(module, state_dict, prefix, local_metadata):
-        for key in list(state_dict):
-            if key.startswith(prefix):
-                del state_dict[key]
+        for name, _ in chain(
+            module.named_parameters(remove_duplicate=False), module.named_buffers(remove_duplicate=False)
+        ):
+            state_dict.pop(prefix + name, None)
 
     handles = [
         module.register_state_dict_post_hook(exclude_adapter_state)

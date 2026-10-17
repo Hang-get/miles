@@ -121,6 +121,8 @@ class TestRawMbridgeNativeLoRAIsolation:
         )
         adapter.register_parameter("q_A", torch.nn.Parameter(torch.full((2, 2), 7.0)))
         adapter.register_parameter("q_B", torch.nn.Parameter(torch.zeros(2, 2)))
+        adapter.register_buffer("persistent", torch.tensor(3.0))
+        adapter.register_buffer("scratch", torch.tensor(4.0), persistent=False)
         model.self_attention.lora_qkv_adapter = adapter
         before = {name: value.clone() for name, value in adapter.state_dict().items()}
 
