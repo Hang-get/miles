@@ -1,7 +1,7 @@
 ---
 title: Step-5-Preview
 sidebarTitle: Step-5-Preview
-description: Launch recipe for StepFun's Step-5-Preview (600B MoE, sliding-window + DSA sparse attention) — FP8 rollout, BF16 training, on two 8-GPU B300 nodes.
+description: Launch recipe for StepFun's Step-5-Preview (600B MoE, sliding-window + DSA sparse attention) — FP8 rollout, BF16 training, on two 8-GPU B300 nodes or with LoRA on four 8-GPU H200 nodes.
 ---
 ## 1. Model Introduction
 
@@ -60,6 +60,21 @@ MASTER_ADDR=<head ip> python scripts/run_step5.py train --model-name Step5 \
 
 On two 8×B300 nodes, with 32 prompts × 8 samples per step, responses capped at 2048 tokens (the recipe default is 32768), DAPO dynamic sampling on and evals off, a step took a median 274 s over 80 steps: 81 s of training and 95 s of weight update, the rest mostly rollout.
 
+### 4.2 Four H200 nodes with LoRA
+
+Start a Ray cluster on exactly four 8-GPU H200 nodes and submit from the head:
+
+```bash
+MILES_SCRIPT_EXTERNAL_RAY=1 MASTER_ADDR=<head ip> python scripts/run_step5.py train \
+    --model-name Step5 --num-nodes 4 --num-gpus-per-node 8 --num-rollout 3 \
+    --rollout-max-response-len 512 --no-eval-aime
+```
+
+This layout selects rank-16 LoRA (alpha 32), TP4/EP32 training and one FA3 TP8/EP8 rollout engine per node.
+It adapts Q/K/V/O, dense MLPs and shared experts while freezing routed experts, the attention gate and the base model.
+The adapter optimizer stays on the GPU; each rollout engine keeps a CPU copy of the base weights for subsequent adapter-only updates.
+The response default is 8192 tokens; shorter smoke responses do not establish that longer contexts fit.
+
 ## 5. Recipe Configuration
 
 ### 5.1 Parallelism
@@ -93,7 +108,7 @@ Adam at `--lr 1e-6`. With EP 16 on 16 GPUs, expert data parallelism is 1, so the
 ### 5.4 Notable quirks
 
 - **`--window-attn-skip-freq` reads backwards**: Megatron treats a 1 as window attention, not a skip. Step5 passes 1 for `layer % 4 != 3`, the 69 sliding-window layers, with `--window-size 511,0`: the query plus 511 previous keys, 512 in total.
-- **Frozen DSA indexer**: every parameter but the indexer trains, and the full-attention layers recompute the rollout's region selection with it. The weight sync never sends it; the engine keeps its own copy.
+- **Frozen DSA indexer**: in the full-parameter recipe every parameter but the indexer trains, and the full-attention layers recompute the rollout's region selection with it. The weight sync never sends it; the engine keeps its own copy.
 - **`--sglang-max-total-tokens 2097152`** is a correctness bound: an unbounded KV pool overflows the DSA kernels' int32 strides.
 - **`--sglang-moe-runner-backend triton`**: routing replay needs the engine's materialized top-k ids.
 

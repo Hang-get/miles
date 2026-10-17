@@ -73,7 +73,7 @@ export no_proxy=127.0.0.1 && export PYTHONUNBUFFERED=1 && ray job submit
   --rollout-max-response-len 1024
   --rollout-max-prompt-len 15360 
   --optimizer adam
-  --lr 1e-6
+  --lr 1e-06
   --lr-decay-style constant
   --weight-decay 0.1
   --adam-beta1 0.9

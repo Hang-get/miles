@@ -9,7 +9,7 @@ dropped. The hardware layout picks the recipe. On one 4-GPU node the 5-layer sli
 (``pb09204048/Step-5-Preview-5layer``, cut by ``tools/slice_step5_checkpoint.py``) exercises the whole loop at TP1
 from a torch_dist conversion.
 
-On 2 x 8 B300 (--num-nodes 2 --num-gpus-per-node 8) every variant runs the recipe built for the full
+On 2 x 8 B300 (--num-nodes 2 --num-gpus-per-node 8) every variant runs the full-parameter recipe for the full
 model (600B total, 27B active), so the slice can rehearse it: every parameter but the frozen DSA indexer
 trains, with 32K responses:
 
@@ -25,6 +25,11 @@ trains, with 32K responses:
 - One SGLang engine per node (TP8/EP8), colocated. AIME 2026 is evaluated before the first step, every
   10 steps and after the last, at StepFun's recommended sampling (temperature 1.0, top-p 0.95, top-k off).
 
+On 4 x 8 H200 (--num-nodes 4 --num-gpus-per-node 8), the full model uses rank-16 LoRA on Q/K/V/O,
+dense MLPs and shared experts. Routed experts and the attention gate stay frozen. The trainer uses TP4/EP32;
+each node serves a TP8/EP8 engine with FA3. Responses default to 8192 tokens. CPU base backups let
+subsequent steps synchronize only adapters. Use --no-eval-aime for smoke runs without the eval dataset.
+
 geo3k prompts carry one image each: SGLang expands it into crop and overview tokens, and the trainer runs
 the frozen vision tower (``miles_plugins/models/step5/vl_model.py``) over the pixels the rollout sends along.
 
@@ -35,12 +40,12 @@ cluster over both nodes: pass --ray-hostfile to join the other node over ssh, or
 yourself and set MILES_SCRIPT_EXTERNAL_RAY=1.
 
 Args:
-    --model-name: Step5 (2 x 8 B300 only) or Step5-5layer (original layers 0, 3, 4, 88, 91: one of each kind).
-    --num-nodes / --num-gpus-per-node: 2 and 8 select the 2 x 8 recipe; any other layout runs the slice at TP1.
+    --model-name: Step5 (2 x 8 B300 or 4 x 8 H200) or Step5-5layer (original layers 0, 3, 4, 88, 91: one of each kind).
+    --num-nodes / --num-gpus-per-node: (2, 8) selects full training, (4, 8) LoRA; other layouts run the slice at TP1.
     --task: dapo_math (text) or geo3k (one image per prompt, TP1 recipe only).
     --model-dir / --data-dir: checkpoint (and its torch_dist conversion, next to it) and dataset locations.
     --num-rollout: GRPO iterations.
-    --rollout-max-response-len: 32768 on 2 x 8 and 1024 otherwise unless set.
+    --rollout-max-response-len: 32768 on 2 x 8, 8192 on 4 x 8, and 1024 otherwise unless set.
     --eval-aime / --no-eval-aime: the 2 x 8 AIME 2026 evals.
     --ray-hostfile: MPI-style hostfile; its other hosts join the ray cluster over ssh.
 

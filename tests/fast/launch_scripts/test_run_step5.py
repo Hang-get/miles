@@ -217,3 +217,18 @@ def test_two_node_recipe_refuses_a_response_its_micro_batch_cannot_hold():
 
     with pytest.raises(AssertionError, match="micro-batch"):
         module.ScriptArgs(**_FULL_MODEL, rollout_max_response_len=65536)
+
+
+def test_four_h200_nodes_train_adapters_without_routed_experts(monkeypatch, tmp_path):
+    overrides = {"model_name": "Step5", "num_nodes": 4, "num_gpus_per_node": 8, "eval_aime": False}
+    flags = _flag_values(_record(monkeypatch, tmp_path, "train", overrides)[-1])
+
+    assert (flags["--tensor-model-parallel-size"], flags["--expert-model-parallel-size"]) == ("4", "32")
+    assert (flags["--lora-rank"], flags["--lora-alpha"], flags["--lr"]) == ("16", "32", "1e-05")
+    assert flags["--target-modules"] == "all-linear"
+    assert flags["--exclude-modules"] == "model.layers.*.moe.experts.*"
+    assert "--lora-base-cpu-backup" in flags
+    assert "--chunked-optimizer-state-offload" not in flags
+    assert flags["--sglang-attention-backend"] == "fa3"
+    assert flags["--rollout-max-response-len"] == "8192"
+    assert not any(flag.startswith("--eval") for flag in flags)
