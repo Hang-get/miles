@@ -89,6 +89,7 @@ def _small_config(model_type, overrides):
                 num_heads=4,
                 out_hidden_size=32,
                 num_position_embeddings=16,
+                rope_parameters={"rope_type": "axial", "rope_theta": 10000.0},
                 patch_size=2,
                 temporal_patch_size=1,
                 spatial_merge_size=1,
