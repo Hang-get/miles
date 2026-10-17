@@ -50,6 +50,8 @@ def _replay_saved_batches(root: Path) -> None:
 
 def _replay_batch(sample_path: Path) -> None:
     batch = torch.load(sample_path, weights_only=False, map_location="cpu")
+    with sample_path.open("rb") as stream:
+        sample_sha256 = hashlib.file_digest(stream, "sha256").hexdigest()
     samples = batch["samples"]
     rollout_id = batch["rollout_id"]
     weights_root = sample_path.parent.parent / "weights"
@@ -62,9 +64,9 @@ def _replay_batch(sample_path: Path) -> None:
         version = metadata["weight_version"]
         if version in snapshots:
             existing = snapshots[version]
-            assert _weight_digests(existing) == _weight_digests(path.parent), (
-                f"Version {version} identifies different weights: {existing}, {path.parent}"
-            )
+            assert _weight_digests(existing) == _weight_digests(
+                path.parent
+            ), f"Version {version} identifies different weights: {existing}, {path.parent}"
         else:
             snapshots[version] = path.parent
 
@@ -91,6 +93,10 @@ def _replay_batch(sample_path: Path) -> None:
                 rollout_id=rollout_id,
                 source_version=version,
                 checkpoint=str(checkpoint),
+                checkpoint_sha256=_weight_digests(checkpoint),
+                sample_sha256=sample_sha256,
+                total_samples=len(samples),
+                excluded_samples=excluded,
                 mode=name,
                 count=len(results),
                 mean_saved=sum(item["saved"] for item in results) / len(results),
