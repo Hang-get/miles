@@ -1064,6 +1064,4 @@ def test_actor_weight_getter_forwards_companion_selection_to_live_source(
     assert worker._get_actor_weights(include_model_companion=include_model_companion) == {"weight": tensor}
 
     expected = {"include_model_companion": include_model_companion}
-    if use_tms_backup:
-        expected["translate_gpu_to_cpu"] = True
     worker._named_actor_weights.assert_called_once_with(**expected)
