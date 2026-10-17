@@ -134,10 +134,10 @@ def query_rollout_engine_rank_configs(
 def _query_config(
     rollout_engine: SGLangApiClient, rollout_engine_rank: int, runner_role: str
 ) -> RolloutEngineRankConfig:
-    parallelism_info = async_utils.run(rollout_engine.get_parallelism_info(rank=rollout_engine_rank, role=runner_role))
+    rank_info = async_utils.run(rollout_engine.get_rank_info(rank=rollout_engine_rank, role=runner_role))
     return RolloutEngineRankConfig(
         runner_role=runner_role,
-        parallelism=RankParallelismConfig.from_dict(parallelism_info),
+        parallelism=RankParallelismConfig.from_dict(rank_info["parallelism_config"]),
         server_args=_query_server_args(rollout_engine),
     )
 

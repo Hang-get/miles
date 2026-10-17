@@ -212,17 +212,17 @@ class _FakeRolloutApi:
         address_role = "target" if self.draft_shares_target_weights else runner_role
         return hash((self.session_id(rank, address_role), name)) & 0xFFFFFFFF
 
-    async def get_remote_instance_transfer_engine_info(self, rank: int, role: str) -> tuple[str, dict]:
-        self.calls.append(f"get_remote_instance_transfer_engine_info {role}")
+    async def get_rank_info(self, rank: int, role: str) -> dict:
+        self.calls.append(f"get_rank_info {role}")
         weights = {
             name: (self.published_address(rank, name, role), self.published_weight_numel, 4)
             for name in _PUBLISHED_PARAM_NAMES_BY_RUNNER_ROLE[role]
         }
-        return self.session_id(rank, role), weights
-
-    async def get_parallelism_info(self, rank: int, role: str) -> dict:
-        self.calls.append(f"get_parallelism_info {role}")
-        return {"tp_rank": rank, "global_rank": 10 * self.generation + rank}
+        return {
+            "parallelism_config": {"tp_rank": rank, "global_rank": 10 * self.generation + rank},
+            "weight_locations": weights,
+            "transfer_session_id": self.session_id(rank, role),
+        }
 
     async def get_server_info(self) -> dict:
         self.calls.append("get_server_info")

@@ -76,9 +76,9 @@ class MooncakeTransport:
 
 
 def _build_remote_shard(
-    transfer_engine_info: tuple[str, dict], rollout_engine_ind: int, rollout_engine_rank: int, runner_role: str
+    rank_info: dict, rollout_engine_ind: int, rollout_engine_rank: int, runner_role: str
 ) -> RemoteShard:
-    session_id, weights_info = transfer_engine_info
+    session_id = rank_info["transfer_session_id"]
     assert (
         session_id is not None
     ), f"the {runner_role} of rollout engine {rollout_engine_ind} rank {rollout_engine_rank} has no Mooncake session"
@@ -87,7 +87,9 @@ def _build_remote_shard(
         rollout_engine_rank=rollout_engine_rank,
         runner_role=runner_role,
         transport_peer=session_id,
-        weight_locations_by_name={name: RemoteWeightLocation(*location) for name, location in weights_info.items()},
+        weight_locations_by_name={
+            name: RemoteWeightLocation(*location) for name, location in rank_info["weight_locations"].items()
+        },
     )
 
 

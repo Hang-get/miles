@@ -1,6 +1,6 @@
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Any, NamedTuple
+from typing import NamedTuple
 
 import torch
 
@@ -39,16 +39,16 @@ def query_remote_shards(
     rollout_engines: Sequence[SGLangApiClient],
     assignments: Sequence[RolloutEngineRankAssignment],
     runner_roles: Sequence[str],
-    build_remote_shard: Callable[[Any, int, int, str], RemoteShard],
+    build_remote_shard: Callable[[dict, int, int, str], RemoteShard],
 ) -> dict[str, dict[int, list[RemoteShard]]]:
-    """Return assigned shards by runner role and rollout rank, each built by `build_remote_shard` from the transfer
-    engine info its rollout engine rank published."""
+    """Return assigned shards by runner role and rollout rank, each built by `build_remote_shard` from the rank info
+    its rollout engine rank published."""
     return {
         runner_role: {
             assignment.rollout_engine_rank: [
                 build_remote_shard(
                     async_utils.run(
-                        rollout_engines[rollout_engine_ind].get_remote_instance_transfer_engine_info(
+                        rollout_engines[rollout_engine_ind].get_rank_info(
                             rank=assignment.rollout_engine_rank, role=runner_role
                         )
                     ),
