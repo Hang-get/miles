@@ -114,11 +114,11 @@ Adam at `--lr 1e-6`. With EP 16 on 16 GPUs, expert data parallelism is 1, so the
 
 ### 5.5 LoRA
 
-Native LoRA (`--megatron-to-hf-mode raw`, the recipe's mode) adapts the text decoder's Q/K/V/O projections, the dense MLPs and the shared expert. The head-wise attention gate (`g_proj`, which shares `linear_qkv` with Q/K/V) and the routed experts stay frozen, and selecting either fails at startup. `all-linear` selects exactly the supported set. Pass the flags through `--extra-args`:
+Native LoRA (`--megatron-to-hf-mode raw`, the recipe's mode) adapts the text decoder's Q/K/V/O projections, dense MLPs and shared expert. The head-wise attention gate (`g_proj`, which shares `linear_qkv` with Q/K/V) stays frozen. Routed-expert adapters require `--experts-shared-outer-loras`; the four-node H200 recipe excludes them. To use the same frozen-expert adapter scope on a slice, pass the exclusion explicitly:
 
 ```bash
 python scripts/run_step5.py train --model-name Step5-5layer --num-gpus-per-node 8 \
-    --extra-args "--lora-rank 16 --lora-alpha 32 --target-modules all-linear --lora-base-cpu-backup --lr 1e-5"
+    --extra-args "--lora-rank 16 --lora-alpha 32 --target-modules all-linear --exclude-modules 'model.layers.*.moe.experts.*' --lora-base-cpu-backup --lr 1e-5"
 ```
 
 The engine needs SGLang's Step5 LoRA support: per-layer adapter widths (the shared expert is 1536 wide, a dense MLP 13824), the routed experts left out of LoRA, and the MoE layers completing their own all-reduce when LoRA disables the deferred one.
