@@ -1,3 +1,5 @@
+import pytest
+
 from tests.fast.utils.event_analyzer.rules.weight_event_fakes import make_checksum, make_result, make_step_end
 
 from miles.utils.audit_utils.event_analyzer.rules.inference_engine_weight_checksum_coverage import (
@@ -5,6 +7,7 @@ from miles.utils.audit_utils.event_analyzer.rules.inference_engine_weight_checks
     settled_published_updates,
 )
 from miles.utils.audit_utils.event_logger.models import (
+    Event,
     InferenceEngineChecksumCollectionFailedEvent,
     InferenceEngineWeightChecksumEvent,
     WeightUpdateResultEvent,
@@ -38,6 +41,72 @@ def _record(
 
 
 class TestCheck:
+    @pytest.mark.parametrize(
+        ("outcomes", "warnings"),
+        [
+            ([(None, False)] * 4, [True, True, False, False]),
+            ([(None, False)] * 2 + [(None, True)] + [(None, False)] * 3, [True, True, True, True, False]),
+            ([("a", False), ("b", False), ("a", False), ("b", False)], [True, True, True, True]),
+            ([("a", False), ("a", False), ("b", True), ("a", False)], [True, True, False]),
+        ],
+        ids=["third-failure", "success-resets", "independent-policies", "other-policy-does-not-reset"],
+    )
+    def test_consecutive_failures_are_limited_per_policy(
+        self, outcomes: list[tuple[str | None, bool]], warnings: list[bool]
+    ) -> None:
+        """Only a successful collection for the same policy resets its failure streak."""
+        events: list[Event] = []
+        for version, (policy, succeeded) in enumerate(outcomes, start=1):
+            update_id = f"u{version}"
+            result = _published(update_id, second=float(version)).model_copy(
+                update={"published_version": version, "candidate_version": version}
+            )
+            result = result.model_copy(update={"source": result.source.model_copy(update={"model_id": policy})})
+            record = _record(update_id).model_copy(update={"trainer_model_id": policy, "weight_version": version})
+            events.append(result)
+            if succeeded:
+                events.append(record)
+            else:
+                events.append(
+                    InferenceEngineChecksumCollectionFailedEvent(
+                        **record.model_dump(exclude={"type", "engine_snapshots"}),
+                        published_cell_id_to_hashes=_HASHES,
+                        reason="TimeoutError()",
+                    )
+                )
+
+        issues = check(list(reversed(events)), include_latest=True)
+
+        assert [issue.is_warning_only for issue in issues] == warnings
+
+    @pytest.mark.parametrize(
+        "field,value",
+        [("weight_version", 99), ("debug_trainer_load_state_timestamp", 99.0), ("trainer_model_id", "wrong-policy")],
+    )
+    @pytest.mark.parametrize("succeeded", [False, True])
+    def test_mismatched_publication_cannot_reset_or_split_failures(
+        self, field: str, value: int | float | str, succeeded: bool
+    ) -> None:
+        """A mismatched observation is fatal and cannot erase earlier collection failures."""
+        events: list[Event] = []
+        for index in range(4):
+            result = _published(f"u{index}", second=float(index))
+            record = _record(f"u{index}")
+            if index != 2 or not succeeded:
+                record = InferenceEngineChecksumCollectionFailedEvent(
+                    **record.model_dump(exclude={"type", "engine_snapshots"}),
+                    published_cell_id_to_hashes=_HASHES,
+                    reason="TimeoutError()",
+                )
+            if index == 2:
+                record = record.model_copy(update={field: value})
+            events.extend([result, record])
+
+        issues = check(events, include_latest=True)
+
+        assert [issue.is_warning_only for issue in issues] == [True, True, False, False]
+        assert "another publication" in issues[2].description
+
     def test_an_explicit_collection_failure_is_a_warning_not_missing_evidence(self) -> None:
         """A receiver dying after publication leaves an explicit incomplete observation."""
         record = _record()
