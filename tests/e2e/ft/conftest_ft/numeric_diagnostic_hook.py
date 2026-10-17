@@ -85,10 +85,17 @@ def install(args: Namespace) -> None:
 
         def capture_result(*a: Any, **kw: Any) -> Any:
             nonlocal result_index
+            logits = a[0]
+            logits_stats = dict(
+                shape=list(logits.shape),
+                dtype=str(logits.dtype),
+                nan=sum(int(torch.isnan(chunk).sum().item()) for chunk in logits.split(2048, dim=-1)),
+                inf=sum(int(torch.isinf(chunk).sum().item()) for chunk in logits.split(2048, dim=-1)),
+            )
             result = f(*a, **kw)
             _save(
                 root / f"result-{result_index}.pt",
-                dict(inputs={k: v for k, v in kw.items() if k != "args"}, result=result),
+                dict(inputs={k: v for k, v in kw.items() if k != "args"}, logits_stats=logits_stats, result=result),
             )
             result_index += 1
             return result
