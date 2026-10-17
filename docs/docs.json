@@ -207,8 +207,7 @@
         "expanded": false
        },
        "models/gpt-oss/gpt-oss",
-       "models/mimo/mimo-v2-6-flash",
-       "models/reflection/beam"
+       "models/mimo/mimo-v2-6-flash"
       ]
      }
     ]
