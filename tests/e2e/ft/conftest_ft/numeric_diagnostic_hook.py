@@ -23,7 +23,7 @@ def install(args: Namespace) -> None:
 
     def capture_forward(f: Callable[..., Any], *positional: Any, **keywords: Any) -> Any:
         nonlocal call_index
-        if keywords["rollout_id"] != 0:
+        if keywords["rollout_id"] not in (0, 1):
             return original_forward(f, *positional, **keywords)
 
         identity = get_event_logger().source.to_name()
