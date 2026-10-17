@@ -136,6 +136,8 @@ def _build_gsm8k_train_args(
         enable_fault_tolerance=enable_fault_tolerance,
     )
     train_args += f"--save-debug-event-data {dump_dir}/{EVENTS_DIRNAME} "
+    train_args += f"--save-debug-rollout-data {dump_dir}/samples/{{rollout_id}}.pt "
+    train_args += f"--save-hf {dump_dir}/weights/before_rollout_{{rollout_id}} "
     return train_args + build_extra_train_args(dump_dir)
 
 

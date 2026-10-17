@@ -4,6 +4,7 @@
 # tests/e2e/ft/conftest_ft/scenario_realistic_gsm8k_fully_async.py.
 
 from tests.ci.ci_register import register_cuda_ci
+from tests.utils.ft.gsm8k_version_diagnostic import run_diagnostic
 from tests.e2e.ft.conftest_ft.scenario_realistic_gsm8k_fully_async import run_ci
 
 register_cuda_ci(
@@ -15,4 +16,4 @@ register_cuda_ci(
 )
 
 if __name__ == "__main__":
-    run_ci()
+    run_diagnostic(run_ci)
