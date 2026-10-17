@@ -4,8 +4,8 @@ from tests.fast.fixtures.rollout_fixtures import RolloutEnvConfig
 from tests.fast.rollout.inference_rollout.integration.utils import (
     MODULAR_ROLLOUT_BASE_ARGV,
     expected_sample,
-    with_list_per_token_fields,
     load_and_call_train,
+    with_list_per_token_fields,
 )
 
 from miles.rollout.base_types import RolloutFnConstructorInput, RolloutFnEvalInput

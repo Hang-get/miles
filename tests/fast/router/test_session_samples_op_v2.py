@@ -882,7 +882,9 @@ async def test_same_prompt_picker_trims_only_identical_resends(
     status, payload = await _collect_via_op(same_prompt_core, sid)
     assert status == 200
     reply = decode_samples_and_merge_input_sample(payload, Sample(), fields=COMPUTED_FIELDS_V2)
-    assert [sample.tokens.tolist() for sample in reply.samples] == [leaves[name].token_ids for name in expected_leaf_names]
+    assert [sample.tokens.tolist() for sample in reply.samples] == [
+        leaves[name].token_ids for name in expected_leaf_names
+    ]
 
 
 async def test_picker_orders_by_checkpoint_count_then_latest_commit(core):

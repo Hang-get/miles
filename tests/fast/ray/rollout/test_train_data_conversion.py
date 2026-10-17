@@ -1196,7 +1196,10 @@ class TestFrozenPerTokenFields:
 
         from_lists, from_frozen = (
             convert_samples_to_train_data(
-                args, samples, metadata={}, custom_convert_samples_to_train_data_func=None,
+                args,
+                samples,
+                metadata={},
+                custom_convert_samples_to_train_data_func=None,
                 custom_reward_post_process_func=None,
             )
             for samples in (self._samples(), frozen_samples)
@@ -1214,7 +1217,10 @@ class TestFrozenPerTokenFields:
         samples = self._samples()
 
         convert_samples_to_train_data(
-            args, samples, metadata={}, custom_convert_samples_to_train_data_func=None,
+            args,
+            samples,
+            metadata={},
+            custom_convert_samples_to_train_data_func=None,
             custom_reward_post_process_func=None,
         )
 

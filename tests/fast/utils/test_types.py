@@ -1055,7 +1055,9 @@ class TestSettlePerTokenFields:
 
     def test_effective_response_length_counts_past_the_wire_dtype(self):
         """A builtin sum over uint8 elements would wrap at 256."""
-        sample = self._finished(tokens=list(range(301)), response_length=300, loss_mask=[1] * 300, rollout_log_probs=None)
+        sample = self._finished(
+            tokens=list(range(301)), response_length=300, loss_mask=[1] * 300, rollout_log_probs=None
+        )
         sample.settle_per_token_fields()
 
         assert sample.effective_response_length == 300 and type(sample.effective_response_length) is int
