@@ -93,6 +93,13 @@ def batch_invariant_linear(hidden_states: torch.Tensor, weight: torch.Tensor) ->
     out = torch.empty((tokens, heads), dtype=torch.bfloat16, device=hidden_states.device)
     if tokens:
         heads_per_program = 1 if tokens * heads < _SPLIT_HEADS_BELOW else min(heads, 8)
+        # H200's four-head indexer weights are 10% faster with one warp at these measured shapes.
+        hopper_head_weights = (
+            heads == 4
+            and k == 4096
+            and tokens >= 2048
+            and torch.cuda.get_device_capability(hidden_states.device) == (9, 0)
+        )
         _batch_invariant_linear_kernel[(tokens, heads // heads_per_program)](
             hidden_states,
             weight,
@@ -104,6 +111,6 @@ def batch_invariant_linear(hidden_states: torch.Tensor, weight: torch.Tensor) ->
             HEADS=heads_per_program,
             LANES=_LANES,
             LANE_LEVELS=_LANE_LEVELS,
-            num_warps=4,
+            num_warps=1 if hopper_head_weights else 4,
         )
     return out
