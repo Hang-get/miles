@@ -639,6 +639,7 @@ class TestMaybeApplyDumperOverrides:
     ) -> SimpleNamespace:
         return SimpleNamespace(
             dumper_enable=dumper_enable,
+            train_backend="megatron",
             use_fault_tolerance=use_fault_tolerance,
             ft_components=ft_components if ft_components is not None else [],
             mini_ft_controller_enable=None,
@@ -672,23 +673,52 @@ class TestMaybeApplyDumperOverrides:
 
     def test_disables_fault_tolerance_and_sglang_router_heartbeats(self) -> None:
         """Dumper mode turns off fault tolerance and the SGLang router health check."""
-        args = _parse_megatron_args(['--dumper-enable', '--use-fault-tolerance', '--update-weight-transfer-mode', 'p2p'])
+        args = _parse_megatron_args(
+            ["--dumper-enable", "--use-fault-tolerance", "--update-weight-transfer-mode", "p2p"]
+        )
         miles_validate_args(args)
+
         assert args.use_fault_tolerance is False
         assert args.router_disable_health_check is True
 
     def test_no_healing_loop_survives_dumper_mode(self) -> None:
         """It is resolved from ft_components, which dumper mode clears, so resolving it first
-            would leave the loop polling a registry with nothing in it for the whole run."""
-        args = _parse_megatron_args(['--dumper-enable', '--use-fault-tolerance', '--update-weight-transfer-mode', 'p2p', '--ft-components', 'rollout'])
+        would leave the loop polling a registry with nothing in it for the whole run."""
+        args = _parse_megatron_args(
+            [
+                "--dumper-enable",
+                "--use-fault-tolerance",
+                "--update-weight-transfer-mode",
+                "p2p",
+                "--ft-components",
+                "rollout",
+            ]
+        )
+
         miles_validate_args(args)
+
         assert _resolve_mini_ft_controller_enable(args) is False
 
     def test_the_selected_ft_components_go_with_the_flag(self) -> None:
         """ft_components is resolved from the flag long before this runs, so clearing the flag
-            alone would leave every component selected and its probes still firing."""
-        args = _parse_megatron_args(['--dumper-enable', '--use-fault-tolerance', '--update-weight-transfer-mode', 'p2p', '--use-dynamic-batch-size', '--max-tokens-per-gpu', '1024', '--ft-components', 'rollout', 'train'])
+        alone would leave every component selected and its probes still firing."""
+        args = _parse_megatron_args(
+            [
+                "--dumper-enable",
+                "--use-fault-tolerance",
+                "--update-weight-transfer-mode",
+                "p2p",
+                "--use-dynamic-batch-size",
+                "--max-tokens-per-gpu",
+                "1024",
+                "--ft-components",
+                "rollout",
+                "train",
+            ]
+        )
+
         miles_validate_args(args)
+
         assert args.ft_components == []
 
     def test_forces_single_rollout(self) -> None:
@@ -1210,6 +1240,7 @@ def test_sglang_parallel_sizes_keep_server_args_destinations():
     args.rollout_num_gpus_per_engine = 8
     args.true_on_policy_mode = False
     args.sglang_enable_dp_attention = True
+    args.loss_type = "policy_loss"
     args.use_session_server = False
     args.recompute_logprobs_via_prefill = False
 
@@ -2899,6 +2930,7 @@ def test_sglang_parallel_sizes_use_short_namespace_fields(parallel_args, expecte
     args.true_on_policy_mode = False
     args.recompute_logprobs_via_prefill = False
     args.sglang_router_policy = None
+    args.loss_type = "policy_loss"
     args.use_session_server = False
 
     validate_sglang_args(args)
@@ -3736,16 +3768,18 @@ class TestRolloutFaultToleranceNeedsAPartialTargetWeightUpdate:
             miles_validate_args(args)
 
 
-@pytest.mark.parametrize('backend', ['megatron', 'fsdp', 'torchtitan'])
+@pytest.mark.parametrize("backend", ["megatron", "fsdp", "torchtitan"])
 def test_dumper_retention_override_is_only_added_for_megatron(backend: str) -> None:
     """Dumper mode cannot introduce a Megatron-only checkpoint field into native backend arguments."""
     args = TestMaybeApplyDumperOverrides()._make_args(dumper_enable=True)
     args.train_backend = backend
     del args.save_retain_interval
+
     _maybe_apply_dumper_overrides(args)
+
     assert args.save is None
     assert args.save_interval is None
     assert args.num_rollout == 1
-    assert ('save_retain_interval' in vars(args)) is (backend == 'megatron')
-    if backend == 'megatron':
+    assert ("save_retain_interval" in vars(args)) is (backend == "megatron")
+    if backend == "megatron":
         assert args.save_retain_interval is None

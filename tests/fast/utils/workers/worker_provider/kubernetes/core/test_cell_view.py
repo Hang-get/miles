@@ -4,6 +4,12 @@ import pytest
 
 from miles.utils.workers.connection_config import WorkerPodMetadata
 from miles.utils.workers.naming import compute_worker_name
+from miles.utils.workers.worker_provider.kubernetes.core.cell_view import (
+    PodIdentity,
+    compute_cell_info,
+    compute_debug_cell_incarnation,
+    compute_worker_infos,
+)
 from miles.utils.workers.worker_provider.kubernetes.core.pod_view import CellLabelKeys, ParsedPod
 from miles.utils.workers.worker_provider.kubernetes.core.provider import KubernetesRunInfo
 from miles.utils.workers.worker_spec import PortInfo, StaticMeta
@@ -236,12 +242,12 @@ class TestWorkerInfos:
 
     def test_refuses_a_cell_that_is_missing_a_pod(self):
         """Numbering workers off a gapped pod list would name workers that belong to another pod."""
-        with pytest.raises(AssertionError, match='missing pods'):
+        with pytest.raises(AssertionError, match="missing pods"):
             build_worker_infos([make_parsed_pod(pod_in_cell_index=1)])
 
     def test_refuses_a_cell_still_missing_its_last_pod(self):
         """A prefix check alone passes a half-arrived group, and the tail is what is actually missing."""
-        with pytest.raises(AssertionError, match='missing pods'):
+        with pytest.raises(AssertionError, match="missing pods"):
             build_worker_infos([make_parsed_pod(pod_in_cell_index=0, cell_size=2)])
 
 
@@ -293,11 +299,19 @@ class TestDebugCellIncarnation:
 
 
 class TestObservedPortReservations:
-
     def test_non_rpc_port_blocks_are_offset_but_master_ports_remain_shared(self) -> None:
         """Observed engine addresses follow each declared port mode and reservation width."""
-        metadata = make_worker_metadata(workers_per_pod=2).model_copy(update={'port_infos': [PortInfo(name='primary', static_port=9000, num_consecutive=3), PortInfo(name='dist_init', static_port=10000, mode='master', num_consecutive=8)]})
+        metadata = make_worker_metadata(workers_per_pod=2).model_copy(
+            update={
+                "port_infos": [
+                    PortInfo(name="primary", static_port=9000, num_consecutive=3),
+                    PortInfo(name="dist_init", static_port=10000, mode="master", num_consecutive=8),
+                ]
+            }
+        )
         pod = make_parsed_pod(pod_in_cell_index=0, cell_size=1, gpu_ids=(0, 1), worker_metadata=metadata)
+
         workers = build_worker_infos([pod])
-        assert [worker.self_addrs['primary'].port for worker in workers] == [9000, 9003]
-        assert [worker.self_addrs['dist_init'].port for worker in workers] == [10000, 10000]
+
+        assert [worker.self_addrs["primary"].port for worker in workers] == [9000, 9003]
+        assert [worker.self_addrs["dist_init"].port for worker in workers] == [10000, 10000]

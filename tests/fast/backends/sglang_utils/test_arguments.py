@@ -80,7 +80,10 @@ def test_score_centering_enables_fp32_lm_head(loss_type: str | None, explicit_fp
     args.loss_type = loss_type
     args.rollout_num_gpus_per_engine = 1
     args.true_on_policy_mode = False
+    args.recompute_logprobs_via_prefill = False
     args.use_session_server = False
+    args.sglang_router_policy = None
+    args.sglang_router_ip = None
 
     validate_args(args)
 
@@ -88,7 +91,6 @@ def test_score_centering_enables_fp32_lm_head(loss_type: str | None, explicit_fp
 
 
 class TestParserMethodRestoration:
-
     def test_later_parser_extensions_use_class_method_lookup(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Registering SGLang flags must not hide later parser extensions behind a saved bound method."""
         parser = add_sglang_arguments(argparse.ArgumentParser())
@@ -98,7 +100,9 @@ class TestParserMethodRestoration:
         def add_argument(self: argparse.ArgumentParser, name: str, **kwargs: object) -> argparse.Action:
             registered.append(name)
             return original(self, name, **kwargs)
-        monkeypatch.setattr(argparse.ArgumentParser, 'add_argument', add_argument)
-        parser.add_argument('--later-extension', type=int)
-        assert registered == ['--later-extension']
-        assert parser.parse_args(['--later-extension', '17']).later_extension == 17
+
+        monkeypatch.setattr(argparse.ArgumentParser, "add_argument", add_argument)
+        parser.add_argument("--later-extension", type=int)
+
+        assert registered == ["--later-extension"]
+        assert parser.parse_args(["--later-extension", "17"]).later_extension == 17
