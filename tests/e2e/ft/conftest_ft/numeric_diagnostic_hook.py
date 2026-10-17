@@ -1,6 +1,7 @@
 import base64
 import dataclasses
 import hashlib
+import importlib.metadata
 import json
 import logging
 import zlib
@@ -17,6 +18,40 @@ logger = logging.getLogger(__name__)
 def install(args: Namespace) -> None:
     from miles.backends.megatron_utils import actor, model
     from miles.utils.audit_utils.event_logger.logger import get_event_logger
+
+    import transformer_engine.pytorch.attention.dot_product_attention.context_parallel as te_context_parallel
+
+    versions = {}
+    for package in ("torch", "transformer-engine", "flash-attn", "flash-attn-3"):
+        try:
+            versions[package] = importlib.metadata.version(package)
+        except importlib.metadata.PackageNotFoundError:
+            versions[package] = "not installed"
+    source_path = Path(te_context_parallel.__file__)
+    logger.info("Numeric diagnostic libraries: %s; CP source %s sha256=%s", versions, source_path, hashlib.sha256(source_path.read_bytes()).hexdigest())
+
+    original_loss = model.loss_function
+    loss_index = 0
+
+    def capture_loss(*positional: Any, **keywords: Any) -> Any:
+        nonlocal loss_index
+        batch, logits = positional[1], positional[3]
+        identity = get_event_logger().source.to_name()
+        root = Path(args.save_debug_event_data).parent / "numeric-evidence" / identity / "training"
+        index = loss_index
+        loss_index += 1
+        _save(
+            root / f"loss-input-{index}.pt",
+            dict(
+                logits_stats=_logits_stats(logits),
+                batch={key: batch[key] for key in ("log_probs", "advantages", "loss_masks", "sample_indices") if key in batch},
+            ),
+        )
+        result = original_loss(*positional, **keywords)
+        _save(root / f"loss-output-{index}.pt", result)
+        return result
+
+    model.loss_function = capture_loss
 
     original_forward = actor.forward_only
     call_index = 0
@@ -86,12 +121,7 @@ def install(args: Namespace) -> None:
         def capture_result(*a: Any, **kw: Any) -> Any:
             nonlocal result_index
             logits = a[0]
-            logits_stats = dict(
-                shape=list(logits.shape),
-                dtype=str(logits.dtype),
-                nan=sum(int(torch.isnan(chunk).sum().item()) for chunk in logits.split(2048, dim=-1)),
-                inf=sum(int(torch.isinf(chunk).sum().item()) for chunk in logits.split(2048, dim=-1)),
-            )
+            logits_stats = _logits_stats(logits)
             result = f(*a, **kw)
             _save(
                 root / f"result-{result_index}.pt",
@@ -112,6 +142,15 @@ def install(args: Namespace) -> None:
             model.get_packed_seq_params = original_get_packed
 
     actor.forward_only = capture_forward
+
+
+def _logits_stats(logits: torch.Tensor) -> dict[str, Any]:
+    return dict(
+        shape=list(logits.shape),
+        dtype=str(logits.dtype),
+        nan=sum(int(torch.isnan(chunk).sum().item()) for chunk in logits.split(2048, dim=-1)),
+        inf=sum(int(torch.isinf(chunk).sum().item()) for chunk in logits.split(2048, dim=-1)),
+    )
 
 
 def _save(path: Path, value: Any) -> None:
