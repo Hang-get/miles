@@ -126,7 +126,7 @@ def load_checkpoint(
     # ref: how megatron `load_checkpoint` gets directory
     args = get_args()
 
-    load_path = args.load
+    load_path = args.load or args.pretrained_checkpoint
 
     has_local_checkpoint_manager = "local_checkpoint_manager" in (checkpointing_context or {})
     if has_local_checkpoint_manager:
@@ -134,7 +134,7 @@ def load_checkpoint(
     else:
         assert Path(load_path).exists() and _is_dir_nonempty(
             load_path
-        ), f"{args.load=} does not exist or is an empty directory. Did you specify the wrong folder?"
+        ), f"{load_path=} does not exist or is an empty directory. Did you specify the wrong folder?"
 
     if has_local_checkpoint_manager or _is_megatron_checkpoint(load_path):
         if not has_local_checkpoint_manager and is_dsv4_model(args):

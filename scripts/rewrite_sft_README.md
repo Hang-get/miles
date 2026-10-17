@@ -10,3 +10,8 @@ Processing is bounded in small batches to avoid queueing the entire corpus.
 It retains a final partial batch; use dynamic global batch sizing and
 `ceil(sessions / batch_size)` synchronous iterations per epoch.
 No reasoning truncation, MTP objective, or new masking policy is introduced.
+
+For a fresh run, set `--pretrained-checkpoint` to the base Hugging Face weights
+and keep `--load` as a separate resume/output checkpoint directory. The loader
+falls back to pretrained weights when the trainer clears a missing resume path;
+an explicit existing resume path retains priority.
