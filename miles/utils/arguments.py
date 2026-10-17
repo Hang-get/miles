@@ -3795,10 +3795,9 @@ def miles_validate_args(args):
 
     # always true on offload for colocate at the moment.
     if args.update_weight_transfer_mode == "p2p":
-        assert not args.colocate, (
-            "P2P weight transfer mode is not compatible with --colocate. "
-            "Please use broadcast mode or disable colocate."
-        )
+        if args.colocate:
+            # each engine rank publishes its weight locations and parallelism to the bootstrap server at startup
+            args.sglang_enable_engine_info_bootstrap = True
         assert (
             getattr(args, "prefill_num_servers", None) is None
         ), "P2P weight transfer mode has not been tested when PD is enabled."
