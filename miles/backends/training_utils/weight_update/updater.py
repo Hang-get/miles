@@ -136,6 +136,7 @@ class WeightUpdater:
             self._register_new_lora_adapters(protocol.rollout_engines, adapters)
             begin_weight_update(protocol.rollout_engines, weight_update_selector(self.args), sync_base=sync_base)
         dist.barrier(group=get_gloo_group())
+        protocol.after_session_open()
 
         checksums = {name: {} for name, _ in adapters} if self.is_lora and self.args.check_lora_weight_equal else None
         if checksums is not None:

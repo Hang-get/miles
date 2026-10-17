@@ -26,6 +26,7 @@ from miles.backends.training_utils.weight_update.protocols.utils.model_replica i
     query_runner_roles,
 )
 from miles.backends.training_utils.weight_update.protocols.utils.rollout_engine_rank_assignment import (
+    RolloutEngineRankAssignment,
     assign_rollout_engine_ranks,
 )
 from miles.backends.training_utils.weight_update.protocols.utils.transfer_buffers import TransferBuffers
@@ -150,7 +151,7 @@ class UpdateWeightP2P(WeightTransferProtocol):
     ) -> None:
         """Assign and validate write targets, reusing replicas, mappings, transport and buffers across reconnects."""
         self.rollout_engines = rollout_engines
-        assignments = assign_rollout_engine_ranks(parallel_state, placement, engine_gpu_counts)
+        assignments = self._assign(parallel_state, placement, engine_gpu_counts, engine_gpu_offsets)
         self.is_sender = bool(assignments)
 
         if self.is_sender:
@@ -160,7 +161,7 @@ class UpdateWeightP2P(WeightTransferProtocol):
                 for runner_role in runner_roles
             }
             if self._transport is None:
-                self._transport = MooncakeTransport()
+                self._transport = self._create_transport()
             remote_shards_by_runner_role = self._transport.connect(rollout_engines, assignments, runner_roles)
             self._runner_senders = [
                 self._connect_runner(
@@ -168,6 +169,18 @@ class UpdateWeightP2P(WeightTransferProtocol):
                 )
                 for runner_role in runner_roles
             ]
+
+    def _assign(
+        self,
+        parallel_state: ParallelState,
+        placement: WeightUpdatePlacement,
+        engine_gpu_counts: Sequence[int],
+        engine_gpu_offsets: Sequence[int],
+    ) -> list[RolloutEngineRankAssignment]:
+        return assign_rollout_engine_ranks(parallel_state, placement, engine_gpu_counts)
+
+    def _create_transport(self) -> MooncakeTransport:
+        return MooncakeTransport()
 
     def _connect_runner(
         self,
