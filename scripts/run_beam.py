@@ -102,6 +102,14 @@ class ScriptArgs(U.ExecuteTrainConfig):
     async_training: bool = True
     use_rollout_routing_replay: bool = False
     extra_args: str = ""
+    # Put the rollout engines on the trainer nodes instead of giving them their
+    # own: TRAIN_NODES in total rather than NUM_NODES.
+    colocate: bool = False
+    # Ray: by default this submits to a cluster someone else already built, so
+    # MASTER_ADDR must name its head. --join-ray-workers makes the launcher
+    # build the cluster itself, ssh-ing every host of --ray-hostfile into it.
+    ray_hostfile: str = "/root/mpi_rack_hostfile"
+    join_ray_workers: bool = False
 
     def __post_init__(self):
         if self.rollout_batch_size * self.n_samples_per_prompt % self.global_batch_size:
@@ -317,15 +325,19 @@ def _check_resume(directory: Path) -> None:
         raise ValueError("Resume requires checkpoint shards and rollout dataset state")
 
 
-@app.command()
-@U.dataclass_cli
-def prepare(args: ScriptArgs):
-    """Download the HF checkpoint into model-dir and both datasets into data-dir."""
+def _prepare(args: ScriptArgs) -> None:
     backend = args.create_backend()
     backend.exec_command_cpu(shlex.join(["hf", "download", args.model_id, "--local-dir", args.model_dir]))
     backend.hf_download_dataset("zhuzilin/dapo-math-17k", data_dir=args.data_dir)
     backend.hf_download_dataset("zhuzilin/aime-2025", data_dir=args.data_dir)
     _write_answer_format_eval(Path(args.data_dir))
+
+
+@app.command()
+@U.dataclass_cli
+def prepare(args: ScriptArgs):
+    """Download the HF checkpoint into model-dir and both datasets into data-dir."""
+    _prepare(args)
 
 
 def _write_answer_format_eval(data_dir: Path) -> None:
@@ -340,33 +352,49 @@ def _write_answer_format_eval(data_dir: Path) -> None:
 
 @app.command()
 @U.dataclass_cli
-def execute(args: ScriptArgs):
-    """Submit the training job to the existing 12-node Ray cluster."""
-    _execute(args, colocate=False)
+def train(args: ScriptArgs):
+    """Train. prepare must already have placed the checkpoint and both datasets."""
+    _train(args)
 
 
 @app.command()
 @U.dataclass_cli
-def execute_colocate(args: ScriptArgs):
-    """Submit the colocated training job to the existing 8-node Ray cluster."""
-    _execute(args, colocate=True)
+def full_train(args: ScriptArgs):
+    """Download the checkpoint and datasets, then train, in one command."""
+    _prepare(args)
+    _train(args)
 
 
-def _execute(args: ScriptArgs, *, colocate: bool) -> None:
-    num_nodes = TRAIN_NODES if colocate else NUM_NODES
+def _train(args: ScriptArgs) -> None:
+    num_nodes = TRAIN_NODES if args.colocate else NUM_NODES
     if not (master := os.environ.get("MASTER_ADDR")):
-        raise ValueError(f"Set MASTER_ADDR for the existing {num_nodes}-node Ray cluster")
+        raise ValueError(f"Set MASTER_ADDR for the {num_nodes}-node Ray cluster")
     os.environ.setdefault("RAY_ADDRESS", f"http://{master}:8265")
-    os.environ["MILES_SCRIPT_EXTERNAL_RAY"] = "1"
+    backend = args.create_backend()
+    if not args.join_ray_workers:
+        # The cluster is already up and someone else owns it; only submit.
+        os.environ["MILES_SCRIPT_EXTERNAL_RAY"] = "1"
     if args.resume:
         _check_resume(Path(args.output_dir))
-    args.create_backend().execute_train(
-        train_args=shlex.join(_train_args(args, colocate=colocate)),
+    backend.execute_train(
+        train_args=shlex.join(_train_args(args, colocate=args.colocate)),
         num_gpus_per_node=NUM_GPUS_PER_NODE,
         megatron_model_type="beam",
-        train_script="train_async.py" if args.async_training and not colocate else "train.py",
+        train_script="train_async.py" if args.async_training and not args.colocate else "train.py",
         config=args,
         megatron_path=args.megatron_path,
+        before_ray_job_submit=(
+            (
+                lambda: backend.ssh_start_ray_workers(
+                    master_addr=master,
+                    num_gpus_per_node=NUM_GPUS_PER_NODE,
+                    hostfile=args.ray_hostfile,
+                    head_host=os.environ.get("MLP_WORKER_0_HOST"),
+                )
+            )
+            if args.join_ray_workers
+            else None
+        ),
         extra_env_vars={
             "NCCL_CUMEM_ENABLE": "1",
             "NCCL_NVLS_ENABLE": "0",
