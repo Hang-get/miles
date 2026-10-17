@@ -3174,9 +3174,7 @@ class TestRolloutReplayViaObjectStore:
     def _parse(self, extra):
         parser = argparse.ArgumentParser()
         get_miles_extra_args_provider()(parser)
-        return parser.parse_args(
-            ["--rollout-replay-via-object-store", "--num-rollout", "1", *extra] + REQUIRED_ARGS
-        )
+        return parser.parse_args(["--rollout-replay-via-object-store", "--num-rollout", "1", *extra] + REQUIRED_ARGS)
 
     _SUPPORTED = ["--object-store-backend", "mooncake", "--use-rollout-routing-replay"]
 
@@ -3186,7 +3184,10 @@ class TestRolloutReplayViaObjectStore:
     @pytest.mark.parametrize(
         "extra, match",
         [
-            (["--object-store-backend", "ray", "--use-rollout-routing-replay"], "needs --object-store-backend mooncake"),
+            (
+                ["--object-store-backend", "ray", "--use-rollout-routing-replay"],
+                "needs --object-store-backend mooncake",
+            ),
             (["--object-store-backend", "mooncake"], "enable a rollout replay"),
             ([*_SUPPORTED, "--partial-rollout"], "does not support --partial-rollout"),
             ([*_SUPPORTED, "--dump-details", "/tmp/details"], "does not support --save-debug-rollout-data"),

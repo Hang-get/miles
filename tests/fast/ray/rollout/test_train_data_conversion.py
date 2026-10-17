@@ -1155,7 +1155,10 @@ class TestReplayArraysViaObjectStore:
             ("stored", stored_args, stored_samples),
         ):
             train_data = convert_samples_to_train_data(
-                args, samples, metadata={}, custom_convert_samples_to_train_data_func=None,
+                args,
+                samples,
+                metadata={},
+                custom_convert_samples_to_train_data_func=None,
                 custom_reward_post_process_func=None,
             )
             shards = split_train_data_by_dp_raw(args, train_data, dp_size=2)

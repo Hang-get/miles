@@ -207,7 +207,9 @@ class RolloutExecutor(DedicatedRpcLoopWorker):
                 for field in REPLAY_ARRAY_FIELDS
                 if isinstance(value := getattr(sample, field), StoredArray)
             ]
-            return RolloutDataPack(sample_indices=sample_indices, data_ref=data_ref, stored_array_refs=stored_array_refs)
+            return RolloutDataPack(
+                sample_indices=sample_indices, data_ref=data_ref, stored_array_refs=stored_array_refs
+            )
 
     async def _generate_rollout_data(
         self, *, rollout_id: int, trainer_model_id: str | None
