@@ -82,6 +82,7 @@ class TestDispose:
     ) -> None:
         """Shutdown defers only immature losses and never fabricates drops for prefetched output."""
         executor = RolloutExecutor.__new__(RolloutExecutor)
+        executor._dispose_task = None
         executor.use_legacy_rollout_v1 = False
         executor.generate_rollout = None
         executor.eval_generate_rollout = None
@@ -139,6 +140,7 @@ class TestDispose:
         """Out-of-tree rollout hooks may tear down synchronously without returning an awaitable."""
         disposed: list[str] = []
         executor = RolloutExecutor.__new__(RolloutExecutor)
+        executor._dispose_task = None
         executor.use_legacy_rollout_v1 = False
         executor.generate_rollout = _SynchronousDisposable(disposed, "train")
         executor.eval_generate_rollout = _SynchronousDisposable(disposed, "eval")
@@ -152,6 +154,7 @@ class TestDispose:
         )
 
         await executor.dispose()
+        await executor.dispose()
 
         assert disposed == ["train", "eval"]
 
@@ -159,6 +162,7 @@ class TestDispose:
         """Violations that only mature after the last get would otherwise never be checked."""
         checked: list[Namespace] = []
         executor = RolloutExecutor.__new__(RolloutExecutor)
+        executor._dispose_task = None
         executor.use_legacy_rollout_v1 = False
         executor.generate_rollout = None
         executor.eval_generate_rollout = None
@@ -189,6 +193,7 @@ class TestSetEvalFleetInfo:
         provider = FakeInferenceControllerProvider(controller)
         eval_function = FakeEvalFunction()
         executor = RolloutExecutor.__new__(RolloutExecutor)
+        executor._dispose_task = None
         executor.args = Namespace(
             chat_template_path=None,
             custom_eval_rollout_log_function_path=None,

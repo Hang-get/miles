@@ -75,6 +75,7 @@ class RolloutExecutor(DedicatedRpcLoopWorker):
         inference_controller_provider: BaseWorkerProvider,
     ):
         self._init_once = InitOnce(type(self).__name__)
+        self._dispose_task: asyncio.Task[None] | None = None
 
         configure_logger(args, source=SimpleProcessIdentity(component="rollout_executor"))
 
@@ -148,6 +149,11 @@ class RolloutExecutor(DedicatedRpcLoopWorker):
     # -------------------------- lifecycle -----------------------------
 
     async def dispose(self) -> None:
+        if self._dispose_task is None:
+            self._dispose_task = asyncio.create_task(self._dispose())
+        await self._dispose_task
+
+    async def _dispose(self) -> None:
         if not self.use_legacy_rollout_v1 and self.generate_rollout is not None:
             await maybe_await(self.generate_rollout.dispose())
         if (close := getattr(self.data_source, "close", None)) is not None:
