@@ -85,6 +85,22 @@ def _simulate_rollouts_since_publish(*, update_weights_interval: int, num_rollou
 
 
 class TestAssertSamplesWeightVersionSane:
+    def test_missing_optional_prefill_flag_accepts_updated_engine(self):
+        args = _make_args()
+        del args.sglang_enable_prefill_weight_versions
+        assert_samples_weight_version_sane(args, samples=[_make_sample(["3"])])
+
+    def test_missing_optional_prefill_flag_accepts_sft_sample(self):
+        args = _make_args(debug_train_only=True)
+        del args.sglang_enable_prefill_weight_versions
+        assert_samples_weight_version_sane(args, samples=[Sample(index=0, tokens=[1, 2], response_length=1)])
+
+    def test_missing_optional_prefill_flag_still_rejects_never_updated_engine(self):
+        args = _make_args()
+        del args.sglang_enable_prefill_weight_versions
+        with pytest.raises(AssertionError, match="never updated"):
+            assert_samples_weight_version_sane(args, samples=[_make_sample([SGLANG_LITERAL])])
+
     def test_the_guarded_literal_is_the_sglang_wire_value(self):
         """sglang sends the literal 'default'; a drifted constant would let real default spans through."""
         assert SGLANG_DEFAULT_WEIGHT_VERSION == SGLANG_LITERAL

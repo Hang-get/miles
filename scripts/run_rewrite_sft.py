@@ -17,6 +17,8 @@ from tap import Tap
 from miles.utils.arguments import parse_args
 from miles.utils.external_utils.model_args_utils import load_model_args
 from miles.utils.external_utils.ray_job import run_ray_job
+from miles.utils.types import Sample
+from miles.utils.weight_version import assert_samples_weight_version_sane
 
 
 class Args(Tap):
@@ -45,6 +47,7 @@ def main(cli: Args) -> None:
         assert args.accumulate_allreduce_grads_in_fp32 and args.use_dynamic_global_batch_size
         assert args.seq_length == 262144 and args.debug_train_only
         assert args.pretrained_checkpoint == args.hf_checkpoint
+        assert_samples_weight_version_sane(args, samples=[Sample(index=0, tokens=[1, 2], response_length=1)])
         assert audit["sessions"] == config["sessions"] and audit["max_tokens"] <= 262144
         for repo, expected in config["source_commits"].items():
             actual = subprocess.check_output(["git", "-C", repo, "rev-parse", "HEAD"], text=True).strip()
@@ -56,6 +59,7 @@ def main(cli: Args) -> None:
             "tensor_model_parallel_size", "context_parallel_size", "expert_model_parallel_size")}
         (path.parent / "preflight.json").write_text(json.dumps(result, indent=2) + "\n")
         (path.parent / "resolved-argv.json").write_text(json.dumps(argv, indent=2) + "\n")
+        (path.parent / "parsed-argument-names.json").write_text(json.dumps(sorted(vars(args)), indent=2) + "\n")
         print(json.dumps(result))
         return
     if not (path.parent / "preflight.json").exists():
