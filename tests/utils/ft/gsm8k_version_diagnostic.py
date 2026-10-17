@@ -91,12 +91,16 @@ def _replay_last_batch(root: Path) -> None:
 
 @torch.inference_mode()
 def _recompute(*, checkpoint: Path, samples: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    model = Qwen2ForCausalLM.from_pretrained(
-        checkpoint,
-        config=load_hf_config(str(checkpoint)),
-        torch_dtype=torch.bfloat16,
-        attn_implementation="sdpa",
-    ).to("cuda").eval()
+    model = (
+        Qwen2ForCausalLM.from_pretrained(
+            checkpoint,
+            config=load_hf_config(str(checkpoint)),
+            torch_dtype=torch.bfloat16,
+            attn_implementation="sdpa",
+        )
+        .to("cuda")
+        .eval()
+    )
     results = []
     for sample in samples:
         tokens = torch.tensor(sample["tokens"], device="cuda", dtype=torch.long).unsqueeze(0)
