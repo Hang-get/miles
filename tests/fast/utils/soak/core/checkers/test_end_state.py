@@ -89,6 +89,22 @@ class TestAssertEndStateComplete:
 
 
 class TestAnObservationThatEndsWithTheSut:
+    @pytest.mark.parametrize("last_poll", [61.0, 61.001, 600.0])
+    def test_exit_fallback_is_limited_to_sixty_seconds(self, last_poll: float) -> None:
+        """A long observation outage cannot be excused by the eventual training exit."""
+        events = [
+            _closed(0),
+            _observation(_complete(), at=_at(1)),
+            _observation(None, at=_at(2)),
+            _observation(None, at=_at(last_poll)),
+        ]
+
+        if last_poll <= 61.0:
+            assert_end_state_complete(events, expected_count_of_kind=_EXPECTED, observation_ends_with_sut=True)
+        else:
+            with pytest.raises(AssertionError, match="observation is stale"):
+                assert_end_state_complete(events, expected_count_of_kind=_EXPECTED, observation_ends_with_sut=True)
+
     def test_failed_polls_after_the_training_exit_fall_back_to_the_last_successful_one(self) -> None:
         """A finished training run takes its api server down, so its final polls fail by design."""
         assert_end_state_complete(
@@ -133,3 +149,39 @@ class TestAnObservationThatEndsWithTheSut:
                 expected_count_of_kind=_EXPECTED,
                 observation_ends_with_sut=True,
             )
+
+
+class TestFallbackDoesNotHideIncompleteState:
+    @pytest.mark.parametrize("state", [{"alive": False}, {"ready": False}])
+    def test_a_recent_incomplete_observation_cannot_be_replaced_by_an_older_healthy_one(self, state: dict) -> None:
+        """Fallback may skip absent observations but never a newer view of unhealthy targets."""
+        targets = [_cell_target(cell_index=0), _cell_target(cell_index=1, **state), _cell_target(kind="rollout")]
+        events = [
+            _closed(0),
+            _observation(_complete(), at=_at(1)),
+            _observation(targets, at=_at(2)),
+            _observation(None, at=_at(3)),
+        ]
+
+        with pytest.raises(AssertionError, match="not alive and ready"):
+            assert_end_state_complete(events, expected_count_of_kind=_EXPECTED, observation_ends_with_sut=True)
+
+    def test_a_late_healthy_observation_refreshes_the_age_budget(self) -> None:
+        """The age bound applies to the latest successful view rather than the first view of the run."""
+        events = [
+            _closed(0),
+            _observation(_complete(), at=_at(1)),
+            _observation(None, at=_at(500)),
+            _observation(_complete(), at=_at(600)),
+            _observation(None, at=_at(660)),
+        ]
+
+        assert_end_state_complete(events, expected_count_of_kind=_EXPECTED, observation_ends_with_sut=True)
+
+    def test_a_fallback_observation_at_admission_close_is_in_the_tail(self) -> None:
+        """The recovery-tail boundary accepts a successful view at the closing timestamp."""
+        assert_end_state_complete(
+            [_closed(10), _observation(_complete(), at=_at(10)), _observation(None, at=_at(70))],
+            expected_count_of_kind=_EXPECTED,
+            observation_ends_with_sut=True,
+        )
