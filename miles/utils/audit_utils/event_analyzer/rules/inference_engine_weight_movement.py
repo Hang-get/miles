@@ -21,7 +21,7 @@ class WeightMovementIssue(FrozenStrictBaseModel):
     debug_trainer_load_state_timestamp: float
     weight_version_before: int
     weight_version_after: int
-    kind: Literal["tensor_set_changed", "unchanged_tensors"]
+    kind: Literal["tensor_set_changed", "unchanged_tensors", "unchanged_weights"]
     description: str
 
     @property
@@ -62,7 +62,10 @@ def check(events: list[Event], *, include_latest: bool = False) -> list[WeightMo
             if previous.keys() != current.keys():
                 kind, description = "tensor_set_changed", "tensor set changed"
             elif unchanged := sorted(name for name in current if current[name] == previous[name]):
-                kind, description = "unchanged_tensors", f"unchanged tensor checksums: {unchanged}"
+                if len(unchanged) == len(current):
+                    kind, description = "unchanged_weights", "all tensor checksums are unchanged"
+                else:
+                    kind, description = "unchanged_tensors", f"unchanged tensor checksums: {unchanged}"
             else:
                 continue
             issues.append(

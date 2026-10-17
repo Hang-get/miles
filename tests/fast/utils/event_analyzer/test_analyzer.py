@@ -219,7 +219,7 @@ class TestWeightPublicationRulesWiredIn:
                         second=float(version),
                         update_id=f"u{version}",
                         weight_version=version,
-                        snapshots={"a": ("h", {"w": "same"})},
+                        snapshots={"a": ("h", {"w": "same", "b": str(version)})},
                     )
                     for version in (1, 2)
                 ],
