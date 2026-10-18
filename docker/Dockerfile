@@ -213,9 +213,11 @@ RUN rm -rf /root/.cache/pip /root/flash-attention
 # ====================================== Install sglang-miles ============================================
 
 # Install sglang from sglang-miles branch
-# The base image ships the Rust extension modules prebuilt (SGLANG_RUST_BUILD_MODE=never);
-# re-installing must not rebuild them, which needs the torch link path only the upstream
-# build stage has.
+# The base image's prebuilt Rust extension modules match the base tag's sources, not
+# this branch's, and SGLANG_RUST_BUILD_MODE=never makes sglang load them as they are.
+# Rebuild them in place against the installed torch: no build isolation (the isolated
+# env would fetch its own torch), so the build backends are installed first. The base
+# ships the toolchain in /root/.cargo.
 RUN cd /sgl-workspace/sglang && \
     git fetch origin ${SGLANG_BRANCH} && \
     if [ -n "${SGLANG_COMMIT}" ]; then \
@@ -223,7 +225,12 @@ RUN cd /sgl-workspace/sglang && \
     else \
       git checkout -f FETCH_HEAD; \
     fi && \
-    SGLANG_BUILD_RUST_EXTS=none pip install -e "python[all]" --no-deps
+    pip install "setuptools-rust>=1.11" "setuptools-scm>=8.0" && \
+    PATH="/root/.cargo/bin:${PATH}" pip install -e "python[all]" --no-deps --no-build-isolation && \
+    rm -rf rust/target && \
+    python3 -c "import torch, importlib; [importlib.import_module(m) for m in ( \
+'sglang.srt.mem_cache.rust_tree_core.mem_cache', 'sglang.srt.rust_extensions._server', \
+'sglang.srt.rust_extensions._multimodal')]"
 
 COPY docker/install-kube-tools.sh /tmp/install-kube-tools.sh
 RUN bash /tmp/install-kube-tools.sh "${TARGETARCH}" && rm -f /tmp/install-kube-tools.sh
@@ -252,7 +259,7 @@ ARG SGL_ROUTER_BRANCH=main
 RUN --mount=type=cache,target=/root/.cache/pip \
     set -eux; \
     if [ "${SGL_ROUTER_USE_WHEELS}" = "1" ]; then \
-      pip install --force-reinstall /tmp/wheels/sglang_router-*.whl && \
+      pip install --force-reinstall --no-deps /tmp/wheels/sglang_router-*.whl && \
       tar xzf /tmp/wheels/sgl-model-gateway-linux-*.tar.gz -C /usr/local/bin/ && \
       chmod +x /usr/local/bin/sgl-model-gateway; \
     elif [ "${SGL_ROUTER_USE_WHEELS}" = "0" ]; then \
@@ -267,7 +274,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
       cargo build --release --bin sgl-model-gateway --features vendored-openssl && \
       cp target/release/sgl-model-gateway /usr/local/bin/sgl-model-gateway && \
       chmod +x /usr/local/bin/sgl-model-gateway && \
-      pip install --force-reinstall /build/gateway_wheels/sglang_router-*.whl && \
+      pip install --force-reinstall --no-deps /build/gateway_wheels/sglang_router-*.whl && \
       rm -rf /root/.cargo /root/.rustup /build/sgl-model-gateway /build/gateway_wheels; \
     fi
 
