@@ -25,6 +25,7 @@ def prepare():
 
 
 def execute():
+    infinite_run = command_utils.get_env_enable_infinite_run()
     U = command_utils.default_config().create_backend()
     ckpt_args = f"--hf-checkpoint {MODEL_DIR}/{MODEL_NAME}/ " f"--ref-load {MODEL_DIR}/{MODEL_NAME}/ "
 
@@ -35,7 +36,7 @@ def execute():
         "--apply-chat-template "
         "--rollout-shuffle "
         "--rm-type math "
-        f"--num-rollout {3000 if command_utils.get_env_enable_infinite_run() else 200} "
+        f"--num-rollout {3000 if infinite_run else 200} "
         "--rollout-batch-size 32 "
         "--n-samples-per-prompt 8 "
         "--rollout-max-response-len 1024 "
@@ -92,6 +93,9 @@ def execute():
         "--ci-metric-checker-key eval/gsm8k "
         "--ci-metric-checker-threshold 0.55 "
     )
+
+    if not infinite_run:
+        ci_args += "--ci-metric-checker-early-stop "
 
     misc_args = (
         # default dropout in megatron is 0.1
