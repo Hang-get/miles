@@ -23,6 +23,9 @@ class _RolloutCellUpdater:
         return self._error is not None
 
     def mark_errored(self, error: BaseException) -> None:
+        if "weight_update" not in self._args.ft_components:
+            raise error
+
         if self._error is not None:
             logger.warning(f"rollout cell {self.cell_id} failed again, keeping the first error", exc_info=error)
             return
