@@ -112,6 +112,8 @@ RUN pip install -v --no-deps --no-build-isolation "git+https://github.com/QwenLM
 # lspci, which a build host does not have, hence pciutils and the explicit target. Its setup.py
 # also stamps the wall clock into the version, so metadata and wheel builds that straddle a
 # second boundary disagree and pip rejects the wheel; pin the stamp for a deterministic version.
+# MAX_JOBS caps its parallel nvcc jobs (default 32); lower it where 32 jobs exhaust host memory.
+ARG MAX_JOBS
 RUN apt-get update && apt-get install -y --no-install-recommends pciutils && rm -rf /var/lib/apt/lists/* && \
     git init -q /tmp/DeepSelect && cd /tmp/DeepSelect && \
     git remote add origin https://github.com/deepseek-ai/DeepSelect.git && \
