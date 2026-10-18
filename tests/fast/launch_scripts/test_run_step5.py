@@ -31,7 +31,7 @@ def _flag_values(command: str) -> dict[str, str | None]:
 
 
 def test_geo3k_prepare_downloads_the_image_dataset(monkeypatch, tmp_path):
-    commands = _record(monkeypatch, tmp_path, "prepare", {"task": "geo3k"})
+    commands = _record(monkeypatch, tmp_path, "prepare", {"task": "geo3k", "model_dir": str(tmp_path / "models")})
 
     assert any("hf download --repo-type dataset chenhegu/geo3k_imgurl" in command for command in commands)
     assert not any("dapo-math-17k" in command for command in commands)

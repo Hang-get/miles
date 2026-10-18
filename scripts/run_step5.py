@@ -124,7 +124,7 @@ _ONE_NODE_MAX_TOKENS_PER_GPU = 16384
 class _FullModelLayout:
     """What the full model trains on one cluster shape, and how it fits."""
 
-    hardware: str
+    cluster: str
     max_response_len: int
     lr: float
     # what the trainer updates and where its state lives
@@ -159,7 +159,7 @@ class ScriptArgs(U.ExecuteTrainConfig):
             self._check_full_model_recipe(layout)
 
     def _check_full_model_recipe(self, layout: _FullModelLayout) -> None:
-        assert self.task == "dapo_math", f"the {layout.hardware} recipe trains the text decoder only"
+        assert self.task == "dapo_math", f"the {layout.cluster} recipe trains the text decoder only"
         assert self.rollout_max_response_len <= layout.max_response_len, (
             f"a micro-batch holds {self.max_tokens_per_gpu} tokens, one prompt plus a "
             f"{layout.max_response_len}-token response"
@@ -410,7 +410,7 @@ _LORA_ARGS = (
 _FULL_MODEL_LAYOUTS = {
     # 2 x 8 B300, EP16: full-parameter training with 32K responses.
     (2, 8): _FullModelLayout(
-        hardware="2 x 8 B300",
+        cluster="2 x 8 B300",
         max_response_len=32768,
         lr=1e-6,
         trainer_args=_OPTIMIZER_STATE_OFFLOAD_ARGS,
@@ -420,7 +420,7 @@ _FULL_MODEL_LAYOUTS = {
     # 4 x 8 H200, EP32: the FP8 checkpoint takes 81 GB of each GPU's 141 in the TP8 engine, and Hopper serves
     # Step5 with FA3.
     (4, 8): _FullModelLayout(
-        hardware="4 x 8 H200",
+        cluster="4 x 8 H200",
         max_response_len=8192,
         lr=1e-5,
         trainer_args=_LORA_ARGS,
