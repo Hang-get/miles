@@ -35,7 +35,7 @@ def execute():
         "--apply-chat-template "
         "--rollout-shuffle "
         "--rm-type math "
-        f"--num-rollout {3000 if command_utils.get_env_enable_infinite_run() else 250} "
+        f"--num-rollout {3000 if command_utils.get_env_enable_infinite_run() else 200} "
         "--rollout-batch-size 32 "
         "--n-samples-per-prompt 8 "
         "--rollout-max-response-len 1024 "
@@ -90,7 +90,7 @@ def execute():
         "--ci-test "
         "--ci-disable-kl-checker "
         "--ci-metric-checker-key eval/gsm8k "
-        "--ci-metric-checker-threshold 0.55 "  # loose threshold at 250 step
+        "--ci-metric-checker-threshold 0.55 "
     )
 
     misc_args = (
