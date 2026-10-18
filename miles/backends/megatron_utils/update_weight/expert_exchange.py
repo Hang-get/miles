@@ -77,7 +77,7 @@ def _destined_unit_indices(layout: PayloadLayout, needed_hf_names: frozenset[str
 
 
 class ExpertExchange:
-    """Like ExpertGather, but delivers each unit only to the ranks whose route names it, in one all-to-all.
+    """Like ExpertGather, but delivers each unit only to the ranks whose route names it.
 
     Names, unit boundaries, shapes and dtypes must stay fixed for this object's lifetime; the layouts are exchanged
     and the plan computed on the first call. Received units come in source-rank order.
@@ -105,12 +105,9 @@ class ExpertExchange:
         ):
             pack_units([units[index] for index in unit_indices], layout, segment)
         recv_payload = torch.empty(sum(plan.recv_split_sizes), dtype=torch.uint8, device=device)
-        dist.all_to_all_single(
-            recv_payload,
-            send_payload,
-            output_split_sizes=plan.recv_split_sizes,
-            input_split_sizes=plan.send_split_sizes,
-            group=self._group,
+        self._exchange_with_peers(
+            send_segments=send_payload.split(plan.send_split_sizes),
+            recv_segments=recv_payload.split(plan.recv_split_sizes),
         )
         return [
             unit
@@ -119,3 +116,23 @@ class ExpertExchange:
             )
             for unit in unpack_units(layout, segment)
         ]
+
+    def _exchange_with_peers(
+        self, *, send_segments: Sequence[torch.Tensor], recv_segments: Sequence[torch.Tensor]
+    ) -> None:
+        # pairwise sends and receives with only the peers that exchange bytes: a world-wide all-to-all made every
+        # call wait for the last of all ranks, though each rank exchanges with a few
+        group_rank = dist.get_rank(self._group)
+        ops = []
+        for peer, (send_segment, recv_segment) in enumerate(zip(send_segments, recv_segments, strict=True)):
+            if peer == group_rank:
+                recv_segment.copy_(send_segment)
+                continue
+            global_peer = dist.get_global_rank(self._group, peer)
+            if send_segment.numel():
+                ops.append(dist.P2POp(dist.isend, send_segment, global_peer, self._group))
+            if recv_segment.numel():
+                ops.append(dist.P2POp(dist.irecv, recv_segment, global_peer, self._group))
+        if ops:
+            for work in dist.batch_isend_irecv(ops):
+                work.wait()

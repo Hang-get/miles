@@ -17,8 +17,8 @@ def _expert_unit(rank: int, expert: int) -> list[tuple[str, torch.Tensor]]:
     ]
 
 
-def _route_all_to_all(units_by_rank, route):
-    """Runs every rank's plan, then hands rank r segment r of each rank's send payload, as all_to_all_single does."""
+def _exchange_by_plans(units_by_rank, route):
+    """Runs every rank's plan, then hands rank r segment r of each rank's send payload, as the pairwise sends do."""
     layouts_by_rank = [build_payload_layout(units) for units in units_by_rank]
     plans = [plan_expert_exchange(layouts_by_rank, route, rank) for rank in range(len(units_by_rank))]
     send_segments_by_rank = []
@@ -49,7 +49,7 @@ def _route_all_to_all(units_by_rank, route):
 
 def test_each_rank_receives_exactly_the_units_its_route_names():
     """A rank missing a needed expert leaves its engine weights stale; a rank receiving extras wastes the exchange.
-    Send and receive sizes must agree pairwise, or all_to_all_single scrambles the bytes."""
+    Send and receive sizes must agree pairwise, or a receive reads the wrong bytes."""
     units_by_rank = [[_expert_unit(rank, expert) for expert in range(4)] for rank in range(4)]
     all_units = {unit[0][0]: unit for units in units_by_rank for unit in units}
     # engine rank r loads experts of two different sources; rank 3 sends to no engine
@@ -63,7 +63,7 @@ def test_each_rank_receives_exactly_the_units_its_route_names():
         )
     )
 
-    received_by_rank = _route_all_to_all(units_by_rank, route)
+    received_by_rank = _exchange_by_plans(units_by_rank, route)
 
     for received, names in zip(received_by_rank, needed_weight_names, strict=True):
         assert {unit[0][0] for unit in received} == names
