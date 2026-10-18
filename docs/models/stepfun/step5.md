@@ -39,9 +39,9 @@ The AIME 2026 evals read `<data-dir>/aime-2026/aime-2026.jsonl` (`prompt` and `l
 
 ### 3.2 SGLang
 
-The engine needs the Step-5-Preview support in [sgl-project/sglang#44356](https://github.com/sgl-project/sglang/pull/44356).
+The engine needs the Step-5-Preview support for sglang-miles in [sgl-project/sglang#44917](https://github.com/sgl-project/sglang/pull/44917), a port of [sgl-project/sglang#44356](https://github.com/sgl-project/sglang/pull/44356) that adds the Hopper kernels and the RL weight-sync and LoRA fixes.
 
-The `radixark/miles:step5` image (multi-arch, built on `lmsysorg/sglang:v0.5.20`) carries it and the recipe code:
+The `radixark/miles:step5` image (amd64 and arm64, built on `lmsysorg/sglang:v0.5.22` with torch 2.14) carries it and the recipe code:
 
 ```bash
 docker pull radixark/miles:step5
