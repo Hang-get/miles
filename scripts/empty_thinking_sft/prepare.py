@@ -3,10 +3,11 @@
 import hashlib
 import json
 import os
-import shutil
 from collections import Counter
+from collections.abc import Iterator
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
+from typing import BinaryIO
 
 from tap import Tap
 from transformers import AutoTokenizer
@@ -120,7 +121,7 @@ def dataset(args: Args) -> None:
     output_hash = hashlib.sha256()
     records = []
 
-    def items(stream):
+    def items(stream: BinaryIO) -> Iterator[tuple[int, bytes]]:
         for index, raw in enumerate(stream):
             source_hash.update(raw)
             yield index, raw
