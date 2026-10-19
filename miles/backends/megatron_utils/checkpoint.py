@@ -9,6 +9,7 @@ from typing import Any, NamedTuple
 
 import torch
 import torch.distributed as dist
+from megatron.core.transformer.moe.router import TopKRouter
 from megatron.core.utils import unwrap_model
 
 # TODO: may need to copy those 2 functions and do refactoring.
@@ -285,6 +286,12 @@ def _load_hf_weights_with_mbridge(ddp_model, args, load_path: str) -> None:
         from torch_memory_saver import torch_memory_saver
 
         bypass = torch_memory_saver.disable()
+        # mbridge's state_dict() would re-allocate expert_bias as fp32 inside the bypass,
+        # leaving that persistent buffer outside the saver
+        for chunk in unwrap_model(ddp_model):
+            for module in chunk.modules():
+                if isinstance(module, TopKRouter):
+                    module._maintain_float32_expert_bias()
     else:
         bypass = nullcontext()
     logger.info(f"Load checkpoint from HuggingFace model into Megatron via mbridge (path={load_path})")
