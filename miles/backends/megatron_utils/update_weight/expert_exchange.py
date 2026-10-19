@@ -76,11 +76,22 @@ def _destined_unit_indices(layout: PayloadLayout, needed_hf_names: frozenset[str
     return tuple(unit_indices)
 
 
+@dataclass
+class InFlightExchange:
+    """One batch's sends and receives, issued but not yet waited on."""
+
+    # kept alive until the sends complete
+    send_payload: torch.Tensor
+    recv_payload: torch.Tensor
+    works: list
+
+
 class ExpertExchange:
     """Like ExpertGather, but delivers each unit only to the ranks whose route names it.
 
     Names, unit boundaries, shapes and dtypes must stay fixed for this object's lifetime; the layouts are exchanged
-    and the plan computed on the first call. Received units come in source-rank order.
+    and the plan computed on the first call. Received units come in source-rank order. `start` issues a batch's
+    transfers without waiting, so the caller can overlap them with other work before `finish`.
     """
 
     def __init__(self, *, group: dist.ProcessGroup, route: HfNameRoute):
@@ -91,6 +102,9 @@ class ExpertExchange:
     def __call__(
         self, units: list[list[tuple[str, torch.Tensor]]], *, device: torch.device | str
     ) -> list[list[tuple[str, torch.Tensor]]]:
+        return self.finish(self.start(units, device=device))
+
+    def start(self, units: list[list[tuple[str, torch.Tensor]]], *, device: torch.device | str) -> InFlightExchange:
         if self._plan is None:
             layouts_by_rank = [None] * dist.get_world_size(self._group)
             dist.all_gather_object(layouts_by_rank, build_payload_layout(units), group=self._group)
@@ -105,21 +119,28 @@ class ExpertExchange:
         ):
             pack_units([units[index] for index in unit_indices], layout, segment)
         recv_payload = torch.empty(sum(plan.recv_split_sizes), dtype=torch.uint8, device=device)
-        self._exchange_with_peers(
+        works = self._start_exchange_with_peers(
             send_segments=send_payload.split(plan.send_split_sizes),
             recv_segments=recv_payload.split(plan.recv_split_sizes),
         )
+        return InFlightExchange(send_payload=send_payload, recv_payload=recv_payload, works=works)
+
+    def finish(self, in_flight: InFlightExchange) -> list[list[tuple[str, torch.Tensor]]]:
+        """Makes the current stream wait for the batch's receives; returns the received units."""
+        for work in in_flight.works:
+            work.wait()
+        plan = self._plan
         return [
             unit
             for layout, segment in zip(
-                plan.recv_layouts_by_src_rank, recv_payload.split(plan.recv_split_sizes), strict=True
+                plan.recv_layouts_by_src_rank, in_flight.recv_payload.split(plan.recv_split_sizes), strict=True
             )
             for unit in unpack_units(layout, segment)
         ]
 
-    def _exchange_with_peers(
+    def _start_exchange_with_peers(
         self, *, send_segments: Sequence[torch.Tensor], recv_segments: Sequence[torch.Tensor]
-    ) -> None:
+    ) -> list:
         # pairwise sends and receives with only the peers that exchange bytes: a world-wide all-to-all made every
         # call wait for the last of all ranks, though each rank exchanges with a few
         group_rank = dist.get_rank(self._group)
@@ -133,6 +154,4 @@ class ExpertExchange:
                 ops.append(dist.P2POp(dist.isend, send_segment, global_peer, self._group))
             if recv_segment.numel():
                 ops.append(dist.P2POp(dist.irecv, recv_segment, global_peer, self._group))
-        if ops:
-            for work in dist.batch_isend_irecv(ops):
-                work.wait()
+        return dist.batch_isend_irecv(ops) if ops else []
