@@ -12,6 +12,26 @@ from miles.backends.training_utils.model_companion import ModelCompanion
 
 
 class TestCheckpointTrainingProvenance:
+    def test_finetune_falls_back_to_pretrained_hf_directory(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (tmp_path / "config.json").write_text("{}")
+        args = Namespace(load=None, pretrained_checkpoint=str(tmp_path), finetune=True, ckpt_step=None, lora_rank=0)
+        monkeypatch.setattr(checkpoint, "get_args", lambda: args)
+        observed = []
+
+        def load_hf(**kwargs: object) -> tuple[int, int]:
+            observed.append(kwargs["load_path"])
+            return 0, 0
+
+        monkeypatch.setattr(checkpoint, "_load_checkpoint_hf", load_hf)
+        result = checkpoint.load_checkpoint(
+            ddp_model=[], optimizer=None, opt_param_scheduler=None,
+            checkpointing_context=None, skip_load_to_model_and_opt=False,
+        )
+        assert result == (0, False)
+        assert observed == [str(tmp_path)]
+
     @pytest.mark.parametrize(
         ("source", "finetune", "ckpt_step", "local_iteration", "expected"),
         [

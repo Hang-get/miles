@@ -85,6 +85,13 @@ def _simulate_rollouts_since_publish(*, update_weights_interval: int, num_rollou
 
 
 class TestAssertSamplesWeightVersionSane:
+    def test_older_sglang_namespace_without_optional_prefill_flag(self):
+        args = _make_args()
+        del args.sglang_enable_prefill_weight_versions
+        assert_samples_weight_version_sane(args, samples=[_make_sample(["3"])])
+        with pytest.raises(AssertionError, match="never updated"):
+            assert_samples_weight_version_sane(args, samples=[_make_sample([SGLANG_LITERAL])])
+
     def test_the_guarded_literal_is_the_sglang_wire_value(self):
         """sglang sends the literal 'default'; a drifted constant would let real default spans through."""
         assert SGLANG_DEFAULT_WEIGHT_VERSION == SGLANG_LITERAL
