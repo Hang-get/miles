@@ -135,4 +135,6 @@ def test_grouped_wo_a_delta_is_a_lora_on_the_wo_a_weight(launcher_targets):
     merged = attention.linear_o_group_proj + ALPHA / RANK * lora_b.float() @ lora_a.float()
 
     o = torch.randn(2, 3, GROUPS, GROUP_DIM)
-    torch.testing.assert_close(attention.o_group_matmul(o, attention.linear_o_group_proj), GroupedMatmul(GROUPS)(o, merged))
+    torch.testing.assert_close(
+        attention.o_group_matmul(o, attention.linear_o_group_proj), GroupedMatmul(GROUPS)(o, merged)
+    )
