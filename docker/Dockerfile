@@ -15,13 +15,13 @@ FROM lmsysorg/sglang:${SGLANG_IMAGE_TAG} AS sglang
 
 # ======================================== Arguments =============================================
 
-ARG SGLANG_BRANCH=sglang-miles
-ARG SGLANG_COMMIT=""
+ARG SGLANG_BRANCH=sglang-miles-muse-spark-open
+ARG SGLANG_COMMIT=bc1c2ac7dfc52d9e3a61e8967266050bf94de1a6
 
 ARG MEGATRON_REPO=radixark/Megatron-LM
-ARG MEGATRON_BRANCH=miles-main
+ARG MEGATRON_BRANCH=muse-spark-open
 # Empty means the branch HEAD at build time; release builds set it to freeze one commit.
-ARG MEGATRON_COMMIT=""
+ARG MEGATRON_COMMIT=7cc41d59347e604e2897b6fa8df0255b7a5a5b86
 ARG TORCHTITAN_REPO=pytorch/torchtitan
 ARG TORCHTITAN_COMMIT=086bf6c166ec85c1298eb5596fa9bf95f6a2d840
 
@@ -230,7 +230,7 @@ RUN bash /tmp/install-kube-tools.sh "${TARGETARCH}" && rm -f /tmp/install-kube-t
 
 # ====================================== Install main package ============================================
 
-ARG MILES_COMMIT=main
+ARG MILES_COMMIT=002ec9cf35e20dab56bddc8b55e4364c407a2231
 RUN git clone https://github.com/radixark/miles.git /root/miles && \
     cd /root/miles && \
     git checkout ${MILES_COMMIT} && \
