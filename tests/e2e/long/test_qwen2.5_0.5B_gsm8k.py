@@ -5,6 +5,7 @@ from tests.e2e.common_dirs import get_test_data_dir, get_test_model_dir
 
 from miles.utils.external_utils import command_utils
 
+# Runtime varies with the step that first reaches the accuracy threshold.
 register_cuda_ci(
     est_time=7000, suite="stage-c-2-gpu-h200", labels=["long"], hardware=["hopper", "blackwell"], num_gpus=2
 )

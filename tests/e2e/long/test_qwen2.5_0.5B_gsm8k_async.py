@@ -4,6 +4,7 @@ from tests.ci.ci_register import register_cuda_ci, register_rocm_ci
 
 from miles.utils.external_utils import command_utils
 
+# Runtime varies with the step that first reaches the accuracy threshold.
 register_cuda_ci(
     est_time=5400, suite="stage-c-2-gpu-h200", labels=["long"], hardware=["hopper", "blackwell"], num_gpus=2
 )
