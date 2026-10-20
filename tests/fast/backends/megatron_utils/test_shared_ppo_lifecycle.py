@@ -290,13 +290,18 @@ def test_rejected_cells_and_retries_retain_their_own_pre_forward_weights(
         worker._get_actor_weight_version = lambda: 19
         worker.model = [torch.tensor([weight])]
 
-        def export_hf(*, rollout_id: int, path: str) -> None:
+        def export_hf(*, rollout_id: int, path: str, worker: Any = worker) -> None:
             destination = Path(path)
             destination.mkdir(parents=True)
             torch.save(worker.model[0], destination / "weights.pt")
 
-        def compute_log_prob(*args: Any, **kwargs: Any) -> dict[str, list[torch.Tensor]]:
-            snapshot = torch.load(tmp_path / f"7/{cell_index}/{attempt}/weights.pt", weights_only=True)
+        def compute_log_prob(
+            *args: Any,
+            worker: Any = worker,
+            snapshot_path: Path = tmp_path / f"7/{cell_index}/{attempt}/weights.pt",
+            **kwargs: Any,
+        ) -> dict[str, list[torch.Tensor]]:
+            snapshot = torch.load(snapshot_path, weights_only=True)
             torch.testing.assert_close(snapshot, worker.model[0])
             return {"log_probs": [worker.model[0].clone()]}
 
@@ -308,9 +313,7 @@ def test_rejected_cells_and_retries_retain_their_own_pre_forward_weights(
 
     for cell_index, attempt, weight in ((0, 0, 1.0), (1, 0, 2.0), (0, 1, 3.0), (1, 1, 4.0)):
         destination = tmp_path / f"7/{cell_index}/{attempt}"
-        torch.testing.assert_close(
-            torch.load(destination / "weights.pt", weights_only=True), torch.tensor([weight])
-        )
+        torch.testing.assert_close(torch.load(destination / "weights.pt", weights_only=True), torch.tensor([weight]))
         assert json.loads((destination / "diagnostic-version.json").read_text()) == {
             "rollout_id": 7,
             "weight_version": 19,

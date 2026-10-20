@@ -901,6 +901,7 @@ class MegatronTrainRayActor(TrainRayActor):
         save_hf_model(
             self.args, rollout_id, self.model, publisher=self.snapshot_publisher, path=path, raise_on_error=True
         )
+
     def _save_debug_pre_train_hf(self, *, rollout_id: int, attempt: int) -> None:
         assert self._active_model_tag == "actor", "Diagnostic snapshots require the active actor weights"
         metadata = dict(
@@ -912,9 +913,7 @@ class MegatronTrainRayActor(TrainRayActor):
         path = Path(self.args.save_debug_pre_train_hf.format(**metadata))
         self.export_hf(rollout_id=rollout_id, path=str(path))
         if dist.get_rank() == 0:
-            (Path(path) / "diagnostic-version.json").write_text(
-                json.dumps(metadata)
-            )
+            (Path(path) / "diagnostic-version.json").write_text(json.dumps(metadata))
 
     def _named_actor_weights(self, *, translate_gpu_to_cpu: bool = False, include_model_companion: bool = False):
         return named_params_and_buffers(
