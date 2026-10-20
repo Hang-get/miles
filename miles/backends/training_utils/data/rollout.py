@@ -532,7 +532,7 @@ def get_data_iterator(
         for i in range(num_steps_per_rollout):
             start, end = i * num_local_gbs, (i + 1) * num_local_gbs
             num_microbatches.append(
-                get_minimum_num_micro_batch_size(samples[start:end], args.max_tokens_per_gpu * cp_size)
+                _num_microbatches_within_cap(samples[start:end], args.max_tokens_per_gpu * cp_size)
             )
 
         num_microbatches = torch.tensor(num_microbatches, dtype=torch.int, device=torch.cuda.current_device())
@@ -555,6 +555,7 @@ def get_data_iterator(
             start, end = i * num_local_gbs, (i + 1) * num_local_gbs
             samples = rollout_data["total_lengths"][start:end]
             partitions = get_seqlen_balanced_partitions(samples, num_mbs, equal_size=False)
+            _check_partitions_within_cap(samples, partitions, args.max_tokens_per_gpu * cp_size)
             for j in range(num_mbs):
                 for k in range(len(partitions[j])):
                     partitions[j][k] += start
@@ -572,3 +573,32 @@ def get_data_iterator(
         data_iterator,
         num_microbatches,
     )
+
+
+def _num_microbatches_within_cap(lengths: list[int], max_tokens: int) -> int:
+    """The fewest microbatches whose seqlen-balanced partition keeps each one within `max_tokens`.
+
+    First-fit only bounds the count from below: the balanced partition that forms the microbatches ignores the
+    cap and can exceed it. A sample longer than the cap still gets a microbatch of its own.
+    """
+    cap = max(max_tokens, max(lengths))
+    num = get_minimum_num_micro_batch_size(lengths, max_tokens)
+    while num < len(lengths) and _largest_partition(lengths, num) > cap:
+        num += 1
+    return num
+
+
+def _largest_partition(lengths: list[int], num_partitions: int) -> int:
+    partitions = get_seqlen_balanced_partitions(lengths, num_partitions, equal_size=False)
+    return max(sum(lengths[i] for i in partition) for partition in partitions)
+
+
+def _check_partitions_within_cap(lengths: list[int], partitions: list[list[int]], max_tokens: int) -> None:
+    # the DP-wide microbatch count is the max over ranks, and a larger count can still balance above the cap
+    cap = max(max_tokens, max(lengths))
+    largest = max(sum(lengths[i] for i in partition) for partition in partitions)
+    if largest > cap:
+        raise ValueError(
+            f"a balanced microbatch holds {largest} tokens, above --max-tokens-per-gpu ({max_tokens}) times the "
+            "context-parallel size; lower --max-tokens-per-gpu to leave headroom"
+        )
