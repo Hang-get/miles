@@ -92,9 +92,7 @@ async def train(args, *, disposer: Disposer):
             rollout_data_curr_ref = await rollout_data_next_future
 
         if args.save_debug_pre_train_hf is not None:
-            await actor_model.export_hf(
-                rollout_id, args.save_debug_pre_train_hf.format(rollout_id=rollout_id)
-            )
+            await actor_model.export_hf(rollout_id, args.save_debug_pre_train_hf.format(rollout_id=rollout_id))
 
         has_next_rollout = rollout_id + 1 < args.num_rollout
         weight_update_due = (rollout_id + 1) % args.update_weights_interval == 0
