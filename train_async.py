@@ -23,6 +23,10 @@ logger = logging.getLogger(__name__)
 async def train(args, *, disposer: Disposer):
     assert not args.colocate or args.fully_async, "Colocation is only supported for async training with --fully-async."
     validate_async_off_policy_correction(args)
+    if args.save_debug_pre_train_hf is not None:
+        assert args.train_backend == "megatron"
+        assert "{rollout_id}" in args.save_debug_pre_train_hf
+        assert not args.offload_train
     _worker_manager = init_orchestration_script(args, disposer=disposer)
 
     # create the rollout manager, with sglang engines inside.
@@ -86,6 +90,11 @@ async def train(args, *, disposer: Disposer):
         # Sync the last generation
         if rollout_data_next_future is not None:
             rollout_data_curr_ref = await rollout_data_next_future
+
+        if args.save_debug_pre_train_hf is not None:
+            await actor_model.export_hf(
+                rollout_id, args.save_debug_pre_train_hf.format(rollout_id=rollout_id)
+            )
 
         has_next_rollout = rollout_id + 1 < args.num_rollout
         weight_update_due = (rollout_id + 1) % args.update_weights_interval == 0

@@ -2220,6 +2220,12 @@ def get_miles_extra_args_provider(add_custom_arguments=None):
                 ),
             )
             parser.add_argument(
+                "--save-debug-pre-train-hf",
+                type=str,
+                default=None,
+                help="Export weights before each async training batch; path must contain {rollout_id}.",
+            )
+            parser.add_argument(
                 "--save-debug-train-data",
                 type=str,
                 default=None,

@@ -47,6 +47,7 @@ def _make_args(**overrides: Any) -> SimpleNamespace:
         num_rollout=0,
         offload_train=False,
         save_hf=None,
+        save_debug_pre_train_hf=None,
         save_interval=None,
         save_trigger_sentinel=None,
         skip_eval_before_train=False,
@@ -100,6 +101,24 @@ def _install_driver_fakes(
         lambda _args: SimpleNamespace(cell_operations=lambda: components.cell_operations),
     )
     return components
+
+
+async def test_debug_snapshots_preserve_the_policy_before_each_update(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Replay snapshots must represent the policy that scored each training batch."""
+    events: list[str] = []
+    args = _make_args(
+        num_rollout=2, train_backend="megatron", save_debug_pre_train_hf="/snapshots/before_{rollout_id}"
+    )
+    components = _install_driver_fakes(monkeypatch, args, events)
+    snapshots: dict[str, int] = {}
+
+    async def export_hf(rollout_id: int, path: str) -> None:
+        snapshots[path] = len(components.actor_model.trained)
+
+    monkeypatch.setattr(components.actor_model, "export_hf", export_hf)
+    await with_disposer(train_async_driver.train, args)
+
+    assert snapshots == {"/snapshots/before_0": 0, "/snapshots/before_1": 1}
 
 
 class TestApiServer:
