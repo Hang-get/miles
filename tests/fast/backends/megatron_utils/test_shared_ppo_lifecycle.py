@@ -3,6 +3,7 @@ import sys
 from argparse import Namespace
 from collections.abc import Iterator
 from contextlib import contextmanager, nullcontext
+from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
 from unittest.mock import Mock, call
@@ -238,6 +239,34 @@ class TestTrainParallelConfigWiring:
         assert config.microbatch_group_size_per_vp_stage == 4
         assert config.independent_dp
         assert config.supports_precomputed_schedule
+
+
+def test_logprob_guard_failure_preserves_trainer_samples(
+    actor_module: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A rejected batch retains the trainer logprobs needed for replay."""
+    worker = _actor_reuse_worker(
+        actor_module,
+        save_debug_train_data=str(tmp_path / "{rollout_id}_{rank}.pt"),
+        qkv_format="thd",
+    )
+    _patch_actor_reuse_dependencies(actor_module, monkeypatch, num_microbatches=[1])
+    worker._compute_log_prob.return_value = {"log_probs": [torch.tensor([-0.2, -0.3])]}
+
+    def save_shard(args: Any, *, rollout_id: int, rollout_data: dict[str, Any]) -> None:
+        actor_module.train_dump.save_debug_train_data_for_rank(
+            args, rollout_id=rollout_id, rollout_data=rollout_data, rank=0
+        )
+
+    monkeypatch.setattr(actor_module.train_dump, "save_debug_train_data", save_shard)
+    actor_module.log_rollout_data.side_effect = AssertionError("CI check failed: log_probs")
+    batch = {"num_rollouts": [1], "total_lengths": [2], "sample_indices": [23]}
+    with pytest.raises(AssertionError, match="CI check failed: log_probs"):
+        worker._train_actor(7, batch, witness_info=None, attempt=0)
+
+    saved = torch.load(tmp_path / "7_0.pt", weights_only=False)
+    assert saved["rollout_data"]["sample_indices"] == [23]
+    torch.testing.assert_close(saved["rollout_data"]["log_probs"][0], torch.tensor([-0.2, -0.3]))
 
 
 @pytest.mark.parametrize(
