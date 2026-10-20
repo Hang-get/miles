@@ -786,6 +786,7 @@ def _actor_worker(actor_module: Any) -> Any:
         use_critic=True,
         use_rollout_logprobs=True,
         save_debug_train_data=None,
+        save_debug_pre_train_hf=None,
     )
     worker.role = "actor"
     worker.with_ref = False
