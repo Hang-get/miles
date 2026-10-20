@@ -247,15 +247,17 @@ def test_logprob_guard_failure_preserves_trainer_samples(
     """A rejected batch retains the trainer logprobs needed for replay."""
     worker = _actor_reuse_worker(
         actor_module,
-        save_debug_train_data=str(tmp_path / "{rollout_id}_{rank}.pt"),
+        save_debug_train_data=str(tmp_path / "{rollout_id}_{cell_index}_{attempt}_{rank}.pt"),
         qkv_format="thd",
     )
     _patch_actor_reuse_dependencies(actor_module, monkeypatch, num_microbatches=[1])
     worker._compute_log_prob.return_value = {"log_probs": [torch.tensor([-0.2, -0.3])]}
+    worker._get_actor_weight_version = lambda: 19
+    worker._cell_index = 1
 
-    def save_shard(args: Any, *, rollout_id: int, rollout_data: dict[str, Any]) -> None:
+    def save_shard(args: Any, *, rollout_id: int, rollout_data: dict[str, Any], metadata: Any) -> None:
         actor_module.train_dump.save_debug_train_data_for_rank(
-            args, rollout_id=rollout_id, rollout_data=rollout_data, rank=0
+            args, rollout_id=rollout_id, rollout_data=rollout_data, rank=0, metadata=metadata
         )
 
     monkeypatch.setattr(actor_module.train_dump, "save_debug_train_data", save_shard)
@@ -264,7 +266,8 @@ def test_logprob_guard_failure_preserves_trainer_samples(
     with pytest.raises(AssertionError, match="CI check failed: log_probs"):
         worker._train_actor(7, batch, witness_info=None, attempt=0)
 
-    saved = torch.load(tmp_path / "7_0.pt", weights_only=False)
+    saved = torch.load(tmp_path / "7_1_0_0.pt", weights_only=False)
+    assert saved["metadata"] == {"weight_version": 19, "attempt": 0, "cell_index": 1}
     assert saved["rollout_data"]["sample_indices"] == [23]
     torch.testing.assert_close(saved["rollout_data"]["log_probs"][0], torch.tensor([-0.2, -0.3]))
 
@@ -480,6 +483,7 @@ def _actor_train_args(**overrides):
         get_mismatch_metrics=False,
         skip_actor_forward_only=False,
         enable_sample_ownership_checker=False,
+        save_debug_train_data=None,
     )
     return Namespace(**(defaults | overrides))
 
@@ -730,6 +734,7 @@ def _actor_worker(actor_module: Any) -> Any:
         skip_actor_forward_only=False,
         use_critic=True,
         use_rollout_logprobs=True,
+        save_debug_train_data=None,
     )
     worker.role = "actor"
     worker.with_ref = False

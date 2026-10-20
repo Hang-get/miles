@@ -765,7 +765,15 @@ class MegatronTrainRayActor(TrainRayActor):
             if self.rollout_data_postprocess is not None:
                 self.rollout_data_postprocess(self.args)
 
-            train_dump.save_debug_train_data(self.args, rollout_id=rollout_id, rollout_data=rollout_data)
+            if self.args.save_debug_train_data is not None:
+                train_dump.save_debug_train_data(
+                    self.args,
+                    rollout_id=rollout_id,
+                    rollout_data=rollout_data,
+                    metadata=train_dump.TrainDumpMetadata(
+                        weight_version=self._get_actor_weight_version(), attempt=attempt, cell_index=self._cell_index
+                    ),
+                )
             log_rollout_data(rollout_id, self.args, rollout_data)
 
             # Train
