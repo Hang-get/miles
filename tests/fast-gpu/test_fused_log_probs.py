@@ -120,6 +120,20 @@ def test_true_vocab_bound_excludes_the_padding_columns(inplace_backward):
     assert (leaf.grad[:, vocab_size:] == 0).all()
 
 
+def test_nan_logits_give_nan_like_log_softmax():
+    """A diverged forward must surface: the -inf clamp may not read a NaN logit as a masked one."""
+    logits, rows, targets = _inputs(64, 50_001, torch.float32, "cuda", seed=29)
+    nan_rows = rows[:4]
+    logits[nan_rows, 7] = torch.nan
+    leaf = logits.clone().requires_grad_(True)
+    log_probs, entropy = fused_log_probs_and_entropy(leaf * 1, rows, targets, tp_group=None, with_entropy=True)
+    (log_probs.sum() + entropy.sum()).backward()
+
+    assert log_probs[:4].isnan().all() and entropy[:4].isnan().all()
+    assert log_probs[4:].isfinite().all() and entropy[4:].isfinite().all()
+    assert leaf.grad[nan_rows].isnan().all(dim=1).all()
+
+
 @pytest.mark.parametrize("inplace_backward", [True, False])
 def test_minus_inf_logits_score_like_log_softmax(inplace_backward):
     """Masked logits are -inf: a first block of only -inf must not turn the running sums into NaN, and
