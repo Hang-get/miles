@@ -4,7 +4,7 @@ from typing import Any
 
 from miles.utils.audit_utils.sample_ownership.recorder import SampleOwnershipRecorder
 from miles.utils.dp_schedule import TrainParallelConfig
-from miles.utils.store_plan import register_dropped_samples
+from miles.utils.output_store.plan import register_dropped_samples
 from miles.utils.types import Sample
 
 logger = logging.getLogger(__name__)

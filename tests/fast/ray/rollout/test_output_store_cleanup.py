@@ -4,7 +4,7 @@ import pytest
 
 from miles.ray.rollout import output_store_cleanup
 from miles.ray.rollout.output_store_cleanup import OutputStoreCleanup
-from miles.utils.store_plan import RespRows, Seg, StorePlan, register_dropped_samples, take_dropped_refs
+from miles.utils.output_store.plan import RespRows, Seg, StorePlan, register_dropped_samples, take_dropped_refs
 from miles.utils.types import Sample
 
 

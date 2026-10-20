@@ -10,7 +10,7 @@ from miles.backends.sglang_utils.arguments import collect_eval_sglang_overrides
 from miles.backends.sglang_utils.sglang_api_client import WorkerType
 from miles.utils.file_arg_utils import resolve_file_arg
 from miles.utils.lora.utils import is_multi_lora_enabled
-from miles.utils.output_store_config import SGLANG_OUTPUT_STORE_FIELDS
+from miles.utils.output_store.config import SGLANG_OUTPUT_STORE_FIELDS
 from miles.utils.pydantic_utils import FrozenStrictBaseModel
 
 logger = logging.getLogger(__name__)

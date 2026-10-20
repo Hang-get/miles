@@ -21,7 +21,7 @@ from miles.rollout.generate_utils.sample_utils import merge_samples
 from miles.rollout.generate_utils.sampling_mask import append_sampling_metadata
 from miles.rollout.session.types import SessionRecord
 from miles.utils.lifecycle import attach_lifecycle_metadata
-from miles.utils.store_plan import (
+from miles.utils.output_store.plan import (
     ROUTED_EXPERTS,
     Seg,
     SeqRows,

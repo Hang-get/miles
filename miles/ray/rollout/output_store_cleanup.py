@@ -11,8 +11,8 @@ import logging
 from argparse import Namespace
 from typing import Any
 
-from miles.utils.output_store_config import connect_output_store
-from miles.utils.store_plan import owned_refs_of_samples, take_dropped_refs
+from miles.utils.output_store.config import connect_output_store
+from miles.utils.output_store.plan import owned_refs_of_samples, take_dropped_refs
 
 logger = logging.getLogger(__name__)
 

@@ -19,7 +19,7 @@ from miles.utils.audit_utils.sample_ownership.recorder import SampleOwnershipRec
 from miles.utils.function_registry import load_function
 from miles.utils.http_utils import get, post, router_worker_base_urls
 from miles.utils.misc import as_completed_async, call_agent_abort_hook
-from miles.utils.store_plan import register_dropped_samples
+from miles.utils.output_store.plan import register_dropped_samples
 from miles.utils.types import Sample
 
 logger = logging.getLogger(__name__)

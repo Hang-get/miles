@@ -2,7 +2,7 @@ import argparse
 
 from sglang.srt.server_args import ServerArgs
 from miles.utils.http_utils import wrap_ipv6
-from miles.utils.output_store_config import SGLANG_OUTPUT_STORE_FIELDS
+from miles.utils.output_store.config import SGLANG_OUTPUT_STORE_FIELDS
 
 
 # TODO: use all sglang router arguments with `--sglang-router` prefix

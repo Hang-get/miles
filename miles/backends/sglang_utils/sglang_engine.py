@@ -15,7 +15,7 @@ from miles.utils.lora.utils import (
     lora_base_cpu_backup_enabled,
     lora_rollout_enabled,
 )
-from miles.utils.output_store_config import SGLANG_OUTPUT_STORE_FIELDS, compute_sglang_output_store_args
+from miles.utils.output_store.config import SGLANG_OUTPUT_STORE_FIELDS, compute_sglang_output_store_args
 from miles.utils.workers.argv_utils import _record_field_names
 
 logger = logging.getLogger(__name__)

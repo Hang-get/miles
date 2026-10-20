@@ -54,8 +54,8 @@ from miles.rollout.inference_rollout.inference_rollout_eval import run_eval_data
 from miles.rollout.submission_scheduler import make_submission_scheduler
 from miles.utils.audit_utils.sample_ownership.recorder import SampleOwnershipRecorder
 from miles.utils.function_registry import load_function
+from miles.utils.output_store.plan import register_dropped_samples
 from miles.utils.simple_checkpointer import load_simple_checkpoint, save_simple_checkpoint
-from miles.utils.store_plan import register_dropped_samples
 from miles.utils.types import Sample
 
 logger = logging.getLogger(__name__)

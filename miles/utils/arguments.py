@@ -43,7 +43,7 @@ from miles.utils.object_store_config import (
     compute_mooncake_init_kwargs_from_env,
     compute_mooncake_init_kwargs_vanilla,
 )
-from miles.utils.output_store_config import add_output_store_arguments, validate_output_store_args
+from miles.utils.output_store.config import add_output_store_arguments, validate_output_store_args
 from miles.utils.rollout_topk_logprobs import validate_rollout_topk_logprobs_args
 from miles.utils.run_uuid import RUN_UUID_LENGTH, generate_run_uuid, validate_run_uuid
 from miles.utils.score_centering import validate_score_centering_args

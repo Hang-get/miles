@@ -1,9 +1,9 @@
-"""Data-exec functions of the output store path, against per-row Python references."""
+"""Materialize functions of the output store path, against per-row Python references."""
 
 import numpy as np
 import pytest
 
-from miles.utils.store_exec import (
+from miles.utils.output_store.materialize import (
     StoreExecError,
     check_nonzero_objects,
     check_support,

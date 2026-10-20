@@ -5,7 +5,7 @@ from typing import NamedTuple
 import numpy as np
 import pytest
 
-from miles.utils.store_plan import (
+from miles.utils.output_store.plan import (
     INDEXER_TOPK,
     MASK_LENGTHS,
     MASK_LOGPROBS,

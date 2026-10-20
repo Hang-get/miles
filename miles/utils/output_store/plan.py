@@ -28,8 +28,8 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 import msgspec
 import numpy as np
 
+from miles.utils.output_store.materialize import gather_csr_rows, gather_dense_rows
 from miles.utils.retry_utils import NonRetryableError
-from miles.utils.store_exec import gather_csr_rows, gather_dense_rows
 
 if TYPE_CHECKING:
     from radix_transfer_plugins import StoreRef

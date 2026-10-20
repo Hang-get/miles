@@ -5,8 +5,8 @@ from typing import Any
 import numpy
 import torch
 
+from miles.utils.output_store.plan import StorePlan
 from miles.utils.sampling_mask import RolloutSamplingMask
-from miles.utils.store_plan import StorePlan
 
 LEGACY_WEIGHT_VERSIONS_KEY = "legacy_weight_versions"
 

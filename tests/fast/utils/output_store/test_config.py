@@ -7,12 +7,12 @@ import pytest
 
 from miles.backends.sglang_utils.arguments import _SKIPPED_SERVER_ARGS
 from miles.rollout.generate_utils.generate_endpoint_utils import compute_request_payload
-from miles.utils.output_store_config import (
+from miles.utils.output_store.config import (
     SGLANG_OUTPUT_STORE_FIELDS,
     compute_sglang_output_store_args,
     validate_output_store_args,
 )
-from miles.utils.store_plan import set_outputs_via_store
+from miles.utils.output_store.plan import set_outputs_via_store
 
 
 def _args(**overrides) -> Namespace:

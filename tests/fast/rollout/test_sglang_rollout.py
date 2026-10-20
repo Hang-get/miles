@@ -7,7 +7,7 @@ import pytest
 
 from miles.rollout import sglang_rollout
 from miles.utils.lora.utils import LORA_ADAPTER_NAME
-from miles.utils.store_plan import StorePlanError
+from miles.utils.output_store.plan import StorePlanError
 from miles.utils.types import Sample
 
 

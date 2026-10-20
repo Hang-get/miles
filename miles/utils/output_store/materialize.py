@@ -1,6 +1,6 @@
-"""Data execution of the output store path: pure functions over flat numpy arrays.
+"""Materialize step of the output store path: pure functions over flat numpy arrays.
 
-The trainer executes a shard's merge plans (``miles.utils.store_plan``) with these. Conventions,
+The trainer executes a shard's merge plans (``miles.utils.output_store.plan``) with these. Conventions,
 so each function can be rewritten in another language:
 
 - inputs are contiguous numpy arrays, of a dtype from a small fixed set, plus ints;

@@ -7,9 +7,9 @@ import pytest
 import torch
 
 from miles.backends.training_utils.data.store_columns import materialize_store_columns
-from miles.utils import output_store_config
-from miles.utils.store_exec import StoreExecError
-from miles.utils.store_plan import (
+from miles.utils.output_store import config as output_store_config
+from miles.utils.output_store.materialize import StoreExecError
+from miles.utils.output_store.plan import (
     INDEXER_TOPK,
     ROUTED_EXPERTS,
     SAMPLING_MASK,

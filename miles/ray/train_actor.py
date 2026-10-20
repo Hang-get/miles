@@ -27,7 +27,7 @@ from miles.utils.logging_utils import configure_logger, rebind_env_reporting
 from miles.utils.memory_utils import clear_memory, print_memory
 from miles.utils.misc import NodeProbeMixin, get_current_node_ip, get_free_port
 from miles.utils.object_store import StoreObjectRef
-from miles.utils.output_store_config import init_output_store_reader
+from miles.utils.output_store.config import init_output_store_reader
 from miles.utils.processing_utils import load_processor, load_tokenizer
 from miles.utils.test_utils.det_process_group import DET_NCCL_BACKEND_NAME, register_det_nccl_backend
 from miles.utils.test_utils.fault_injector.controller import FaultHookCommand, fault_hook_controller

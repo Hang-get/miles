@@ -2,7 +2,7 @@
 
 With ``--use-output-store``, SGLang writes R3, indexer top-k and the sampling mask of every training
 response to an output store (``radix_transfer_plugins``) and returns a small ``output_store_ref``;
-the trainer reads the objects back (``miles.utils.store_plan``) and the rollout executor deletes
+the trainer reads the objects back (``miles.utils.output_store.plan``) and the rollout executor deletes
 them once their rollout is complete. Phase 1 has one backend: the run's own Mooncake, the master
 Miles already uses for its object store. Every engine Miles launches writes to it, every train
 worker reads from it, and the rollout executor deletes from it.

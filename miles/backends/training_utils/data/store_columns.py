@@ -3,7 +3,7 @@
 Runs once per train attempt on this rank's DP shard, after the shard is selected
 (``process_rollout_data``): pops the shard's ``store_plan`` / ``store_refs`` columns, reads each
 (object, stored field) a segment uses once through the package's ``read_many``, executes each
-field's plans with ``miles.utils.store_exec`` and writes the columns the inline path's
+field's plans with ``miles.utils.output_store.materialize`` and writes the columns the inline path's
 ``convert_samples_to_train_data`` writes, so nothing after this changes. The trainer never deletes
 an object: the shard's other ranks and FT retries read the same objects, and the rollout executor
 deletes them once their rollout is complete.
@@ -20,10 +20,9 @@ import numpy as np
 import torch
 
 from miles.rollout.generate_utils.rollout_topk_logprobs import validate_rollout_topk_logprobs_sample
-from miles.utils.output_store_config import get_output_store_reader, output_store_read_buffer_bytes
-from miles.utils.sampling_mask import RolloutSamplingMask
-from miles.utils.store_exec import check_nonzero_objects, check_support, compact_candidates, support_topk
-from miles.utils.store_plan import (
+from miles.utils.output_store.config import get_output_store_reader, output_store_read_buffer_bytes
+from miles.utils.output_store.materialize import check_nonzero_objects, check_support, compact_candidates, support_topk
+from miles.utils.output_store.plan import (
     FIELDS,
     INDEXER_TOPK,
     MASK_LOGPROBS,
@@ -33,6 +32,7 @@ from miles.utils.store_plan import (
     StorePlan,
     ref_from_builtins,
 )
+from miles.utils.sampling_mask import RolloutSamplingMask
 from miles.utils.types import Sample
 
 logger = logging.getLogger(__name__)

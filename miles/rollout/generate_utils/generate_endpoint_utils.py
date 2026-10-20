@@ -14,8 +14,7 @@ from miles.rollout.generate_utils.rollout_topk_logprobs import (
 )
 from miles.rollout.generate_utils.sampling_mask import append_sampling_metadata, should_return_sampling_mask
 from miles.utils.lora.utils import LORA_ADAPTER_NAME, lora_rollout_enabled
-from miles.utils.processing_utils import encode_image_for_rollout_engine, extract_multimodal_train_inputs
-from miles.utils.store_plan import (
+from miles.utils.output_store.plan import (
     StorePlan,
     is_no_output_abort,
     outputs_via_store,
@@ -24,6 +23,7 @@ from miles.utils.store_plan import (
     set_outputs_via_store,
     store_sampled_logprobs,
 )
+from miles.utils.processing_utils import encode_image_for_rollout_engine, extract_multimodal_train_inputs
 from miles.utils.types import Sample
 
 
