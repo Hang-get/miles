@@ -244,7 +244,8 @@ class LoRASplitAdapter(NativeLoRAAdapter):
     Shared machinery for every fused physical linear: parameter layout, the
     down/up drain, absent-slot zero-fill, and the export descriptor. Subclasses
     supply the physical slot widths (``rows_by_param_prefix``, in slot order) and an
-    optional output packing.
+    optional output permutation ``out_perm``, kept in host memory: a merged weight sync
+    reads the adapter while the sleeping trainer's GPU buffers are paused.
     """
 
     def __init__(
@@ -255,6 +256,7 @@ class LoRASplitAdapter(NativeLoRAAdapter):
         context: AttachContext,
         projections: Sequence[ProjectionSpec],
         rows_by_param_prefix: dict[str, int],
+        out_perm: torch.Tensor | None = None,
     ):
         projections = tuple(projections)
         param_prefixes = [projection.param_prefix for projection in projections]
@@ -275,6 +277,7 @@ class LoRASplitAdapter(NativeLoRAAdapter):
         super().__init__(hf_prefix, ordered, context.tp_rank)
         self.context = context
         self._rows_by_param_prefix = rows_by_param_prefix
+        self._out_perm = out_perm
         self._active = tuple(projection.param_prefix for projection in ordered)
         for name in self._active:
             self.register_parameter(
@@ -298,7 +301,9 @@ class LoRASplitAdapter(NativeLoRAAdapter):
         self._validate_projection_parameters()
 
     def _pack(self, delta: torch.Tensor) -> torch.Tensor:
-        return delta
+        if self._out_perm is None:
+            return delta
+        return delta.index_select(-1, self._out_perm.to(delta.device, non_blocking=True))
 
     def _pack_rows(self, delta: torch.Tensor) -> torch.Tensor:
         return self._pack(delta.t()).t()
@@ -358,15 +363,8 @@ class LoRASplitQKV(LoRASplitAdapter):
             context=context,
             projections=projections,
             rows_by_param_prefix={"q": q_rows, "k": num_kv * head_dim, "v": num_kv * head_dim},
+            out_perm=build_qkv_permutation(num_q, num_kv, head_dim, "cpu", context.output_gate),
         )
-        self.register_buffer(
-            "out_perm",
-            build_qkv_permutation(num_q, num_kv, head_dim, reference.device, context.output_gate),
-            persistent=False,
-        )
-
-    def _pack(self, delta: torch.Tensor) -> torch.Tensor:
-        return delta.index_select(-1, self.out_perm)
 
 
 class LoRASplitFC1(LoRASplitAdapter):
