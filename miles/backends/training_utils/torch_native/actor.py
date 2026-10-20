@@ -282,6 +282,8 @@ class TorchNativeTrainRayActor(TrainRayActor):
                 extra_metrics=metrics.extra_metrics,
                 should_log=state.is_metrics_rank,
             )
+        # free the last step's gradients before the log-prob passes and the weight sync
+        runner.zero_grad()
 
     def _fetch_batches(self, progress, data_iterator: DataIterator, keys: list[str]) -> Iterator[dict]:
         for _ in progress:

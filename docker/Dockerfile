@@ -192,8 +192,13 @@ RUN pip install multi-storage-client --no-deps
 # torch nightly and its model/adapter layouts move; --no-deps keeps its torch and
 # datasets pins from touching the versions sglang links against. Its own python
 # deps are pinned explicitly (spmd_types is a hard import in parallel_dims).
+# torch_tpu support for that commit (device calls, FSDP SUM reduce, compile backend, MoE grouped-GEMM weight
+# gradients and integer prefix sums); a no-op off TPU.
+# Upstreaming in pytorch/torchtitan; drop the patch once the pinned commit has it.
+COPY docker/patch/torchtitan_torch_tpu.patch /tmp/torchtitan_torch_tpu.patch
 RUN git clone https://github.com/${TORCHTITAN_REPO}.git torchtitan && \
     cd torchtitan && git checkout -f ${TORCHTITAN_COMMIT} && \
+    patch --fuzz=0 -p1 < /tmp/torchtitan_torch_tpu.patch && rm /tmp/torchtitan_torch_tpu.patch && \
     pip install --no-deps -e .
 RUN pip install "spmd_types==0.2.3" "tyro>=1.0.5" && pip install --no-deps "torchdata>=0.8.0"
 

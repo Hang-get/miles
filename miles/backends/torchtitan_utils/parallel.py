@@ -29,11 +29,21 @@ def _gloo_subgroup(my_ranks: list[int]):
     return my_group
 
 
+def _singleton_group():
+    # tpu_dist requires every rank to create every subgroup, so build all singletons and keep ours.
+    mine = None
+    for rank in range(dist.get_world_size()):
+        group = dist.new_group([rank])
+        if rank == dist.get_rank():
+            mine = group
+    return mine
+
+
 def _group_info(parallel_dims, mesh_name: str, *, with_gloo: bool = False) -> GroupInfo:
     mesh = parallel_dims.get_optional_mesh(mesh_name)
     if mesh is None:
         ranks = [dist.get_rank()]
-        group = dist.new_group(ranks)
+        group = _singleton_group()
     else:
         group = mesh.get_group()
         ranks = dist.get_process_group_ranks(group)
@@ -46,7 +56,7 @@ def _group_info(parallel_dims, mesh_name: str, *, with_gloo: bool = False) -> Gr
 
 
 def create_titan_parallel_state(parallel_dims, *, is_pp_last_stage: bool = True) -> ParallelState:
-    alone = GroupInfo(rank=0, size=1, group=dist.new_group([dist.get_rank()]))
+    alone = GroupInfo(rank=0, size=1, group=_singleton_group())
     dp = _group_info(parallel_dims, "batch", with_gloo=True)
     state = ParallelState(
         intra_dp=dp,
