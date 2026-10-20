@@ -67,6 +67,7 @@ class TestRolloutExecutorLifecycleRpc:
         worker._output_snapshotter = SimpleNamespace(
             load=lambda _directory: None, discard_completed=lambda **_kwargs: None
         )
+        worker._output_store_cleanup = SimpleNamespace(release_completed=lambda **_kwargs: None)
         worker.data_source = SimpleNamespace(load=load_state)
         specs = collect_rpc_method_specs(RolloutExecutor)
         assert specs["load"].is_async and specs["save"].is_async
