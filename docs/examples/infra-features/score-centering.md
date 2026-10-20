@@ -67,11 +67,11 @@ SGLang reports three kinds of log probability:
 
 The first row is the sampler under filtering and the second the sampler without filtering. Miles-managed rollout workers set `SGLANG_RETURN_ORIGINAL_LOGPROB=0`, so the third row does not occur. Each configuration reads:
 
-| Configuration | Sampling-support replay (`append_sampling_metadata`) | Candidates (`append_rollout_topk_logprobs`) | SGLang source |
+| Configuration | Sampling mask | Candidates | SGLang source |
 | --- | --- | --- | --- |
-| Sampling-support replay only (`--rollout-top-logprobs-num 0`) | stores the support; returns the sampled-token log probability | nothing (`K = 0`) | `output_token_sampling_mask`, `output_token_sampling_logprobs` |
-| Score centering, unfiltered | not called (no `return_sampling_mask`) | stores the top `K` candidates | `output_top_logprobs` |
-| Score centering, filtered | stores the support; picks the sampled-token log probability from its row | stores `[n, K]`: the same support IDs with their row log probabilities | both read the same `output_token_sampling_mask`, `output_token_sampling_logprobs` |
+| Sampling-support replay only (`--rollout-top-logprobs-num 0`) | the support; the rollout keeps the sampled-token log probability | nothing (`K = 0`) | `output_token_sampling_mask`, `output_token_sampling_logprobs` |
+| Score centering, unfiltered | not requested (no `return_sampling_mask`) | the rollout stores the top `K` candidates | `output_top_logprobs` |
+| Score centering, filtered | the support with its row log probabilities; the rollout picks the sampled-token log probability from its row | the replay assembly builds `[n, K]` from the same support IDs and row log probabilities | both read the same `output_token_sampling_mask`, `output_token_sampling_logprobs` |
 
 For support replay without reference KL, the trainer gathers only sampled and support logits, normalizes over that support, and saves activations proportional to the candidate count rather than the vocabulary size. Other paths retain full-vocabulary normalization, reducing normalization scalars and selected logits across tensor-parallel ranks. It excludes padded vocabulary entries and computes probabilities in float32 for BF16/FP16 models. `--log-probs-chunk-size` controls the temporary computation size; `--recompute-loss-function` can trade computation for saved activations. No full vocabulary is gathered across ranks.
 
@@ -83,9 +83,11 @@ Native SGLang generation, the legacy rollout path, and both session-server versi
 - `rollout_topk_log_probs`: float32 array of the same shape.
 - `rollout_log_probs`: the actual sampled-token log probabilities.
 
+In support mode the replay assembly builds the two candidate arrays from the sampling mask, so rollout `Sample`s carry only `rollout_log_probs`. The assembly runs in one of two places. By default the rollout executor runs it on the whole batch when it converts samples to training data. With `--enable-delay-token-replay-assembly`, each train rank runs it on its own shard after shard selection.
+
 Evaluation requests skip this collection and may use independent sampling settings, including greedy decoding. The built-in agentic producer marks evaluation sessions when creating them; custom session clients should create them with `POST /sessions` with JSON body `{"evaluation": true}`.
 
-Unused candidate slots and non-trained observation rows contain token ID `-1` and log probability `-inf`. Tool-observation masks, multi-turn merging, retries, trailing-token trimming, and truncation preserve row alignment. Session serialization retains both arrays. For score centering in support mode, training batches share the recorded support IDs when every sample has exactly the same candidate order and prefix padding. A per-row candidate count preserves observation rows and masked generated rows; any mismatch keeps the original arrays for the whole batch. The trainer reconstructs only its context-parallel rows. The source Samples and session payloads still retain both representations.
+Unused candidate slots and non-trained observation rows contain token ID `-1` and log probability `-inf`. Tool-observation masks, multi-turn merging, retries, trailing-token trimming, and truncation preserve row alignment. Session serialization retains both arrays. For score centering in support mode, training batches share the recorded support IDs when every sample has exactly the same candidate order and prefix padding. A per-row candidate count preserves observation rows and masked generated rows; any mismatch keeps the original arrays for every sample the assembly sees: the whole batch, or the rank's shard with `--enable-delay-token-replay-assembly`. The trainer reconstructs only its context-parallel rows. The source Samples and session payloads still retain both representations.
 
 Custom rollout producers must supply these fields with probabilities from the actual generation call and no repeated non-negative token ID in a row. Conversion always rejects missing candidate IDs, candidate log probabilities, or sampled-token log probabilities, including from custom producers. With `--ci-test`, Miles also validates the complete sample before training, rejecting duplicate candidates, sampling-support mismatches, and disagreeing sampled/candidate probabilities. This full-sample validation is skipped in normal training because sorting and support matching are expensive on long responses. Rescoring old rollouts with newer weights is not a substitute. With the feature disabled, requests and the session wire format remain unchanged.
 

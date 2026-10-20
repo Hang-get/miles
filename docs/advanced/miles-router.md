@@ -38,8 +38,8 @@ in `meta_info` of each response, with shape
 --use-rollout-routing-replay
 ```
 
-Rollout sends `return_routed_experts=true` in each request and stores the
-results in `sample.rollout_routed_experts` (`miles/utils/types.py`). The
+Rollout sends `return_routed_experts=true` in each request and indexes the
+results in `sample.replay_index` (`miles/utils/replay_index.py`). The
 trainer pushes the arrays through `RoutingReplayManager`
 (`miles/utils/replay_base.py`), and `replay_utils.py` plugs them into the
 forward pass so recorded routes are used instead of recomputed ones.

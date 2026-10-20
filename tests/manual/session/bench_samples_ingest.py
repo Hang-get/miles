@@ -97,6 +97,7 @@ def _build_payload(tokens: int, layers: int, topk: int) -> bytes:
     import numpy as np
 
     from miles.rollout.session.samples.codec import encode_samples
+    from miles.utils.replay_index import ReplayIndex
     from miles.utils.types import Sample
 
     rng = np.random.default_rng(0)
@@ -108,7 +109,9 @@ def _build_payload(tokens: int, layers: int, topk: int) -> bytes:
         response_length=response_length,
         loss_mask=[1] * response_length,
         rollout_log_probs=(-rng.random(response_length)).tolist(),
-        rollout_routed_experts=rng.integers(1, 256, size=(tokens - 1, layers, topk), dtype=np.int32),
+        replay_index=ReplayIndex.from_arrays(
+            routed_experts=rng.integers(1, 256, size=(tokens - 1, layers, topk), dtype=np.int32)
+        ),
         status=Sample.Status.COMPLETED,
     )
     return encode_samples([sample], {"accumulated_token_ids": token_ids, "max_trim_tokens": 0})

@@ -1889,6 +1889,17 @@ def get_miles_extra_args_provider(add_custom_arguments=None):
                 help="Replay indexer topk from rollout during training.",
             )
             parser.add_argument(
+                "--enable-delay-token-replay-assembly",
+                action="store_true",
+                default=False,
+                help="Where rollout routing replay (R3), indexer top-k and the sampling mask, including "
+                "the top-k candidates support log-prob mode derives from it, are assembled into training "
+                "columns. Off: the rollout executor assembles the whole batch "
+                "(convert_samples_to_train_data), as before. On: the train data carries each sample's "
+                "replay index and inline rows, and each train rank assembles its own shard after shard "
+                "selection.",
+            )
+            parser.add_argument(
                 "--use-opsm",
                 action="store_true",
                 default=False,
