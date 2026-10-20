@@ -21,7 +21,18 @@ import torch
 
 from miles.rollout.generate_utils.rollout_topk_logprobs import validate_rollout_topk_logprobs_sample
 from miles.utils.output_store.config import get_output_store_reader, output_store_read_buffer_bytes
-from miles.utils.output_store.materialize import check_nonzero_objects, check_support, compact_candidates, support_topk
+from miles.utils.output_store.materialize import (
+    check_csr_objects,
+    check_nonzero_objects,
+    check_support,
+    compact_candidates,
+    expand_rows,
+    gather_csr_rows,
+    gather_dense_rows,
+    redirect_forced_rows,
+    stack_objects,
+    support_topk,
+)
 from miles.utils.output_store.plan import FIELDS, INDEXER_TOPK, MASK_LOGPROBS, FieldDef, StorePlan, ref_from_builtins
 from miles.utils.output_store.rows import RespRows, SeqRows
 from miles.utils.sampling_mask import RolloutSamplingMask
@@ -110,16 +121,9 @@ def _read_objects(args: Namespace, shard: _ShardObjects) -> dict[int, dict[str, 
         f"Read {sum(len(names) for names in wanted.values())} output store fields of {len(objs)} objects, "
         f"{sum(spec.nbytes for obj in objs for spec in shard.refs[obj].fields if spec.name in wanted[obj])} bytes"
     )
-    return {obj: {name: getattr(stash, name) for name in wanted[obj]} for obj, stash in zip(objs, stashes)}
-
-
-def _stack_objects(
-    arrays: dict[int, dict[str, np.ndarray]], objs: list[int], name: str
-) -> tuple[np.ndarray, np.ndarray]:
-    """One stored field of ``objs`` concatenated, with ``obj_row_offsets``."""
-    parts = [arrays[obj][name] for obj in objs]
-    offsets = np.concatenate(([0], np.cumsum([len(part) for part in parts], dtype=np.int64)))
-    return (np.concatenate(parts) if parts else np.empty(0, dtype=np.int32)), offsets
+    return {
+        obj: {name: getattr(stash, name) for name in wanted[obj]} for obj, stash in zip(objs, stashes, strict=True)
+    }
 
 
 def _local_segments(shard: _ShardObjects, f: int, objs: list[int]) -> tuple[np.ndarray, ...]:
@@ -148,13 +152,12 @@ def _execute_seq_field(
 ) -> None:
     (stored,) = field.stored
     objs = shard.used_objects(f)
-    values, obj_row_offsets = _stack_objects(arrays, objs, stored.name)
+    values, obj_row_offsets = stack_objects([arrays[obj][stored.name] for obj in objs], empty_dtype=stored.train_dtype)
     if field.check_nonzero:
         check_nonzero_objects(values, obj_row_offsets)
-    rows, sample_row_offsets = SeqRows.gather(
-        values, obj_row_offsets, *_local_segments(shard, f, objs), out_dtype=np.dtype(stored.train_dtype)
-    )
-    rollout_data[_DENSE_COLUMNS[field.name]] = _split(rows, sample_row_offsets)
+    index = expand_rows(*_local_segments(shard, f, objs), obj_row_offsets)
+    rows = gather_dense_rows(values, index.source, out_dtype=np.dtype(stored.train_dtype))
+    rollout_data[_DENSE_COLUMNS[field.name]] = _split(rows, index.sample_row_offsets)
 
 
 # ============================== sampler fields ==============================
@@ -170,30 +173,42 @@ def _execute_resp_field(
 ) -> None:
     lengths_stored, ids_stored, logprobs_stored = field.stored
     objs = shard.used_objects(f)
-    lengths, obj_row_offsets = _stack_objects(arrays, objs, lengths_stored.name)
-    ids, obj_entry_offsets = _stack_objects(arrays, objs, ids_stored.name)
     support_mode = args.rollout_sampling_logprobs_mode == "support"
-    logprobs = None
     if support_mode:
         missing = [shard.refs[obj].key for obj in objs if MASK_LOGPROBS not in arrays[obj]]
         if missing:
             raise ValueError(
                 f"support log-prob mode needs {MASK_LOGPROBS}; output store objects {missing[:4]} lack it"
             )
-        logprobs, _ = _stack_objects(arrays, objs, logprobs_stored.name)
-    response_tokens, sample_token_offsets = _response_tokens(rollout_data)
-    out_ids, row_offsets, sample_row_offsets, out_logprobs, forced = RespRows.gather(
-        lengths.astype(np.int64, copy=False),
-        ids,
-        logprobs,
-        obj_row_offsets,
-        obj_entry_offsets,
-        *_local_segments(shard, f, objs),
-        response_tokens,
-        sample_token_offsets,
+    value_stored = (ids_stored, logprobs_stored) if support_mode else (ids_stored,)
+    lengths, obj_row_offsets = stack_objects(
+        [arrays[obj][lengths_stored.name] for obj in objs], empty_dtype=lengths_stored.train_dtype
     )
-    if not np.array_equal(sample_row_offsets, sample_token_offsets):
+    values, value_offsets = zip(
+        *(stack_objects([arrays[obj][s.name] for obj in objs], empty_dtype=s.train_dtype) for s in value_stored),
+        strict=True,
+    )
+    check_csr_objects(lengths, obj_row_offsets, value_offsets)
+    index = expand_rows(*_local_segments(shard, f, objs), obj_row_offsets)
+    response_tokens, sample_token_offsets = _response_tokens(rollout_data)
+    if not np.array_equal(index.sample_row_offsets, sample_token_offsets):
         raise ValueError("sampling mask rows do not match the response lengths")
+
+    # A forced row (a token Miles inserted) was not sampled: its support is the token itself, with
+    # log-prob 0, which no column reads (top-k and compaction skip forced rows).
+    forced = index.source < 0
+    fill_ids = response_tokens[forced]
+    fill = (fill_ids, np.zeros(len(fill_ids)))[: len(values)]
+    lengths = np.concatenate((lengths, np.ones(len(fill_ids), dtype=lengths.dtype)))
+    values = [np.concatenate((array, part.astype(array.dtype))) for array, part in zip(values, fill, strict=True)]
+    row_offsets, (out_ids, *rest) = gather_csr_rows(
+        lengths,
+        values,
+        redirect_forced_rows(index.source, fill_start=int(obj_row_offsets[-1])),
+        out_dtypes=[np.dtype(s.train_dtype) for s in value_stored],
+    )
+    out_logprobs = rest[0] if support_mode else None
+    sample_row_offsets = index.sample_row_offsets
     check_support(out_ids, row_offsets, response_tokens, exactly_once=support_mode)
 
     rollout_data["rollout_sampling_mask_ids"] = [
@@ -217,7 +232,8 @@ def _execute_resp_field(
 def _response_tokens(rollout_data: dict[str, Any]) -> tuple[np.ndarray, np.ndarray]:
     lengths = [int(n) for n in rollout_data["response_lengths"]]
     parts = [
-        np.asarray(tokens[len(tokens) - n :], dtype=np.int64) for tokens, n in zip(rollout_data["tokens"], lengths)
+        np.asarray(tokens[len(tokens) - n :], dtype=np.int64)
+        for tokens, n in zip(rollout_data["tokens"], lengths, strict=True)
     ]
     offsets = np.concatenate(([0], np.cumsum(lengths, dtype=np.int64)))
     return (np.concatenate(parts) if parts else np.empty(0, dtype=np.int64)), offsets

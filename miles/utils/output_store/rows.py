@@ -15,7 +15,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, NamedTuple
 
-from miles.utils.output_store.materialize import gather_csr_rows, gather_dense_rows
 from miles.utils.retry_utils import NonRetryableError
 
 if TYPE_CHECKING:
@@ -78,7 +77,6 @@ class SeqRows(Rows):
     """Forward outputs (R3, indexer top-k): a row per sequence position but the last."""
 
     __slots__ = ()
-    gather = staticmethod(gather_dense_rows)
 
     def append(self, new: Rows, *, response_length: int, seq_start: int) -> Rows:
         # A forward's object covers the sequence from seq_start on; seq_start 0 replaces every row.
@@ -100,7 +98,6 @@ class RespRows(Rows):
     """Sampler outputs (the sampling mask): a row per response token."""
 
     __slots__ = ()
-    gather = staticmethod(gather_csr_rows)
 
     def append(self, new: Rows, *, response_length: int, seq_start: int) -> Rows:
         if seq_start:

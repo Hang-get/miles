@@ -10,14 +10,22 @@ so each function can be rewritten in another language:
 
 Layout of one shard (``obj`` = a stored object, ``seg`` = a segment of a plan):
 
-- object level, per stored field: the arrays of every object concatenated, with
-  ``obj_row_offsets`` ``[num_objs + 1]``; CSR fields add ``obj_entry_offsets``;
-- plan level: ``seg_obj``, ``seg_start``, ``seg_stop`` ``[num_segs]`` int32 (``seg_obj = -1``
-  for forced rows) with ``sample_seg_offsets`` ``[num_samples + 1]``;
-- forced rows' tokens: ``response_tokens`` (flat) with ``sample_token_offsets``.
+- object level, per stored field: the arrays of every object concatenated (``stack_objects``),
+  with ``obj_row_offsets`` ``[num_objs + 1]``; a CSR field's values arrays have their own offsets;
+- plan level: ``seg_obj``, ``seg_start``, ``seg_stop`` ``[num_segs]`` (``seg_obj = -1`` for forced
+  rows) with ``sample_seg_offsets`` ``[num_samples + 1]``;
+- row level: ``RowIndex``, each row's source row in the concatenated objects.
+
+Three steps turn them into a field's rows: ``expand_rows`` lists where each row comes from; the
+caller decides what a forced row holds, appends it to the objects as fill rows and points the
+forced rows at them (``redirect_forced_rows``); ``gather_dense_rows`` / ``gather_csr_rows`` copy
+the listed rows, knowing nothing of forced rows.
 """
 
 from __future__ import annotations
+
+from collections.abc import Sequence
+from typing import NamedTuple
 
 import numpy as np
 
@@ -32,86 +40,92 @@ class StoreExecError(ValueError):
         self.row = row
 
 
-def gather_dense_rows(
-    values: np.ndarray,
-    obj_row_offsets: np.ndarray,
+class RowIndex(NamedTuple):
+    """Each row of a shard's plans, in plan order."""
+
+    # [num_rows] int64: the row of the concatenated objects it copies; -1 for a forced row.
+    source: np.ndarray
+    # [num_samples + 1] int64: sample i's rows are source[sample_row_offsets[i]:sample_row_offsets[i + 1]].
+    sample_row_offsets: np.ndarray
+
+
+def stack_objects(parts: Sequence[np.ndarray], empty_dtype: np.dtype) -> tuple[np.ndarray, np.ndarray]:
+    """One stored array of every object concatenated, with its ``[num_objs + 1]`` offsets."""
+    offsets = np.zeros(len(parts) + 1, dtype=np.int64)
+    np.cumsum([len(part) for part in parts], out=offsets[1:])
+    return (np.concatenate(parts) if parts else np.empty(0, dtype=empty_dtype)), offsets
+
+
+def expand_rows(
     seg_obj: np.ndarray,
     seg_start: np.ndarray,
     seg_stop: np.ndarray,
     sample_seg_offsets: np.ndarray,
-    out_dtype: np.dtype,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Each sample's rows of a forward field, concatenated in plan order.
-
-    ``values`` is ``[num_obj_rows, ...]`` of any stored dtype that converts safely to
-    ``out_dtype``; the conversion happens here only. Returns ``(rows, sample_row_offsets)``.
-    """
-    if not np.can_cast(values.dtype, out_dtype, casting="safe"):
-        raise StoreExecError(f"stored dtype {values.dtype} does not convert safely to {np.dtype(out_dtype)}")
-    seg_sample = _seg_samples(sample_seg_offsets)
-    forced = seg_obj < 0
-    if forced.any():
-        raise StoreExecError("forward rows cannot be forced", sample=int(seg_sample[np.argmax(forced)]))
+    obj_row_offsets: np.ndarray,
+) -> RowIndex:
+    """Where each row of the shard's plans comes from; a forced segment's rows get source -1."""
+    seg_sample = np.repeat(np.arange(len(sample_seg_offsets) - 1), np.diff(sample_seg_offsets))
     _check_segments(seg_obj, seg_start, seg_stop, obj_row_offsets, seg_sample)
-    lengths = (seg_stop - seg_start).astype(np.int64)
-    within = _ragged_arange(lengths)
-    source = np.repeat(obj_row_offsets[seg_obj] + seg_start, lengths) + within
-    rows = np.take(values, source, axis=0).astype(out_dtype, copy=False)
-    return rows, _sample_offsets(lengths, sample_seg_offsets)
+    seg_rows = (seg_stop - seg_start).astype(np.int64)
+    real = seg_obj >= 0
+    # The extra last slot is where a forced segment's -1 lands.
+    seg_first = np.where(real, np.append(obj_row_offsets[:-1], 0)[seg_obj] + seg_start, -1)
+    source = np.repeat(seg_first, seg_rows) + _ragged_arange(seg_rows) * np.repeat(real, seg_rows)
+    seg_row_offsets = np.zeros(len(seg_rows) + 1, dtype=np.int64)
+    np.cumsum(seg_rows, out=seg_row_offsets[1:])
+    return RowIndex(source=source, sample_row_offsets=seg_row_offsets[sample_seg_offsets])
+
+
+def redirect_forced_rows(source: np.ndarray, fill_start: int) -> np.ndarray:
+    """Point the forced rows, in order, at fill rows appended to the objects from ``fill_start`` on."""
+    forced = source < 0
+    out = source.copy()
+    out[forced] = fill_start + np.arange(int(forced.sum()))
+    return out
+
+
+def gather_dense_rows(values: np.ndarray, source: np.ndarray, out_dtype: np.dtype) -> np.ndarray:
+    """``values[source]`` ``[num_rows, ...]``, converted to ``out_dtype``.
+
+    ``values`` may be of any stored dtype that converts safely to ``out_dtype``; the conversion
+    happens here only.
+    """
+    _check_cast(values.dtype, out_dtype)
+    _check_sources(source, len(values))
+    return np.take(values, source, axis=0).astype(out_dtype, copy=False)
 
 
 def gather_csr_rows(
-    lengths: np.ndarray,
-    ids: np.ndarray,
-    logprobs: np.ndarray | None,
-    obj_row_offsets: np.ndarray,
-    obj_entry_offsets: np.ndarray,
-    seg_obj: np.ndarray,
-    seg_start: np.ndarray,
-    seg_stop: np.ndarray,
-    sample_seg_offsets: np.ndarray,
-    response_tokens: np.ndarray,
-    sample_token_offsets: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray | None, np.ndarray]:
-    """Each sample's rows of a sampler field (a CSR support per row), in plan order.
+    lengths: np.ndarray, values: Sequence[np.ndarray], source: np.ndarray, out_dtypes: Sequence[np.dtype]
+) -> tuple[np.ndarray, tuple[np.ndarray, ...]]:
+    """The CSR rows ``source`` lists: each values array's entries of those rows, in order.
 
-    A forced row's support is the token at its response position alone, with log-prob 0;
-    forced rows are filled here only. Returns ``(ids, row_offsets, sample_row_offsets,
-    logprobs, forced)``: ``row_offsets`` ``[num_rows + 1]`` int64 index ``ids`` and
-    ``logprobs`` (float32, None when ``logprobs`` is None); ``forced`` is ``[num_rows]`` bool.
+    ``lengths`` ``[num_obj_rows]`` counts each object row's entries; every values array holds
+    ``lengths.sum()`` entries. Returns ``(row_offsets, values)``: ``row_offsets`` ``[num_rows + 1]``
+    int64 indexes each output values array, converted to its ``out_dtypes``.
     """
-    seg_sample = _seg_samples(sample_seg_offsets)
+    for array, dtype in zip(values, out_dtypes, strict=True):
+        _check_cast(array.dtype, dtype)
+    _check_sources(source, len(lengths))
     entry_starts = np.zeros(len(lengths) + 1, dtype=np.int64)
     np.cumsum(lengths, out=entry_starts[1:])
-    _check_csr_objects(lengths, ids, logprobs, obj_row_offsets, obj_entry_offsets, entry_starts)
-    real = seg_obj >= 0
-    _check_segments(seg_obj[real], seg_start[real], seg_stop[real], obj_row_offsets, seg_sample[real])
-
-    seg_rows = (seg_stop - seg_start).astype(np.int64)
-    sample_row_offsets = _sample_offsets(seg_rows, sample_seg_offsets)
-    row_seg = np.repeat(np.arange(len(seg_rows)), seg_rows)
-    forced = ~real[row_seg]
-    row_sample = seg_sample[row_seg]
-    position = np.arange(len(row_seg)) - sample_row_offsets[row_sample]
-    forced_token = _forced_tokens(forced, row_sample, position, response_tokens, sample_token_offsets)
-
-    source_row = np.where(forced, 0, np.repeat(obj_row_offsets[np.maximum(seg_obj, 0)] + seg_start, seg_rows))
-    source_row = source_row + _ragged_arange(seg_rows) * ~forced
-    row_lengths = np.where(forced, 1, lengths[source_row] if len(lengths) else 0).astype(np.int64)
-    row_offsets = np.zeros(len(row_lengths) + 1, dtype=np.int64)
+    row_lengths = lengths[source].astype(np.int64)
+    row_offsets = np.zeros(len(source) + 1, dtype=np.int64)
     np.cumsum(row_lengths, out=row_offsets[1:])
+    entry = np.repeat(entry_starts[source], row_lengths) + _ragged_arange(row_lengths)
+    return row_offsets, tuple(
+        array[entry].astype(dtype, copy=False) for array, dtype in zip(values, out_dtypes, strict=True)
+    )
 
-    entry_row = np.repeat(np.arange(len(row_lengths)), row_lengths)
-    entry_forced = forced[entry_row]
-    source_entry = entry_starts[source_row][entry_row] + (np.arange(len(entry_row)) - row_offsets[entry_row])
-    out_ids = np.empty(len(entry_row), dtype=np.int32)
-    out_ids[entry_forced] = forced_token[entry_row[entry_forced]]
-    out_ids[~entry_forced] = ids[source_entry[~entry_forced]]
-    out_logprobs = None
-    if logprobs is not None:
-        out_logprobs = np.zeros(len(entry_row), dtype=np.float32)
-        out_logprobs[~entry_forced] = logprobs[source_entry[~entry_forced]]
-    return out_ids, row_offsets, sample_row_offsets, out_logprobs, forced
+
+def check_csr_objects(lengths: np.ndarray, obj_row_offsets: np.ndarray, value_offsets: Sequence[np.ndarray]) -> None:
+    """Each object's support lengths sum to the entry count of each of its values arrays."""
+    if (lengths < 0).any():
+        raise StoreExecError("negative sampling support length", row=int(np.argmax(lengths < 0)))
+    entry_starts = np.zeros(len(lengths) + 1, dtype=np.int64)
+    np.cumsum(lengths, out=entry_starts[1:])
+    if any(not np.array_equal(entry_starts[obj_row_offsets], offsets) for offsets in value_offsets):
+        raise StoreExecError("an object's sampling support lengths do not sum to its entry count")
 
 
 def check_nonzero_objects(values: np.ndarray, obj_row_offsets: np.ndarray) -> None:
@@ -173,21 +187,11 @@ def compact_candidates(row_offsets: np.ndarray, forced: np.ndarray) -> np.ndarra
 # ============================== helpers ==============================
 
 
-def _seg_samples(sample_seg_offsets: np.ndarray) -> np.ndarray:
-    return np.repeat(np.arange(len(sample_seg_offsets) - 1), np.diff(sample_seg_offsets))
-
-
 def _ragged_arange(lengths: np.ndarray) -> np.ndarray:
     """``concatenate([arange(n) for n in lengths])`` without a loop."""
     starts = np.zeros(len(lengths), dtype=np.int64)
     np.cumsum(lengths[:-1], out=starts[1:])
     return np.arange(int(lengths.sum()), dtype=np.int64) - np.repeat(starts, lengths)
-
-
-def _sample_offsets(seg_rows: np.ndarray, sample_seg_offsets: np.ndarray) -> np.ndarray:
-    seg_row_offsets = np.zeros(len(seg_rows) + 1, dtype=np.int64)
-    np.cumsum(seg_rows, out=seg_row_offsets[1:])
-    return seg_row_offsets[sample_seg_offsets]
 
 
 def _check_segments(
@@ -198,9 +202,10 @@ def _check_segments(
     seg_sample: np.ndarray,
 ) -> None:
     num_objs = len(obj_row_offsets) - 1
-    bad = (seg_obj >= num_objs) | (seg_start < 0) | (seg_start > seg_stop)
+    bad = (seg_obj < -1) | (seg_obj >= num_objs) | (seg_start < 0) | (seg_start > seg_stop)
     if not bad.any():
-        obj_rows = np.diff(obj_row_offsets)[seg_obj]
+        # A forced segment (-1) lands on the extra last slot, which bounds nothing.
+        obj_rows = np.append(np.diff(obj_row_offsets), np.iinfo(np.int64).max)[seg_obj]
         bad = seg_stop > obj_rows
     if bad.any():
         i = int(np.argmax(bad))
@@ -210,37 +215,12 @@ def _check_segments(
         )
 
 
-def _check_csr_objects(
-    lengths: np.ndarray,
-    ids: np.ndarray,
-    logprobs: np.ndarray | None,
-    obj_row_offsets: np.ndarray,
-    obj_entry_offsets: np.ndarray,
-    entry_starts: np.ndarray,
-) -> None:
-    if obj_row_offsets[-1] != len(lengths) or obj_entry_offsets[-1] != len(ids):
-        raise StoreExecError("CSR object offsets do not match the concatenated arrays")
-    if (lengths < 0).any():
-        raise StoreExecError("negative sampling support length", row=int(np.argmax(lengths < 0)))
-    if not np.array_equal(entry_starts[obj_row_offsets], obj_entry_offsets):
-        raise StoreExecError("an object's sampling support lengths do not sum to its token id count")
-    if logprobs is not None and len(logprobs) != len(ids):
-        raise StoreExecError(f"{len(logprobs)} support log-probs for {len(ids)} support token ids")
+def _check_sources(source: np.ndarray, num_rows: int) -> None:
+    # np.take would wrap a negative index around to the last row.
+    if (bad := (source < 0) | (source >= num_rows)).any():
+        raise StoreExecError("row has no source: a forced row the field did not fill", row=int(np.argmax(bad)))
 
 
-def _forced_tokens(
-    forced: np.ndarray,
-    row_sample: np.ndarray,
-    position: np.ndarray,
-    response_tokens: np.ndarray,
-    sample_token_offsets: np.ndarray,
-) -> np.ndarray:
-    response_lengths = np.diff(sample_token_offsets)
-    outside = forced & (position >= response_lengths[row_sample])
-    if outside.any():
-        i = int(np.argmax(outside))
-        raise StoreExecError("forced row past the response", sample=int(row_sample[i]), row=int(position[i]))
-    index = np.where(forced, sample_token_offsets[row_sample] + position, 0)
-    if not len(response_tokens):
-        return np.zeros(len(forced), dtype=np.int32)
-    return response_tokens[index].astype(np.int32, copy=False)
+def _check_cast(dtype: np.dtype, out_dtype: np.dtype) -> None:
+    if not np.can_cast(dtype, out_dtype, casting="safe"):
+        raise StoreExecError(f"stored dtype {dtype} does not convert safely to {np.dtype(out_dtype)}")
