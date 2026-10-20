@@ -12,15 +12,13 @@ from miles.utils.output_store.plan import (
     MASK_TOKEN_IDS,
     ROUTED_EXPERTS,
     SAMPLING_MASK,
-    RespRows,
-    Seg,
-    SeqRows,
     StorePlan,
     StorePlanError,
     combine_plans,
     register_dropped_samples,
     take_dropped_refs,
 )
+from miles.utils.output_store.rows import RespRows, Seg, SeqRows
 from miles.utils.types import Sample
 
 

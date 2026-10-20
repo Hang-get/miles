@@ -23,8 +23,6 @@ from miles.rollout.session.types import SessionRecord
 from miles.utils.lifecycle import attach_lifecycle_metadata
 from miles.utils.output_store.plan import (
     ROUTED_EXPERTS,
-    Seg,
-    SeqRows,
     StorePlan,
     StorePlanError,
     outputs_via_store,
@@ -32,6 +30,7 @@ from miles.utils.output_store.plan import (
     requested_fields,
     store_sampled_logprobs,
 )
+from miles.utils.output_store.rows import Seg, SeqRows
 from miles.utils.types import Sample, WeightVersionsPerCall
 
 

@@ -22,16 +22,8 @@ import torch
 from miles.rollout.generate_utils.rollout_topk_logprobs import validate_rollout_topk_logprobs_sample
 from miles.utils.output_store.config import get_output_store_reader, output_store_read_buffer_bytes
 from miles.utils.output_store.materialize import check_nonzero_objects, check_support, compact_candidates, support_topk
-from miles.utils.output_store.plan import (
-    FIELDS,
-    INDEXER_TOPK,
-    MASK_LOGPROBS,
-    FieldDef,
-    RespRows,
-    SeqRows,
-    StorePlan,
-    ref_from_builtins,
-)
+from miles.utils.output_store.plan import FIELDS, INDEXER_TOPK, MASK_LOGPROBS, FieldDef, StorePlan, ref_from_builtins
+from miles.utils.output_store.rows import RespRows, SeqRows
 from miles.utils.sampling_mask import RolloutSamplingMask
 from miles.utils.types import Sample
 
