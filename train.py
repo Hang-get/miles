@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 async def train(args, *, disposer: Disposer):
     assert not args.fully_async, "--fully-async requires the async driver: run train_async.py"
+    assert args.save_debug_pre_train_hf is None, "--save-debug-pre-train-hf requires train_async.py"
     _worker_manager = init_orchestration_script(args, disposer=disposer)
 
     if args.colocate_memory_peak_device == "gpu":

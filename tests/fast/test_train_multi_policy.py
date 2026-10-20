@@ -42,6 +42,13 @@ def _make_args(**overrides: Any) -> Namespace:
     return Namespace(**{**parser_defaults(), **defaults})
 
 
+async def test_pre_train_snapshots_reject_multiple_policies() -> None:
+    """Single-policy snapshot paths cannot silently omit other policies."""
+    args = _make_args(save_debug_pre_train_hf="/snapshots/{rollout_id}")
+    with pytest.raises(AssertionError, match="requires single-policy train_async.py"):
+        await with_disposer(train_multi_policy, args)
+
+
 def _make_trainers(model_ids, handles=None, start_rollout_ids=None) -> dict[str, TrainerInfo]:
     handles = {model_id: AsyncMock() for model_id in model_ids} if handles is None else handles
     start_rollout_ids = start_rollout_ids or {}

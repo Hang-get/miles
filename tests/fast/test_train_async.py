@@ -121,6 +121,25 @@ async def test_debug_snapshots_preserve_the_policy_before_each_update(monkeypatc
     assert snapshots == {"/snapshots/before_0": 0, "/snapshots/before_1": 1}
 
 
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"train_backend": "fsdp"}, "requires Megatron"),
+        ({"offload_train": True}, "does not support --offload-train"),
+        ({"save_debug_pre_train_hf": "/snapshots/constant"}, "must contain"),
+    ],
+)
+async def test_pre_train_snapshots_reject_unsupported_configuration(
+    overrides: dict[str, Any], message: str
+) -> None:
+    """Unsupported capture modes fail instead of producing missing or overwritten evidence."""
+    args = _make_args(
+        **({"train_backend": "megatron", "save_debug_pre_train_hf": "/snapshots/{rollout_id}"} | overrides)
+    )
+    with pytest.raises(AssertionError, match=message):
+        await with_disposer(train_async_driver.train, args)
+
+
 class TestApiServer:
     async def test_api_server_receives_the_refactored_driver_handles(self, monkeypatch: pytest.MonkeyPatch):
         """The API server acts on the live actor and inference controller, so it must be handed those objects."""

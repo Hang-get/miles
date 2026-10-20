@@ -39,6 +39,7 @@ def _make_args(**overrides: Any) -> SimpleNamespace:
         offload_rollout_level="",
         offload_train=False,
         save_interval=None,
+        save_debug_pre_train_hf=None,
         save_trigger_sentinel=None,
         skip_eval_before_train=False,
         start_rollout_id=0,
@@ -47,6 +48,13 @@ def _make_args(**overrides: Any) -> SimpleNamespace:
     for key, value in overrides.items():
         setattr(args, key, value)
     return args
+
+
+async def test_pre_train_snapshots_reject_the_sync_driver() -> None:
+    """Unsupported snapshot capture fails before launching training resources."""
+    args = _make_args(save_debug_pre_train_hf="/snapshots/{rollout_id}")
+    with pytest.raises(AssertionError, match="requires train_async.py"):
+        await with_disposer(train_driver.train, args)
 
 
 def _install_driver_fakes(

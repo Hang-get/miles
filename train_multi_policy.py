@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 
 async def train_multi_policy(args, *, disposer: Disposer) -> None:
+    assert args.save_debug_pre_train_hf is None, "--save-debug-pre-train-hf requires single-policy train_async.py"
     megatron_config = resolve_megatron_config(args)
     validate_multi_policy_args(args, megatron_config=megatron_config)
     _worker_manager = init_orchestration_script(args, disposer=disposer)
