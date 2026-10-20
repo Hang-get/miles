@@ -136,10 +136,10 @@ def convert_samples_to_train_data(
     if store_columns is not None:
         train_data.update(store_columns)
 
-    # With the store, support-mode candidates are built by the trainer from the stored supports.
-    if (k := args.rollout_top_logprobs_num) and not (
-        store_columns is not None and args.rollout_sampling_logprobs_mode == "support"
-    ):
+    # Store + support mode: the candidates come from the support rows, which are in the store, so the
+    # trainer builds them (store_columns.py); the rollout side neither checks nor writes them.
+    trainer_builds_support_topk = store_columns is not None and args.rollout_sampling_logprobs_mode == "support"
+    if (k := args.rollout_top_logprobs_num) and not trainer_builds_support_topk:
         for sample in samples:
             for field in ("rollout_topk_token_ids", "rollout_topk_log_probs", "rollout_log_probs"):
                 if getattr(sample, field) is None:

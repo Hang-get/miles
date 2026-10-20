@@ -104,15 +104,13 @@ class TestFromResponse:
                 response_length=2,
             )
 
-    def test_legacy_stop_edge_row_and_media_rows(self):
+    def test_legacy_stop_edge_row_is_dropped(self):
         plan = StorePlan.from_response(
             ref("a", seq_rows=5), requested={ROUTED_EXPERTS}, num_tokens=5, response_length=1, allow_extra_seq_row=True
         )
         assert segs(plan, ROUTED_EXPERTS) == [("a", 0, 4)]
-        plan = StorePlan.from_response(
-            ref("a", seq_rows=7), requested={ROUTED_EXPERTS}, num_tokens=5, response_length=1, media_rows=3
-        )
-        assert segs(plan, ROUTED_EXPERTS) == [("a", 0, 7)]
+        with pytest.raises(StorePlanError, match="has 5 rows; expected 4"):
+            StorePlan.from_response(ref("a", seq_rows=5), requested={ROUTED_EXPERTS}, num_tokens=5, response_length=1)
 
 
 class TestEdits:
@@ -171,12 +169,6 @@ class TestValidate:
         plan.validate(num_tokens=5, response_length=2)
         with pytest.raises(StorePlanError, match="sampling_mask has 2 rows"):
             plan.validate(num_tokens=5, response_length=3)
-
-    def test_r3_may_have_media_rows(self):
-        plan = StorePlan.from_response(
-            ref("a", seq_rows=7), requested={ROUTED_EXPERTS}, num_tokens=5, response_length=1, media_rows=3
-        )
-        plan.validate(num_tokens=5, response_length=1, media_rows=3)
 
     def test_segments_use_owned_objects_only(self):
         plan = response("a", prompt=3, output=2)

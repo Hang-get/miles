@@ -172,7 +172,6 @@ def compute_store_plan_after_response(
     meta_info: dict,
     *,
     num_output_tokens: int,
-    media_rows: int = 0,
     allow_extra_seq_row: bool = False,
 ) -> StorePlan:
     """The sample's store plan with a response appended; call before the response's tokens are.
@@ -185,7 +184,6 @@ def compute_store_plan_after_response(
         requested=requested_fields(request),
         num_tokens=len(sample.tokens) + num_output_tokens,
         response_length=num_output_tokens,
-        media_rows=media_rows,
         allow_extra_seq_row=allow_extra_seq_row,
         no_output_abort=is_no_output_abort(meta_info, aborted=False, num_output_tokens=num_output_tokens),
     )

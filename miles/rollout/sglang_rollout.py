@@ -40,6 +40,7 @@ from miles.utils.processing_utils import (
     load_tokenizer,
 )
 from miles.utils.store_plan import (
+    StorePlanError,
     outputs_via_store,
     register_dropped_samples,
     set_outputs_via_store,
@@ -255,13 +256,16 @@ async def generate(
 
     via_store = outputs_via_store(payload)
     if via_store:
-        # SGLang counts the prompt's media tokens in prompt_tokens; the extra forward rows are theirs.
+        if (prompt_tokens := int(output["meta_info"]["prompt_tokens"])) != len(payload["input_ids"]):
+            raise StorePlanError(
+                f"--use-output-store does not support multimodal prompts on the legacy rollout: SGLang forwarded "
+                f"{prompt_tokens} prompt tokens for {len(payload['input_ids'])} input ids"
+            )
         sample.rollout_store_plan = compute_store_plan_after_response(
             sample,
             payload,
             output["meta_info"],
             num_output_tokens=len(new_response_tokens),
-            media_rows=int(output["meta_info"]["prompt_tokens"]) - len(payload["input_ids"]),
             allow_extra_seq_row=True,
         )
         if payload.get("return_sampling_mask", False):

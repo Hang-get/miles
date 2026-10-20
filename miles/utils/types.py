@@ -397,16 +397,7 @@ class Sample:
             expect = len(self.tokens) - 1
             assert actual == expect, f"rollout_indexer_topk length ({actual}) != len(tokens) - 1 ({expect})"
         if self.rollout_store_plan is not None:
-            mm = self.multimodal_train_inputs or {}
-            self.rollout_store_plan.validate(
-                num_tokens=len(self.tokens),
-                response_length=self.response_length,
-                media_rows=sum(
-                    int(c) - 1
-                    for key in ("mm_vision_num_patches", "mm_audio_num_tokens")
-                    for c in list(mm.get(key) or [])
-                ),
-            )
+            self.rollout_store_plan.validate(num_tokens=len(self.tokens), response_length=self.response_length)
         previous_end = 0
         for span in self.all_weight_version_spans:
             assert span.version, f"weight version span has empty version: {self.weight_versions}"

@@ -7,6 +7,7 @@ import pytest
 
 from miles.rollout import sglang_rollout
 from miles.utils.lora.utils import LORA_ADAPTER_NAME
+from miles.utils.store_plan import StorePlanError
 from miles.utils.types import Sample
 
 
@@ -74,6 +75,28 @@ class TestGenerateExtraKey:
 
         assert [payload["extra_key"] for payload in payloads] == ["train:-:7"]
         assert [payload["lora_path"] for payload in payloads] == [LORA_ADAPTER_NAME]
+
+
+class TestGenerateWithOutputStore:
+    async def test_a_multimodal_prompt_is_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The store path has no media-expanded R3 rows: SGLang forwarding more prompt tokens than input ids fails."""
+        state = SimpleNamespace(
+            tokenizer=SimpleNamespace(encode=lambda prompt, add_special_tokens: [1, 2, 3]), processor=None
+        )
+
+        async def fake_post(url: str, payload: dict, headers: dict | None = None) -> dict:
+            assert payload["return_outputs_via_store"] is True
+            meta = {"finish_reason": {"type": "stop"}, "prompt_tokens": 7, "output_token_logprobs": [(-0.1, 9, None)]}
+            return {"text": "x", "meta_info": meta}
+
+        monkeypatch.setattr(sglang_rollout, "GenerateState", lambda state_args: state)
+        monkeypatch.setattr(sglang_rollout, "post", fake_post)
+        args = _make_generate_args()
+        args.use_rollout_routing_replay = True
+        args.use_output_store = True
+
+        with pytest.raises(StorePlanError, match="multimodal prompts on the legacy rollout"):
+            await sglang_rollout.generate(args, Sample(prompt="p"), {"max_new_tokens": 4})
 
 
 class TestAbort:

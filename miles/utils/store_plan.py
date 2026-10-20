@@ -256,9 +256,8 @@ class FieldDef:
     # The first one's leading dimension counts the object's rows.
     stored: tuple[Stored, ...]
     request_key: str
-    # R3 of a multimodal prompt may have a row per media token (legacy rollout).
-    allow_media_rows: bool = False
-    # An all-zero object means the engine did not capture the field.
+    # R3 only, as on the inline path: an all-zero object means the engine skipped routed-expert
+    # capture (e.g. the flashinfer_trtllm MoE runner).
     check_nonzero: bool = False
     # The launch flag that makes the field required on every training sample.
     required_by: str | None = None
@@ -271,7 +270,6 @@ FIELDS: tuple[FieldDef, ...] = (
         SeqRows,
         stored=(Stored(ROUTED_EXPERTS, ("int32",), np.int32),),
         request_key="return_routed_experts",
-        allow_media_rows=True,
         check_nonzero=True,
         required_by="use_rollout_routing_replay",
     ),
@@ -327,7 +325,6 @@ class StorePlan:
         requested: Collection[str],
         num_tokens: int,
         response_length: int,
-        media_rows: int = 0,
         seq_start: int = 0,
         allow_extra_seq_row: bool = False,
         no_output_abort: bool = False,
@@ -348,8 +345,7 @@ class StorePlan:
                     specs,
                     expected=field.kind.expected_rows(
                         num_tokens=num_tokens - seq_start, response_length=response_length
-                    )
-                    + (media_rows if field.allow_media_rows else 0),
+                    ),
                     allow_extra_row=allow_extra_seq_row and issubclass(field.kind, SeqRows),
                     no_output_abort=no_output_abort,
                 )
@@ -390,15 +386,14 @@ class StorePlan:
         fields = tuple(None if rows is None else rows.prefix(rows.num_rows() - n) for rows in self.fields)
         return replace(self, fields=fields)
 
-    def validate(self, *, num_tokens: int, response_length: int, media_rows: int = 0) -> None:
+    def validate(self, *, num_tokens: int, response_length: int) -> None:
         owned = {ref.key for ref in self.owned_refs}
         for field, rows in zip(FIELDS, self.fields, strict=True):
             if rows is None:
                 continue
             expected = rows.expected_rows(num_tokens=num_tokens, response_length=response_length)
-            allowed = (expected, expected + media_rows) if field.allow_media_rows else (expected,)
-            if rows.num_rows() not in allowed:
-                raise StorePlanError(f"{field.name} has {rows.num_rows()} rows; expected {allowed}")
+            if rows.num_rows() != expected:
+                raise StorePlanError(f"{field.name} has {rows.num_rows()} rows; expected {expected}")
             if any(seg.ref is not None and seg.ref.key not in owned for seg in rows.segs):
                 raise StorePlanError(f"{field.name} uses an object the sample does not own")
 
