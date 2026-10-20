@@ -2223,7 +2223,8 @@ def get_miles_extra_args_provider(add_custom_arguments=None):
                 "--save-debug-pre-train-hf",
                 type=str,
                 default=None,
-                help="Export weights before each async training batch; path must contain {rollout_id}.",
+                help="Export each actor's weights before every training attempt; path must contain "
+                "{rollout_id}, {cell_index}, and {attempt}.",
             )
             parser.add_argument(
                 "--save-debug-train-data",

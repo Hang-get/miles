@@ -103,36 +103,27 @@ def _install_driver_fakes(
     return components
 
 
-async def test_debug_snapshots_preserve_the_policy_before_each_update(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Replay snapshots must represent the policy that scored each training batch."""
-    events: list[str] = []
-    args = _make_args(
-        num_rollout=2, train_backend="megatron", save_debug_pre_train_hf="/snapshots/before_{rollout_id}"
-    )
-    components = _install_driver_fakes(monkeypatch, args, events)
-    snapshots: dict[str, int] = {}
-
-    async def export_hf(rollout_id: int, path: str) -> None:
-        snapshots[path] = len(components.actor_model.trained)
-
-    monkeypatch.setattr(components.actor_model, "export_hf", export_hf)
-    await with_disposer(train_async_driver.train, args)
-
-    assert snapshots == {"/snapshots/before_0": 0, "/snapshots/before_1": 1}
-
-
 @pytest.mark.parametrize(
     ("overrides", "message"),
     [
         ({"train_backend": "fsdp"}, "requires Megatron"),
         ({"offload_train": True}, "does not support --offload-train"),
+        ({"keep_old_actor": True}, "does not support --keep-old-actor"),
         ({"save_debug_pre_train_hf": "/snapshots/constant"}, "must contain"),
+        ({"save_debug_pre_train_hf": "/snapshots/{rollout_id}/{attempt}"}, "cell_index"),
+        ({"save_debug_pre_train_hf": "/snapshots/{rollout_id}/{cell_index}"}, "attempt"),
     ],
 )
 async def test_pre_train_snapshots_reject_unsupported_configuration(overrides: dict[str, Any], message: str) -> None:
     """Unsupported capture modes fail instead of producing missing or overwritten evidence."""
     args = _make_args(
-        **({"train_backend": "megatron", "save_debug_pre_train_hf": "/snapshots/{rollout_id}"} | overrides)
+        **(
+            {
+                "train_backend": "megatron",
+                "save_debug_pre_train_hf": "/snapshots/{rollout_id}/{cell_index}/{attempt}",
+            }
+            | overrides
+        )
     )
     with pytest.raises(AssertionError, match=message):
         await with_disposer(train_async_driver.train, args)

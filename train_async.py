@@ -25,8 +25,10 @@ async def train(args, *, disposer: Disposer):
     validate_async_off_policy_correction(args)
     if args.save_debug_pre_train_hf is not None:
         assert args.train_backend == "megatron", "--save-debug-pre-train-hf requires Megatron"
-        assert "{rollout_id}" in args.save_debug_pre_train_hf, "Snapshot path must contain {rollout_id}"
+        for field in ("rollout_id", "cell_index", "attempt"):
+            assert "{" + field + "}" in args.save_debug_pre_train_hf, f"Snapshot path must contain {{{field}}}"
         assert not args.offload_train, "--save-debug-pre-train-hf does not support --offload-train"
+        assert not args.keep_old_actor, "--save-debug-pre-train-hf does not support --keep-old-actor"
     _worker_manager = init_orchestration_script(args, disposer=disposer)
 
     # create the rollout manager, with sglang engines inside.
@@ -90,9 +92,6 @@ async def train(args, *, disposer: Disposer):
         # Sync the last generation
         if rollout_data_next_future is not None:
             rollout_data_curr_ref = await rollout_data_next_future
-
-        if args.save_debug_pre_train_hf is not None:
-            await actor_model.export_hf(rollout_id, args.save_debug_pre_train_hf.format(rollout_id=rollout_id))
 
         has_next_rollout = rollout_id + 1 < args.num_rollout
         weight_update_due = (rollout_id + 1) % args.update_weights_interval == 0

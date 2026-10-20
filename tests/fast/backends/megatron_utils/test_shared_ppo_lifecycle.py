@@ -1,4 +1,5 @@
 import importlib
+import json
 import sys
 from argparse import Namespace
 from collections.abc import Iterator
@@ -272,6 +273,52 @@ def test_logprob_guard_failure_preserves_trainer_samples(
     torch.testing.assert_close(saved["rollout_data"]["log_probs"][0], torch.tensor([-0.2, -0.3]))
 
 
+def test_rejected_cells_and_retries_retain_their_own_pre_forward_weights(
+    actor_module: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Every failed cell and retry preserves its actual scoring weights without overwriting earlier evidence."""
+    _patch_actor_reuse_dependencies(actor_module, monkeypatch, num_microbatches=[1])
+    monkeypatch.setattr(actor_module.dist, "get_rank", lambda: 0)
+    actor_module.log_rollout_data.side_effect = AssertionError("CI check failed: log_probs")
+
+    for cell_index, attempt, weight in ((0, 0, 1.0), (1, 0, 2.0), (0, 1, 3.0), (1, 1, 4.0)):
+        worker = _actor_reuse_worker(
+            actor_module,
+            save_debug_pre_train_hf=str(tmp_path / "{rollout_id}/{cell_index}/{attempt}"),
+        )
+        worker._cell_index = cell_index
+        worker._get_actor_weight_version = lambda: 19
+        worker.model = [torch.tensor([weight])]
+
+        def export_hf(*, rollout_id: int, path: str) -> None:
+            destination = Path(path)
+            destination.mkdir(parents=True)
+            torch.save(worker.model[0], destination / "weights.pt")
+
+        def compute_log_prob(*args: Any, **kwargs: Any) -> dict[str, list[torch.Tensor]]:
+            snapshot = torch.load(tmp_path / f"7/{cell_index}/{attempt}/weights.pt", weights_only=True)
+            torch.testing.assert_close(snapshot, worker.model[0])
+            return {"log_probs": [worker.model[0].clone()]}
+
+        worker.export_hf = export_hf
+        worker._compute_log_prob = compute_log_prob
+        batch = {"num_rollouts": [1], "total_lengths": [1]}
+        with pytest.raises(AssertionError, match="CI check failed: log_probs"):
+            worker._train_actor(7, batch, witness_info=None, attempt=attempt)
+
+    for cell_index, attempt, weight in ((0, 0, 1.0), (1, 0, 2.0), (0, 1, 3.0), (1, 1, 4.0)):
+        destination = tmp_path / f"7/{cell_index}/{attempt}"
+        torch.testing.assert_close(
+            torch.load(destination / "weights.pt", weights_only=True), torch.tensor([weight])
+        )
+        assert json.loads((destination / "diagnostic-version.json").read_text()) == {
+            "rollout_id": 7,
+            "weight_version": 19,
+            "cell_index": cell_index,
+            "attempt": attempt,
+        }
+
+
 @pytest.mark.parametrize(
     ("store_prefix", "expected"),
     [("", True), ("ref_", False), ("teacher_", False)],
@@ -484,6 +531,7 @@ def _actor_train_args(**overrides):
         skip_actor_forward_only=False,
         enable_sample_ownership_checker=False,
         save_debug_train_data=None,
+        save_debug_pre_train_hf=None,
     )
     return Namespace(**(defaults | overrides))
 
