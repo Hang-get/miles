@@ -27,6 +27,8 @@ class TorchtitanArgs(FSDPArgs):
     titan_tpu_attention: str = "sdpa_blocks"
     # FSDP's gradient reduce dtype: bfloat16 halves the gradient accumulation and reduce-scatter buffers
     titan_fsdp_reduce_dtype: str = "float32"
+    # TPU: "fsdp2", or "simple_fsdp" for FSDP collectives inside each compiled block (simple_fsdp.py)
+    titan_fsdp_impl: str = "fsdp2"
 
 
 def build_torchtitan_parser(extra_args_provider=None):
@@ -77,6 +79,13 @@ def validate_torchtitan_args(args) -> None:
             f"--max-tokens-per-gpu {args.max_tokens_per_gpu} exceeds --seq-length {args.seq_length}: on TPU "
             "packed microbatches are padded to a power-of-two bucket capped at --seq-length"
         )
+
+    if args.titan_fsdp_impl not in ("fsdp2", "simple_fsdp"):
+        raise ValueError(f"--titan-fsdp-impl {args.titan_fsdp_impl!r}: expected fsdp2 or simple_fsdp")
+    if args.titan_fsdp_impl == "simple_fsdp" and not accelerator.IS_TPU:
+        raise ValueError("--titan-fsdp-impl simple_fsdp is TPU-only (it relies on torch.tpu.distributed.spmd_safe)")
+    if args.titan_fsdp_impl == "simple_fsdp" and args.titan_fsdp_gather_once:
+        raise ValueError("--titan-fsdp-gather-once acts on FSDP2 modules; --titan-fsdp-impl simple_fsdp has none")
 
     if args.ref_update_interval is not None:
         raise ValueError("--ref-update-interval is not supported by the torchtitan backend")

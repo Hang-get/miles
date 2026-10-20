@@ -8,6 +8,7 @@ from torchtitan.components.optimizer import ParamGroupConfig
 from torchtitan.distributed.activation_checkpoint import FullAC
 from torchtitan.trainer import Trainer
 
+from miles.backends.torchtitan_utils import simple_fsdp
 from miles.backends.torchtitan_utils.components import EmptyDataLoader, TiedCheckpointManager
 from miles.backends.torchtitan_utils.loss import RLLossAdapter
 from miles.backends.torchtitan_utils.parallel import parallel_dims_from_config
@@ -64,6 +65,8 @@ def build_trainer_config(args: Namespace, *, hf_assets_path: str, lr_total_steps
 
     config = Trainer.Config()
     config.model_spec = resolve_model_spec(args)
+    if args.titan_fsdp_impl == "simple_fsdp":
+        config.model_spec.parallelize_fn = simple_fsdp.wrap_parallelize_fn(config.model_spec.parallelize_fn)
     if ties_embeddings:
         config.model_spec.model.enable_weight_tying = True
         logger.info("Checkpoint ties lm_head to the embedding; excluding lm_head.weight from the HF export")

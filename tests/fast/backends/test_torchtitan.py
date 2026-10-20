@@ -20,6 +20,8 @@ def _args(**overrides) -> Namespace:
         titan_model_name="qwen3",
         titan_tpu_attention="sdpa_blocks",
         titan_fsdp_reduce_dtype="float32",
+        titan_fsdp_impl="fsdp2",
+        titan_fsdp_gather_once=False,
         seq_length=8192,
         pipeline_model_parallel_size=1,
         context_parallel_size=1,
@@ -85,6 +87,22 @@ def test_the_recompile_limit_counts_every_tpu_length_bucket(seq_len):
     assert {tpu_length_bucket(n, seq_len) for n in range(1, seq_len + 1)} == tpu_length_buckets(seq_len)
 
 
+def test_simple_fsdp_is_refused_where_it_cannot_take_effect(monkeypatch):
+    monkeypatch.setattr(torch, "__version__", "2.13.0")
+    with pytest.raises(ValueError, match="TPU-only"):
+        validate_torchtitan_args(_args(titan_fsdp_impl="simple_fsdp"))
+    monkeypatch.setattr(titan_arguments.accelerator, "IS_TPU", True)
+    with pytest.raises(ValueError, match="gather-once"):
+        validate_torchtitan_args(
+            _args(
+                titan_fsdp_impl="simple_fsdp",
+                titan_fsdp_gather_once=True,
+                use_dynamic_batch_size=False,
+                log_probs_backend="torch",
+            )
+        )
+
+
 def test_context_parallelism_is_rejected_for_qwen3_5(monkeypatch):
     monkeypatch.setattr(torch, "__version__", "2.13.0")
     with pytest.raises(ValueError, match="context parallelism"):
@@ -124,6 +142,7 @@ def _config_args(**overrides) -> Namespace:
         seed=1,
         gradient_checkpointing=False,
         titan_compile=False,
+        titan_fsdp_impl="fsdp2",
         save=None,
         load=None,
         titan_fsdp_reduce_dtype="float32",
