@@ -187,3 +187,26 @@ def test_every_cp_rank_backprops_into_its_logits(loss, layout, prompt_lens, resp
             response_lens=response_lens,
         )
     )
+
+
+def disconnected_loss(args, batch, logits, sum_of_sample_mean):
+    """A custom loss built from data, not from the logits."""
+    return torch.zeros(()), {}
+
+
+def _run_disconnected_loss_case(rank: int, world_size: int, port: int) -> None:
+    init_gloo(rank, world_size, port=port)
+    _set_parallel_state(rank=rank, world_size=world_size, tp_group=None)
+    args = make_args(loss_type="policy_loss", true_on_policy_mode=False, allgather_cp=False)
+    args.loss_type = "custom_loss"
+    args.custom_loss_function_path = f"{__name__}.disconnected_loss"
+    inputs = make_inputs(42, 1, [90], [10], VOCAB_SIZE, args)
+    leaf = _local_logits(inputs["policy_logits"], inputs["total_lens"], False, rank).clone().requires_grad_(True)
+    batch = make_batch(inputs, "policy_loss")
+    with pytest.raises(ValueError, match="stay connected to the logits on every rank"):
+        loss_function(args, batch, 1, leaf * 1)
+
+
+def test_a_loss_disconnected_from_the_logits_fails_instead_of_hanging() -> None:
+    """Under CP such a rank would skip the model backward and leave the other ranks in its collectives."""
+    run_multiprocess(_run_disconnected_loss_case)
