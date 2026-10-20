@@ -13,6 +13,7 @@ import httpx
 import uvicorn
 
 from miles.ray.rollout.output_snapshotter import _RolloutExecutorOutputSnapshotter
+from miles.ray.rollout.output_store_cleanup import OutputStoreCleanup
 from miles.ray.rollout.rollout_executor import RolloutExecutor
 from miles.utils.simple_checkpointer import load_simple_checkpoint, save_simple_checkpoint
 from miles.utils.workers.rpc.client.handle import RpcWorkerHandle
@@ -59,6 +60,7 @@ class CheckpointWorker(RolloutExecutor):
         self.use_legacy_rollout_v1 = True
         self.data_source = _BlockingDataSource()
         self._output_snapshotter = _RolloutExecutorOutputSnapshotter(args=self.args)
+        self._output_store_cleanup = OutputStoreCleanup(args=self.args)
         self.produced = threading.Event()
         self.cancelled = threading.Event()
         self.loop: asyncio.AbstractEventLoop | None = None

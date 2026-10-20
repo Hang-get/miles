@@ -21,6 +21,17 @@ from miles.rollout.generate_utils.sample_utils import merge_samples
 from miles.rollout.generate_utils.sampling_mask import append_sampling_metadata
 from miles.rollout.session.types import SessionRecord
 from miles.utils.lifecycle import attach_lifecycle_metadata
+from miles.utils.store_plan import (
+    ROUTED_EXPERTS,
+    Seg,
+    SeqRows,
+    StorePlan,
+    StorePlanError,
+    outputs_via_store,
+    parse_store_ref,
+    requested_fields,
+    store_sampled_logprobs,
+)
 from miles.utils.types import Sample, WeightVersionsPerCall
 
 
@@ -125,7 +136,22 @@ def _compute_sample_from_openai_record(
     output_log_probs = [item[0] for item in choice["meta_info"]["output_token_logprobs"]]
 
     sample = Sample()
-    if record.request.get("return_sampling_mask", False):
+    via_store = outputs_via_store(record.request)
+    if via_store:
+        sample.rollout_store_plan = _compute_record_store_plan(
+            record,
+            num_tokens=len(prompt_token_ids) + len(output_token_ids),
+            num_output_tokens=len(output_token_ids),
+            use_addition_r3=use_addition_r3,
+        )
+        if record.request.get("return_sampling_mask", False):
+            output_log_probs = store_sampled_logprobs(
+                choice["meta_info"],
+                num_output_tokens=len(output_token_ids),
+                support_logprobs=record.request.get("sampling_logprobs_mode") == "support",
+                aborted=finish_reason == "abort",
+            )
+    elif record.request.get("return_sampling_mask", False):
         output_log_probs = append_sampling_metadata(
             sample,
             output_token_ids,
@@ -138,8 +164,10 @@ def _compute_sample_from_openai_record(
     sample.response = tokenizer.decode(output_token_ids)
     sample.response_length = len(output_token_ids)
     sample.loss_mask = [1] * len(output_token_ids)
+    # With the store, the trainer builds support-mode candidates from the stored support rows.
     if not evaluation and (
-        record.request.get("top_logprobs") or record.request.get("sampling_logprobs_mode") == "support"
+        record.request.get("top_logprobs")
+        or (record.request.get("sampling_logprobs_mode") == "support" and not via_store)
     ):
         append_rollout_topk_logprobs(
             sample,
@@ -172,6 +200,23 @@ def _compute_sample_from_openai_record(
     return sample
 
 
+def _compute_record_store_plan(
+    record: SessionRecord, *, num_tokens: int, num_output_tokens: int, use_addition_r3: bool
+) -> StorePlan:
+    """One turn's plan; with additional R3 its R3 rows are planned after the merge instead."""
+    choice = record.response["choices"][0]
+    requested = requested_fields(record.request)
+    if use_addition_r3:
+        requested -= {ROUTED_EXPERTS}
+    return StorePlan.from_response(
+        parse_store_ref(choice["meta_info"]),
+        requested=requested,
+        num_tokens=num_tokens,
+        response_length=num_output_tokens,
+        no_output_abort=choice.get("finish_reason") == "abort" and num_output_tokens == 0,
+    )
+
+
 def merge_samples_with_addition_r3(
     args: Namespace,
     samples: list[Sample],
@@ -180,6 +225,8 @@ def merge_samples_with_addition_r3(
 ) -> Sample:
     """Merge ordinary fields, then materialize the required append-only R3 prefix."""
     merged = merge_samples(samples, tokenizer)
+    if merged.rollout_store_plan is not None:
+        return _plan_addition_r3(merged, records)
     if all(record.response["choices"][0]["meta_info"].get("routed_experts") is None for record in records):
         return merged
 
@@ -220,6 +267,53 @@ def merge_samples_with_addition_r3(
         )
     merged.rollout_routed_experts = np.concatenate(chunks)[:required_rows]
     return merged
+
+
+def _plan_addition_r3(merged: Sample, records: list[SessionRecord]) -> Sample:
+    """Plan the merged sample's R3 rows from each record's additional R3 object, up to its prefix."""
+    refs = [parse_store_ref(record.response["choices"][0]["meta_info"]) for record in records]
+    r3_specs = [None if ref is None else {spec.name: spec for spec in ref.fields}.get(ROUTED_EXPERTS) for ref in refs]
+    if all(spec is None for spec in r3_specs):
+        return merged
+
+    required_rows = len(merged.tokens) - 1
+    rows = SeqRows()
+    covered_rows = 0
+    started = False
+    for i, (record, ref, spec) in enumerate(zip(records, refs, r3_specs, strict=True)):
+        if started and covered_rows >= required_rows:
+            break
+        if spec is None:
+            raise StorePlanError(f"additional R3: record {i} has no routed_experts in its output store object")
+        start = record.request.get("routed_experts_start_len")
+        if start != covered_rows:
+            raise StorePlanError(f"additional R3: record {i} starts at row {start}; expected {covered_rows}")
+        end = (
+            len(record.request["input_ids"])
+            + len(record.response["choices"][0]["meta_info"]["output_token_logprobs"])
+            - 1
+        )
+        if spec.shape[0] != end - start:
+            raise StorePlanError(f"additional R3: record {i} stores {spec.shape[0]} rows; expected {end - start}")
+        if end > start:
+            rows = rows.append(SeqRows((Seg(ref, 0, end - start),)), response_length=0, seq_start=start)
+        started = started or end > start or required_rows == 0
+        covered_rows = end
+
+    if covered_rows < required_rows:
+        raise StorePlanError(
+            f"additional R3 covers {covered_rows} rows but the merged sample needs {required_rows} (len(tokens) - 1)"
+        )
+    merged.rollout_store_plan = merged.rollout_store_plan.with_field(ROUTED_EXPERTS, rows.prefix(required_rows))
+    return merged
+
+
+def adopt_session_record_refs(sample: Sample, records: list[SessionRecord]) -> None:
+    """Make the session's sample own every record's object, including turns the merge or truncation left out."""
+    if sample.rollout_store_plan is None:
+        return
+    refs = [parse_store_ref(record.response["choices"][0]["meta_info"]) for record in records]
+    sample.rollout_store_plan = sample.rollout_store_plan.adopt_refs(ref for ref in refs if ref is not None)
 
 
 def truncate_samples_by_total_tokens(

@@ -17,7 +17,12 @@ from miles.rollout.session.core import (
 )
 from miles.rollout.session.errors import SessionNotFoundError, TokenizationError
 from miles.rollout.session.request_args import filter_turn_args, parse_chat_request
-from miles.rollout.session.samples.codec import COMPUTED_FIELDS_V2, ROLLOUT_SAMPLING_MASK_FIELDS, encode_samples
+from miles.rollout.session.samples.codec import (
+    COMPUTED_FIELDS_V2,
+    ROLLOUT_SAMPLING_MASK_FIELDS,
+    ROLLOUT_STORE_PLAN_FIELDS,
+    encode_samples,
+)
 from miles.rollout.session.types import GetSessionResponse, SessionRecord
 from miles.rollout.session.v2.metrics import SESSION_ROLLOUT_METRICS_KEY, build_session_rollout_metrics
 from miles.rollout.session.v2.session_state import (
@@ -90,6 +95,8 @@ class SessionCoreV2(SessionCore):
         fields = COMPUTED_FIELDS_V2
         if session.sampling_support_replay:
             fields += ROLLOUT_SAMPLING_MASK_FIELDS
+        if self.config.use_output_store and not session.evaluation:
+            fields += ROLLOUT_STORE_PLAN_FIELDS
         if agent_metadata is not None:
             metadata["agent"] = agent_metadata
         if not session.tree.nodes:

@@ -16,6 +16,7 @@ import safetensors.numpy
 import torch
 
 from miles.utils.sampling_mask import RolloutSamplingMask
+from miles.utils.store_plan import StorePlan, ref_from_builtins, ref_to_builtins
 from miles.utils.types import Sample, WeightVersionsPerCall
 
 
@@ -23,7 +24,7 @@ from miles.utils.types import Sample, WeightVersionsPerCall
 class ValueSpec:
     """Wire contract of one computed field."""
 
-    codec: str  # "tensor" | "tensor_list" | "sampling_mask" | "json"
+    codec: str  # "tensor" | "tensor_list" | "sampling_mask" | "store_plan" | "json"
     dtype: np.dtype | None = None  # tensor codecs: pinned on both sides; a mismatch raises instead of converting
     strict: bool = False  # encode never converts, only validates (R3 replay tensors must arrive as int32)
     null: object = None  # decoded value for a null-marked field; copied per sample so no instance is shared
@@ -42,6 +43,8 @@ SAMPLES_VALUE_SPEC: dict[str, ValueSpec] = {
     "rollout_sampling_mask": ValueSpec("sampling_mask"),
     "rollout_routed_experts": ValueSpec("tensor", np.dtype(np.int32), strict=True),
     "rollout_indexer_topk": ValueSpec("tensor", np.dtype(np.int32), strict=True),
+    # --use-output-store: the plan table is a tensor, its refs go in the sample's JSON meta.
+    "rollout_store_plan": ValueSpec("store_plan", np.dtype(np.int32)),
     "status": ValueSpec("json"),
     "weight_versions": ValueSpec("json"),
     "spec_info": ValueSpec("json"),
@@ -56,17 +59,21 @@ SAMPLES_VALUE_SPEC_V2: dict[str, ValueSpec] = {
 }
 
 ROLLOUT_SAMPLING_MASK_FIELDS = ("rollout_sampling_mask",)
+ROLLOUT_STORE_PLAN_FIELDS = ("rollout_store_plan",)
+_OPTIONAL_FIELDS = ROLLOUT_SAMPLING_MASK_FIELDS + ROLLOUT_STORE_PLAN_FIELDS
 
 # The wire allowlists, derived: only table fields cross the samples wire.
-COMPUTED_FIELDS = tuple(field for field in SAMPLES_VALUE_SPEC if field not in ROLLOUT_SAMPLING_MASK_FIELDS)
-COMPUTED_FIELDS_V2 = tuple(field for field in SAMPLES_VALUE_SPEC_V2 if field not in ROLLOUT_SAMPLING_MASK_FIELDS)
+COMPUTED_FIELDS = tuple(field for field in SAMPLES_VALUE_SPEC if field not in _OPTIONAL_FIELDS)
+COMPUTED_FIELDS_V2 = tuple(field for field in SAMPLES_VALUE_SPEC_V2 if field not in _OPTIONAL_FIELDS)
 
 assert all(
-    spec.codec in ("tensor", "tensor_list", "sampling_mask", "json") for spec in SAMPLES_VALUE_SPEC_V2.values()
+    spec.codec in ("tensor", "tensor_list", "sampling_mask", "store_plan", "json")
+    for spec in SAMPLES_VALUE_SPEC_V2.values()
 ), "unknown codec in SAMPLES_VALUE_SPEC"
 
 _TENSOR_FIELDS = frozenset(field for field, spec in SAMPLES_VALUE_SPEC_V2.items() if spec.codec != "json")
-assert _TENSOR_FIELDS <= set(COMPUTED_FIELDS + ROLLOUT_SAMPLING_MASK_FIELDS)
+assert _TENSOR_FIELDS <= set(COMPUTED_FIELDS + _OPTIONAL_FIELDS)
+_STORE_PLAN_REFS_KEY = "store_plan_refs"
 
 _SAMPLES_META_KEY = "_samples_meta"
 _OPD_STUDENT_TOP_LOGPROBS_KEY = "opd_student_top_logprobs"
@@ -164,6 +171,11 @@ def encode_samples(
                     continue
                 nulls.append(field)
                 continue
+            if spec.codec == "store_plan":
+                table, refs = value.to_table()
+                tensors[f"{field}.{sample_index}"] = table
+                sample_meta[_STORE_PLAN_REFS_KEY] = [ref_to_builtins(ref) for ref in refs]
+                continue
             if spec.codec == "sampling_mask":
                 if not isinstance(value, RolloutSamplingMask):
                     raise TypeError(f"{field} must be a RolloutSamplingMask, got {type(value).__name__}")
@@ -246,6 +258,13 @@ def decode_samples_and_merge_input_sample(
                 # Older producers have no candidate fields; training validates
                 # their presence when the new loss is actually selected.
                 setattr(sample, field, None)
+                continue
+            if spec.codec == "store_plan":
+                table = tensors.pop(f"{field}.{sample_index}")
+                if table.dtype != spec.dtype:
+                    raise ValueError(f"{field} must have dtype {spec.dtype}, got {table.dtype}")
+                refs = [ref_from_builtins(ref) for ref in sample_meta[_STORE_PLAN_REFS_KEY]]
+                setattr(sample, field, StorePlan.from_table(table, refs))
                 continue
             if spec.codec == "sampling_mask":
                 ids = tensors.pop(f"{field}.ids.{sample_index}")

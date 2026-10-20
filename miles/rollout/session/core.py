@@ -26,8 +26,14 @@ from miles.rollout.session.errors import (
 )
 from miles.rollout.session.linear_trajectory import SessionRegistry
 from miles.rollout.session.request_args import ClientResponseIntent, filter_turn_args, parse_chat_request
-from miles.rollout.session.samples.codec import COMPUTED_FIELDS, ROLLOUT_SAMPLING_MASK_FIELDS, encode_samples
+from miles.rollout.session.samples.codec import (
+    COMPUTED_FIELDS,
+    ROLLOUT_SAMPLING_MASK_FIELDS,
+    ROLLOUT_STORE_PLAN_FIELDS,
+    encode_samples,
+)
 from miles.rollout.session.samples.merge import (
+    adopt_session_record_refs,
     compute_samples_from_openai_records,
     merge_samples_with_addition_r3,
     truncate_samples_by_total_tokens,
@@ -286,6 +292,8 @@ class SessionCore:
         fields = COMPUTED_FIELDS
         if session.sampling_support_replay:
             fields += ROLLOUT_SAMPLING_MASK_FIELDS
+        if self.config.use_output_store and not session.evaluation:
+            fields += ROLLOUT_STORE_PLAN_FIELDS
         if not session.records:
             return _samples_response(encode_samples([], metadata, empty_reason="no_records", fields=fields))
         try:
@@ -306,6 +314,7 @@ class SessionCore:
                 samples = [merge_samples_with_addition_r3(self.config, samples, session.records, tokenizer)]
             else:
                 samples = [merge_samples(samples, tokenizer)]
+            adopt_session_record_refs(samples[0], session.records)
         except (AssertionError, ValueError) as exc:
             return Response(content=str(exc).encode(), status_code=422, media_type="text/plain")
         return _samples_response(encode_samples(samples, metadata, fields=fields))

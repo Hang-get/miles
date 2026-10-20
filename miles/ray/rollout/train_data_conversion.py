@@ -9,6 +9,7 @@ from miles.utils.dp_schedule import TrainParallelConfig, build_dp_schedule
 from miles.utils.lora.utils import is_multi_lora_enabled
 from miles.utils.object_store import ValueSpec
 from miles.utils.seqlen_balancing import get_seqlen_balanced_partitions
+from miles.utils.store_plan import FIELDS, StorePlanError, ref_to_builtins
 from miles.utils.timer import Timer
 from miles.utils.types import Sample
 
@@ -28,6 +29,8 @@ ROLLOUT_DATA_TENSOR_DTYPES = {
     "opd_reverse_kl": "float32",
     "rollout_routed_experts": "int32",
     "rollout_indexer_topk": "int32",
+    # --use-output-store: each sample's merge plan, [n, 4] rows of (field, obj, start, stop).
+    "store_plan": "int32",
 }
 
 ROLLOUT_DATA_VALUE_SPEC: dict[str, ValueSpec] = {
@@ -48,6 +51,8 @@ ROLLOUT_DATA_VALUE_SPEC: dict[str, ValueSpec] = {
     "prompt": ValueSpec(codec="msgpack_ragged"),
     "metadata": ValueSpec(codec="msgpack_ragged"),
     "weight_versions": ValueSpec(codec="msgpack_ragged"),
+    # Every output store ref a sample owns; store_plan's obj indexes them.
+    "store_refs": ValueSpec(codec="msgpack_ragged"),
     "raw_reward": ValueSpec(codec="auto"),
     "total_lengths": ValueSpec(codec="auto"),
     "dynamic_global_batch_size": ValueSpec(codec="auto"),
@@ -127,7 +132,14 @@ def convert_samples_to_train_data(
     if samples[0].rollout_log_probs is not None:
         train_data["rollout_log_probs"] = [sample.rollout_log_probs for sample in samples]
 
-    if k := args.rollout_top_logprobs_num:
+    store_columns = _compute_store_plan_columns(args, samples)
+    if store_columns is not None:
+        train_data.update(store_columns)
+
+    # With the store, support-mode candidates are built by the trainer from the stored supports.
+    if (k := args.rollout_top_logprobs_num) and not (
+        store_columns is not None and args.rollout_sampling_logprobs_mode == "support"
+    ):
         for sample in samples:
             for field in ("rollout_topk_token_ids", "rollout_topk_log_probs", "rollout_log_probs"):
                 if getattr(sample, field) is None:
@@ -164,7 +176,7 @@ def convert_samples_to_train_data(
 
     if samples[0].rollout_routed_experts is not None:
         train_data["rollout_routed_experts"] = [sample.rollout_routed_experts for sample in samples]
-    elif getattr(args, "use_rollout_routing_replay", False):
+    elif getattr(args, "use_rollout_routing_replay", False) and store_columns is None:
         raise ValueError(
             "--use-rollout-routing-replay is set but the rollout samples carry no "
             "rollout_routed_experts: the engine response meta_info lacked 'routed_experts'."
@@ -172,7 +184,7 @@ def convert_samples_to_train_data(
 
     if samples[0].rollout_indexer_topk is not None:
         train_data["rollout_indexer_topk"] = [sample.rollout_indexer_topk for sample in samples]
-    elif getattr(args, "use_rollout_indexer_replay", False):
+    elif getattr(args, "use_rollout_indexer_replay", False) and store_columns is None:
         raise ValueError(
             "--use-rollout-indexer-replay is set but the rollout samples carry no "
             "rollout_indexer_topk: the engine response meta_info lacked 'indexer_topk'."
@@ -202,6 +214,36 @@ def convert_samples_to_train_data(
         train_data["dynamic_global_batch_size"] = x
 
     return train_data
+
+
+def _compute_store_plan_columns(args, samples: list[Sample]) -> dict[str, list] | None:
+    """The store path's columns: each sample's plan table and owned refs; None without the store.
+
+    Every training sample of a store batch has a plan, and each field is on every plan or none.
+    """
+    plans = [sample.rollout_store_plan for sample in samples]
+    if all(plan is None for plan in plans):
+        return None
+    for position, (sample, plan) in enumerate(zip(samples, plans, strict=True)):
+        if plan is None:
+            raise StorePlanError(
+                "output store data must be present for every training sample; "
+                f"missing at position={position}, sample_index={sample.index}, status={sample.status}"
+            )
+        sample.validate()
+    for f, field in enumerate(FIELDS):
+        present = [plan.fields[f] is not None for plan in plans]
+        if any(present) and not all(present):
+            raise StorePlanError(f"{field.name} must be in the output store plan of every training sample or none")
+        if field.required_by is not None and getattr(args, field.required_by, False) and not present[0]:
+            raise StorePlanError(
+                f"--{field.required_by.replace('_', '-')} is set but the samples carry no {field.name}"
+            )
+    tables = [plan.to_table() for plan in plans]
+    return {
+        "store_plan": [table for table, _ in tables],
+        "store_refs": [[ref_to_builtins(ref) for ref in refs] for _, refs in tables],
+    }
 
 
 def _compact_candidate_ids(data: dict) -> None:
@@ -484,6 +526,8 @@ def _package_shards(args, data: dict[str, Any], partitions) -> list[dict[str, An
             "rollout_sampling_mask_offsets",
             "rollout_routed_experts",
             "rollout_indexer_topk",
+            "store_plan",
+            "store_refs",
             "prompt",
             "teacher_log_probs",
             "opd_reverse_kl",

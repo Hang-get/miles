@@ -10,6 +10,7 @@ from tests.fast.train_parallel_config_utils import make_train_parallel_config
 
 from miles.ray.rollout import rollout_executor as rollout_executor_module
 from miles.ray.rollout.output_snapshotter import _RolloutExecutorOutputSnapshotter
+from miles.ray.rollout.output_store_cleanup import OutputStoreCleanup
 from miles.ray.rollout.rollout_executor import RolloutExecutor
 from miles.rollout.base_types import RolloutFnEvalOutput, RolloutFnTrainInput
 from miles.utils.dp_schedule import TrainParallelConfig
@@ -54,6 +55,7 @@ def _make_executor() -> RolloutExecutor:
         ci_inject_missing_prefetched_batch_bug=False,
     )
     executor._output_snapshotter = _RolloutExecutorOutputSnapshotter(args=executor.args)
+    executor._output_store_cleanup = OutputStoreCleanup(args=executor.args)
     executor.data_source = Namespace()
     executor.custom_convert_samples_to_train_data_func = None
     executor.custom_reward_post_process_func = None

@@ -19,6 +19,7 @@ from miles.utils.audit_utils.sample_ownership.recorder import SampleOwnershipRec
 from miles.utils.function_registry import load_function
 from miles.utils.http_utils import get, post, router_worker_base_urls
 from miles.utils.misc import as_completed_async, call_agent_abort_hook
+from miles.utils.store_plan import register_dropped_samples
 from miles.utils.types import Sample
 
 logger = logging.getLogger(__name__)
@@ -52,6 +53,7 @@ async def abort(state: GenerateState, pendings: set, rollout_id: int) -> list[li
                 samples=[sample for item in group for sample in (item if isinstance(item, list) else [item])],
                 reason="aborted",
             )
+            register_dropped_samples(group)
             continue
 
         # for partial rollout, collect the partial samples into the data buffer
@@ -160,6 +162,7 @@ async def generate_rollout_async(
             if not filter_output.keep:
                 metric_gatherer.on_dynamic_filter_drop(reason=filter_output.reason)
                 SampleOwnershipRecorder.log_dropped_groups(args=args, before=group, after=[], reason="dynamic_filter")
+                register_dropped_samples(group)
                 continue
 
             # add the samples to the data
@@ -169,6 +172,7 @@ async def generate_rollout_async(
                 pbar.update(args.n_samples_per_prompt)
             else:
                 SampleOwnershipRecorder.log_dropped_groups(args=args, before=group, after=[], reason="oversampling")
+                register_dropped_samples(group)
 
     pbar.close()
     sample = data[-1][0][0] if isinstance(data[-1][0], list) else data[-1][0]
@@ -197,6 +201,7 @@ async def generate_rollout_async(
     SampleOwnershipRecorder.log_dropped_groups(
         args=args, before=before_filter, after=data, reason="rollout_sample_filter"
     )
+    register_dropped_samples(before_filter, data)
     # There can be circumstances where users want to process all samples including filtered ones.
     if f := load_function(args.rollout_all_samples_process_path):
         f(args, all_samples, data_source)

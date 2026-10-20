@@ -12,6 +12,7 @@ from miles.ray.rollout.debug_data import RolloutDataInjectionUtil, load_debug_ro
 from miles.ray.rollout.eval_fleet import EvalFleetInfo, RolloutExecutorEvalFleet
 from miles.ray.rollout.metrics import log_eval_rollout_data, log_eval_skip, log_rollout_data
 from miles.ray.rollout.output_snapshotter import _RolloutExecutorOutputSnapshotter
+from miles.ray.rollout.output_store_cleanup import OutputStoreCleanup
 from miles.ray.rollout.rollout_data_conversion import postprocess_rollout_data
 from miles.ray.rollout.router_manager import resolve_router_addrs, wait_session_server_ready
 from miles.ray.rollout.train_data_conversion import (
@@ -89,6 +90,7 @@ class RolloutExecutor(DedicatedRpcLoopWorker):
         self._session_server_provider = session_server_provider
         self._inference_controller_provider = inference_controller_provider
         self._output_snapshotter = _RolloutExecutorOutputSnapshotter(args=args)
+        self._output_store_cleanup = OutputStoreCleanup(args=args)
 
     @init_once
     async def init(self) -> None:
@@ -100,6 +102,7 @@ class RolloutExecutor(DedicatedRpcLoopWorker):
         # TODO make args immutable
         init_tracking(args, primary=False, router_addr=f"http://{args.sglang_router_ip}:{args.sglang_router_port}")
         object_store.init_instance(args, contribute_segment=False)
+        self._output_store_cleanup.connect()
 
         init_http_client(args)
 
@@ -191,6 +194,7 @@ class RolloutExecutor(DedicatedRpcLoopWorker):
                 custom_convert_samples_to_train_data_func=self.custom_convert_samples_to_train_data_func,
                 custom_reward_post_process_func=self.custom_reward_post_process_func,
             )
+            self._output_store_cleanup.record(trainer_model_id=trainer_model_id, rollout_id=rollout_id, samples=data)
             sample_indices = train_data.get("sample_indices")
             if self.args.delay_split_train_data_by_dp:
                 data_ref = object_store.get_instance().put(value=train_data, value_spec=ROLLOUT_DATA_VALUE_SPEC)
@@ -339,9 +343,9 @@ class RolloutExecutor(DedicatedRpcLoopWorker):
     async def save(self, rollout_id: int, completed_rollout_ids: dict[str, int] | None = None) -> None:
         assert self.args.save is not None, "the orchestration only saves when --save is set"
 
-        self._output_snapshotter.discard_completed(
-            completed_rollout_ids={None: rollout_id} if completed_rollout_ids is None else completed_rollout_ids
-        )
+        completed = {None: rollout_id} if completed_rollout_ids is None else completed_rollout_ids
+        self._output_snapshotter.discard_completed(completed_rollout_ids=completed)
+        self._output_store_cleanup.release_completed(completed_rollout_ids=completed)
         target = compute_rollout_checkpoint_dir(self.args.save, rollout_id=rollout_id)
         with atomic_save_folder(target) as dir_temp:
             self.data_source.save(dir_temp / _DATA_SOURCE_DIRNAME)
@@ -367,9 +371,9 @@ class RolloutExecutor(DedicatedRpcLoopWorker):
         )
 
         self._output_snapshotter.load(directory / _EXECUTOR_DIRNAME)
-        self._output_snapshotter.discard_completed(
-            completed_rollout_ids={None: rollout_id} if completed_rollout_ids is None else completed_rollout_ids
-        )
+        completed = {None: rollout_id} if completed_rollout_ids is None else completed_rollout_ids
+        self._output_snapshotter.discard_completed(completed_rollout_ids=completed)
+        self._output_store_cleanup.release_completed(completed_rollout_ids=completed)
         self.data_source.load(directory / _DATA_SOURCE_DIRNAME)
         if not self.use_legacy_rollout_v1:
             if self.generate_rollout is not None:

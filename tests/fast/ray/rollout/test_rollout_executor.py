@@ -12,6 +12,7 @@ from miles.backends.training_utils.types import TrainStepOutcome
 from miles.ray.rollout import rollout_executor as rollout_executor_module
 from miles.ray.rollout.eval_fleet import EvalFleetInfo, EvalFleetPin
 from miles.ray.rollout.output_snapshotter import _RolloutExecutorOutputSnapshotter
+from miles.ray.rollout.output_store_cleanup import OutputStoreCleanup
 from miles.ray.rollout.rollout_data_conversion import postprocess_rollout_data
 from miles.ray.rollout.rollout_executor import RolloutExecutor, compute_rollout_checkpoint_dir
 from miles.rollout.base_types import (
@@ -95,6 +96,7 @@ class TestDispose:
         )
         executor._metric_checker = None
         executor._output_snapshotter = _RolloutExecutorOutputSnapshotter(args=make_args())
+        executor._output_store_cleanup = OutputStoreCleanup(args=make_args())
         executor._output_snapshotter.capture(trainer_model_id=None, rollout_id=6, data=[Sample(index=10)], metadata={})
         event_logger = EventLogger(log_dir=tmp_path, source=SimpleProcessIdentity(component="rollout_executor"))
         event_logger.log(
@@ -308,6 +310,7 @@ def _make_executor(tmp_path: Path, rollout_fn: _CountingRolloutFn) -> RolloutExe
     executor.custom_convert_samples_to_train_data_func = None
     executor.custom_reward_post_process_func = None
     executor._output_snapshotter = _RolloutExecutorOutputSnapshotter(args=executor.args)
+    executor._output_store_cleanup = OutputStoreCleanup(args=executor.args)
     return executor
 
 

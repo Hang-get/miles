@@ -55,6 +55,7 @@ from miles.rollout.submission_scheduler import make_submission_scheduler
 from miles.utils.audit_utils.sample_ownership.recorder import SampleOwnershipRecorder
 from miles.utils.function_registry import load_function
 from miles.utils.simple_checkpointer import load_simple_checkpoint, save_simple_checkpoint
+from miles.utils.store_plan import register_dropped_samples
 from miles.utils.types import Sample
 
 logger = logging.getLogger(__name__)
@@ -252,6 +253,7 @@ class FullyAsyncRolloutFn(BaseRolloutFn):
         SampleOwnershipRecorder.log_dropped_groups(
             args=args, before=before_filter, after=data, reason="rollout_sample_filter"
         )
+        register_dropped_samples(before_filter, data)
 
         return RolloutFnTrainOutput(samples=data, metrics=self._output.get_metrics(input.trainer_model_id))
 

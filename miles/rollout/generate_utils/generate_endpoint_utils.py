@@ -15,6 +15,15 @@ from miles.rollout.generate_utils.rollout_topk_logprobs import (
 from miles.rollout.generate_utils.sampling_mask import append_sampling_metadata, should_return_sampling_mask
 from miles.utils.lora.utils import LORA_ADAPTER_NAME, lora_rollout_enabled
 from miles.utils.processing_utils import encode_image_for_rollout_engine, extract_multimodal_train_inputs
+from miles.utils.store_plan import (
+    StorePlan,
+    is_no_output_abort,
+    outputs_via_store,
+    parse_store_ref,
+    requested_fields,
+    set_outputs_via_store,
+    store_sampled_logprobs,
+)
 from miles.utils.types import Sample
 
 
@@ -90,6 +99,7 @@ def compute_request_payload(
 
     if not evaluation:
         configure_rollout_topk_logprobs_request(args, payload)
+    set_outputs_via_store(payload, use_output_store=args.use_output_store, evaluation=evaluation)
     return payload, None
 
 
@@ -106,7 +116,19 @@ async def update_sample_from_response(
     else:
         new_response_tokens, new_response_log_probs = [], []
 
-    if payload.get("return_sampling_mask", False):
+    via_store = outputs_via_store(payload)
+    if via_store:
+        sample.rollout_store_plan = compute_store_plan_after_response(
+            sample, payload, output["meta_info"], num_output_tokens=len(new_response_tokens)
+        )
+        if payload.get("return_sampling_mask", False):
+            new_response_log_probs = store_sampled_logprobs(
+                output["meta_info"],
+                num_output_tokens=len(new_response_tokens),
+                support_logprobs=payload.get("sampling_logprobs_mode") == "support",
+                aborted=False,
+            )
+    elif payload.get("return_sampling_mask", False):
         new_response_log_probs = append_sampling_metadata(
             sample,
             new_response_tokens,
@@ -122,7 +144,8 @@ async def update_sample_from_response(
     if sample.rollout_log_probs is None:
         sample.rollout_log_probs = []
     sample.rollout_log_probs += new_response_log_probs
-    if payload.get("top_logprobs_num") or payload.get("sampling_logprobs_mode") == "support":
+    # With the store, the trainer builds support-mode candidates from the stored support rows.
+    if payload.get("top_logprobs_num") or (payload.get("sampling_logprobs_mode") == "support" and not via_store):
         append_rollout_topk_logprobs(
             sample,
             output["meta_info"],
@@ -141,6 +164,34 @@ async def update_sample_from_response(
 
     # TODO may unify (currently there are both methods inside Sample and separate functions)
     sample.update_from_meta_info(args, output["meta_info"])
+
+
+def compute_store_plan_after_response(
+    sample: Sample,
+    request: dict,
+    meta_info: dict,
+    *,
+    num_output_tokens: int,
+    media_rows: int = 0,
+    allow_extra_seq_row: bool = False,
+) -> StorePlan:
+    """The sample's store plan with a response appended; call before the response's tokens are.
+
+    The response's forward covered ``sample.tokens`` and its output, so its forward fields replace
+    the sample's (``seq_start`` 0).
+    """
+    new = StorePlan.from_response(
+        parse_store_ref(meta_info),
+        requested=requested_fields(request),
+        num_tokens=len(sample.tokens) + num_output_tokens,
+        response_length=num_output_tokens,
+        media_rows=media_rows,
+        allow_extra_seq_row=allow_extra_seq_row,
+        no_output_abort=is_no_output_abort(meta_info, aborted=False, num_output_tokens=num_output_tokens),
+    )
+    if sample.rollout_store_plan is None:
+        return new
+    return sample.rollout_store_plan.append_response(new, response_length=sample.response_length)
 
 
 def _decode_topk_buffer(info: str, num_tokens: int, num_layers: int, topk: int) -> np.ndarray:

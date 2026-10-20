@@ -12,6 +12,7 @@ from miles.rollout.session.samples.codec import (
     COMPUTED_FIELDS,
     COMPUTED_FIELDS_V2,
     ROLLOUT_SAMPLING_MASK_FIELDS,
+    ROLLOUT_STORE_PLAN_FIELDS,
     SamplesReply,
     decode_samples_and_merge_input_sample,
 )
@@ -77,6 +78,8 @@ class OpenAIEndpointTracer:
         samples_wire_fields = COMPUTED_FIELDS_V2 if use_v2 else COMPUTED_FIELDS
         if should_return_sampling_mask(args, sampling_params, evaluation=evaluation):
             samples_wire_fields += ROLLOUT_SAMPLING_MASK_FIELDS
+        if getattr(args, "use_output_store", False) and not evaluation:
+            samples_wire_fields += ROLLOUT_STORE_PLAN_FIELDS
         response = await post(f"{session_url}/sessions", body.model_dump(exclude_none=True), action="post")
         session_id = response["session_id"]
         return OpenAIEndpointTracer(

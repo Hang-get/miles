@@ -39,10 +39,17 @@ from miles.utils.processing_utils import (
     load_processor,
     load_tokenizer,
 )
+from miles.utils.store_plan import (
+    outputs_via_store,
+    register_dropped_samples,
+    set_outputs_via_store,
+    store_sampled_logprobs,
+)
 from miles.utils.types import Sample
 
 from .generate_utils.generate_endpoint_utils import (
     compute_routing_headers,
+    compute_store_plan_after_response,
     get_indexer_topk_from_response,
     policy_uses_routing_key,
 )
@@ -210,6 +217,7 @@ async def generate(
         payload["return_routed_experts"] = True
     if getattr(args, "use_rollout_indexer_replay", False):
         payload["return_indexer_topk"] = True
+    set_outputs_via_store(payload, use_output_store=args.use_output_store, evaluation=evaluation)
 
     if sample.multimodal_inputs and sample.multimodal_inputs["images"]:
         image_data = sample.multimodal_inputs["images"]
@@ -245,7 +253,25 @@ async def generate(
     else:
         new_response_tokens, new_response_log_probs = [], []
 
-    if payload.get("return_sampling_mask", False):
+    via_store = outputs_via_store(payload)
+    if via_store:
+        # SGLang counts the prompt's media tokens in prompt_tokens; the extra forward rows are theirs.
+        sample.rollout_store_plan = compute_store_plan_after_response(
+            sample,
+            payload,
+            output["meta_info"],
+            num_output_tokens=len(new_response_tokens),
+            media_rows=int(output["meta_info"]["prompt_tokens"]) - len(payload["input_ids"]),
+            allow_extra_seq_row=True,
+        )
+        if payload.get("return_sampling_mask", False):
+            new_response_log_probs = store_sampled_logprobs(
+                output["meta_info"],
+                num_output_tokens=len(new_response_tokens),
+                support_logprobs=payload.get("sampling_logprobs_mode") == "support",
+                aborted=False,
+            )
+    elif payload.get("return_sampling_mask", False):
         new_response_log_probs = append_sampling_metadata(
             sample,
             new_response_tokens,
@@ -257,7 +283,8 @@ async def generate(
     sample.tokens = sample.tokens + new_response_tokens
     sample.response_length += len(new_response_tokens)
     sample.response += output["text"]
-    if not evaluation:
+    # With the store, the trainer builds support-mode candidates from the stored support rows.
+    if not evaluation and not (via_store and payload.get("sampling_logprobs_mode") == "support"):
         append_rollout_topk_logprobs(
             sample,
             output["meta_info"],
@@ -451,6 +478,7 @@ async def abort(args: Namespace, rollout_id: int) -> list[list[Sample]]:
         done, state.pendings = await asyncio.wait(state.pendings, return_when=asyncio.FIRST_COMPLETED)
 
         if not args.partial_rollout:
+            register_dropped_samples([task.result() for task in done])
             if args.enable_sample_ownership_checker:
                 groups = [task.result() for task in done]
                 SampleOwnershipRecorder.log_dropped_groups(args=args, before=groups, after=[], reason="aborted")
@@ -534,6 +562,7 @@ async def generate_rollout_async(
             if not filter_output.keep:
                 metric_gatherer.on_dynamic_filter_drop(reason=filter_output.reason)
                 SampleOwnershipRecorder.log_dropped_groups(args=args, before=group, after=[], reason="dynamic_filter")
+                register_dropped_samples(group)
                 state.remaining_batch_size -= 1
                 continue
 
@@ -544,6 +573,7 @@ async def generate_rollout_async(
                 pbar.update(args.n_samples_per_prompt)
             else:
                 SampleOwnershipRecorder.log_dropped_groups(args=args, before=group, after=[], reason="oversampling")
+                register_dropped_samples(group)
 
     pbar.close()
     sample = data[-1][0][0] if isinstance(data[-1][0], list) else data[-1][0]
@@ -572,6 +602,7 @@ async def generate_rollout_async(
     SampleOwnershipRecorder.log_dropped_groups(
         args=args, before=before_filter, after=data, reason="rollout_sample_filter"
     )
+    register_dropped_samples(before_filter, data)
 
     # There can be circumstances where users want to process all samples including filtered ones.
     if (x := args.rollout_all_samples_process_path) is not None:

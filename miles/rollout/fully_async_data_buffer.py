@@ -28,6 +28,7 @@ from miles.rollout.filter_hub.common_filters import (
 )
 from miles.utils.audit_utils.sample_ownership.recorder import SampleOwnershipRecorder
 from miles.utils.function_registry import load_function
+from miles.utils.store_plan import register_dropped_samples
 from miles.utils.types import Sample
 
 logger = logging.getLogger(__name__)
@@ -191,6 +192,7 @@ class DefaultDataBuffer(DataBuffer):
         output = apply_aborted_filter(self._args, input.group)
         if not output.keep:
             self._metric_aborted_groups += 1
+            register_dropped_samples([input.prompt_group, input.group])
             self._unused_handler_fn(input.prompt_group, UnusedReason.ABORTED)
             return False
 
@@ -200,6 +202,7 @@ class DefaultDataBuffer(DataBuffer):
             SampleOwnershipRecorder.log_dropped_samples(
                 args=self._args, samples=input.prompt_group, reason="missing_reward"
             )
+            register_dropped_samples([input.prompt_group, input.group])
             return False
 
         self._metric_gatherer.on_group_before_dynamic_filter(self._args, input.group)
@@ -209,6 +212,7 @@ class DefaultDataBuffer(DataBuffer):
             SampleOwnershipRecorder.log_dropped_samples(
                 args=self._args, samples=input.prompt_group, reason="dynamic_filter"
             )
+            register_dropped_samples([input.prompt_group, input.group])
             return False
         return True
 
@@ -251,6 +255,7 @@ class DefaultDataBuffer(DataBuffer):
             else:
                 logger.info(f"Filtered stale group ({staleness=} > max={limit})")
                 self._metric_stale_groups += 1
+                register_dropped_samples([entry.prompt_group, entry.group])
                 self._unused_handler_fn(entry.prompt_group, UnusedReason.STALE)
 
         if len(kept) != len(self._buffer):
