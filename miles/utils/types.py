@@ -388,6 +388,8 @@ class Sample:
             extra = sum(
                 int(c) - 1 for key in ("mm_vision_num_patches", "mm_audio_num_tokens") for c in list(mm.get(key) or [])
             )
+            # TODO: ad hoc for Inkling VLM (SGLang forwards each media sentinel as its expanded patch / audio
+            # tokens); remove after the VLM refactor.
             assert actual in (expect, expect + extra), (
                 f"rollout_routed_experts length ({actual}) != len(tokens) - 1 ({expect})"
                 f" or media-expanded ({expect + extra})"
