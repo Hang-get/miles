@@ -18,6 +18,7 @@ register_cpu_ci(est_time=20, suite="stage-a-cpu", labels=[])
 def _args(**overrides) -> Namespace:
     base = dict(
         titan_model_name="qwen3",
+        titan_tpu_attention="sdpa_blocks",
         seq_length=8192,
         pipeline_model_parallel_size=1,
         context_parallel_size=1,
