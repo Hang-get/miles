@@ -129,9 +129,7 @@ async def test_debug_snapshots_preserve_the_policy_before_each_update(monkeypatc
         ({"save_debug_pre_train_hf": "/snapshots/constant"}, "must contain"),
     ],
 )
-async def test_pre_train_snapshots_reject_unsupported_configuration(
-    overrides: dict[str, Any], message: str
-) -> None:
+async def test_pre_train_snapshots_reject_unsupported_configuration(overrides: dict[str, Any], message: str) -> None:
     """Unsupported capture modes fail instead of producing missing or overwritten evidence."""
     args = _make_args(
         **({"train_backend": "megatron", "save_debug_pre_train_hf": "/snapshots/{rollout_id}"} | overrides)
