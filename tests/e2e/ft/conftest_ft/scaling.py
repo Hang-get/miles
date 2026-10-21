@@ -98,6 +98,7 @@ def run_scaling_scenario(
                 note_launch_outcome(
                     event_log=event_log,
                     request_id=None,
+                    accept_replaced=True,
                     launching=asyncio.to_thread(run_training, train_args=train_args, mode=mode, config=config),
                 ),
                 chain=chain,
