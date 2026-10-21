@@ -158,3 +158,40 @@ class TestVariantSelection:
         (tmp_path / "attempt.json").write_text('{"test":"tests/e2e/test_training.py","completed":true}')
         with pytest.raises(ValidationError, match="variant"):
             _collect_snapshots(directory=tmp_path, repo_root=tmp_path)
+
+
+class TestKnownCoverage:
+    @pytest.mark.parametrize("existing", ["canonical", "same-variant", "other-variant"])
+    def test_empty_known_test_blocks_a_mixed_archive_before_any_writes(
+        self, tmp_path: Path, make_record: Callable, existing: str
+    ) -> None:
+        """Another successful test cannot hide missing records for an already covered test."""
+        from miles.utils.audit_utils.config_snapshot.runner import ConfigSnapshotTestRunner
+        from miles.utils.audit_utils.config_snapshot.sync import sync
+
+        test = "tests/e2e/test_training.py"
+        if existing == "canonical":
+            baseline = tmp_path / SNAPSHOT_DIRECTORY / "runtime_config" / Path(test).with_suffix(".yaml")
+        else:
+            variant = (
+                _VARIANT
+                if existing == "same-variant"
+                else ConfigSnapshotVariant(hardware="b200", wandb_available=False)
+            )
+            baseline = ConfigSnapshotTestRunner.golden_path(test=test, repo_root=tmp_path, variant=variant)
+        baseline.parent.mkdir(parents=True)
+        baseline.write_text("not parsed as YAML: [")
+        empty = tmp_path / "raw" / "empty"
+        populated = tmp_path / "raw" / "populated"
+        _write_attempt(directory=empty, test=test)
+        _write_attempt(directory=populated, test="tests/e2e/test_other.py")
+        ConfigSnapshotStorage(directory=populated / "records").write(make_record())
+
+        with pytest.raises(AssertionError, match="No configuration snapshots were recorded"):
+            sync(directory=tmp_path / "raw", repo_root=tmp_path)
+
+        assert baseline.read_text() == "not parsed as YAML: ["
+        other = ConfigSnapshotTestRunner.golden_path(
+            test="tests/e2e/test_other.py", repo_root=tmp_path, variant=_VARIANT
+        )
+        assert not other.exists()

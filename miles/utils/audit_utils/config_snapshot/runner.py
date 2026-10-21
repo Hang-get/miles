@@ -29,6 +29,7 @@ class ConfigSnapshotMismatch(AssertionError):
 @dataclass(frozen=True)
 class ConfigSnapshotTestRunner:
     test: str
+    repo_root: Path
     variant: ConfigSnapshotVariant
     directory: Path
     storage: ConfigSnapshotStorage
@@ -47,6 +48,7 @@ class ConfigSnapshotTestRunner:
         directory = root / Path(test).stem / uuid.uuid4().hex
         attempt = cls(
             test=test,
+            repo_root=repo_root.resolve(),
             variant=variant,
             directory=directory,
             storage=ConfigSnapshotStorage(directory=directory / "records"),
@@ -64,9 +66,7 @@ class ConfigSnapshotTestRunner:
         try:
             case = ConfigSnapshotConverter.convert(self.storage.read())
             if not case.processes:
-                assert (
-                    not self.golden.exists()
-                ), f"No configuration snapshots were recorded for existing golden: {self.golden}"
+                assert_empty_snapshot_allowed(test=self.test, repo_root=self.repo_root)
                 return
             assert_matches_snapshot(
                 snapshot=self.golden,
@@ -88,11 +88,7 @@ class ConfigSnapshotTestRunner:
     @staticmethod
     def golden_path(*, test: str, repo_root: Path, variant: ConfigSnapshotVariant) -> Path:
         root = repo_root.resolve()
-        relative = Path(test)
-        if relative.is_absolute():
-            relative = relative.relative_to(root)
-        if ".." in relative.parts:
-            raise ValueError(f"Test path must stay within the repository: {test}")
+        relative = _relative_test_path(test=test, repo_root=root)
         target = (
             root / SNAPSHOT_DIRECTORY / "runtime_config/variants" / variant.to_key() / relative.with_suffix(".yaml")
         ).resolve()
@@ -108,3 +104,20 @@ class ConfigSnapshotTestRunner:
                 test=self.test, variant=self.variant, completed=completed
             ).model_dump_json(),
         )
+
+
+def assert_empty_snapshot_allowed(*, test: str, repo_root: Path) -> None:
+    relative = _relative_test_path(test=test, repo_root=repo_root.resolve()).with_suffix(".yaml")
+    directory = repo_root.resolve() / SNAPSHOT_DIRECTORY / "runtime_config"
+    for baseline_directory in [directory, *sorted((directory / "variants").glob("*/*"))]:
+        if (path := baseline_directory / relative).exists():
+            raise AssertionError(f"No configuration snapshots were recorded for existing golden: {path}")
+
+
+def _relative_test_path(*, test: str, repo_root: Path) -> Path:
+    relative = Path(test)
+    if relative.is_absolute():
+        relative = relative.relative_to(repo_root)
+    if ".." in relative.parts:
+        raise ValueError(f"Test path must stay within the repository: {test}")
+    return relative
