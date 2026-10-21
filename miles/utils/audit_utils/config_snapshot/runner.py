@@ -62,6 +62,9 @@ class ConfigSnapshotTestRunner:
         try:
             case = ConfigSnapshotConverter.convert(self.storage.read())
             if not case.processes:
+                assert (
+                    not self.golden.exists()
+                ), f"No configuration snapshots were recorded for existing golden: {self.golden}"
                 return
             assert_matches_snapshot(
                 snapshot=self.golden,
