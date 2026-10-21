@@ -208,6 +208,7 @@ class TestLaunchCommandContext:
         """A default here would let a manager that never probed the worker launch it against the wrong devices."""
         kwargs = dict(
             args=None,
+            scaling=_make_scaling(),
             cell_index=0,
             worker_in_cell_index=0,
             num_workers_per_cell=1,
@@ -216,7 +217,7 @@ class TestLaunchCommandContext:
             pool_addrs={},
         )
 
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValidationError, match="local_gpu_ids"):
             LaunchCommandContext(**kwargs)
 
 
@@ -494,12 +495,14 @@ class TestLaunchCommandContextPoolAddrs:
 
     def test_a_context_without_the_pool_map_is_rejected(self):
         """Making the map optional would let a caller that forgot to wire it render commands against nothing."""
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValidationError, match="pool_addrs"):
             LaunchCommandContext(
                 args=None,
+                scaling=_make_scaling(),
                 cell_index=0,
                 worker_in_cell_index=0,
                 num_workers_per_cell=1,
                 gpu_ids=[],
+                local_gpu_ids=[],
                 self_addrs={"http": HostAndPort(host="127.0.0.1", port=8000)},
             )
