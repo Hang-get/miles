@@ -31,10 +31,14 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
             if routes is None or routes.shape != (
                 len(sample.tokens) - 1,
                 input.args.num_layers,
-                input.args.moe_router_topk,
+                input.args.raw_megatron.base_args["moe_router_topk"],
             ):
                 raise ValueError("Missing or misaligned routing replay")
-            if routes.dtype != np.int32 or routes.min() < 0 or routes.max() >= input.args.num_experts:
+            if (
+                routes.dtype != np.int32
+                or routes.min() < 0
+                or routes.max() >= input.args.raw_megatron.base_args["num_experts"]
+            ):
                 raise ValueError("Invalid routing replay expert indices")
         if sample.metadata["workplace_stop"] in {"truncated", "response_budget", "context_limit", "turn_limit"}:
             sample.status = Sample.Status.TRUNCATED
