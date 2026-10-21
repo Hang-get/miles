@@ -10,8 +10,9 @@ import torch.distributed.checkpoint as dist_cp
 
 
 @pytest.mark.parametrize("model_name", ["inkling", "qwen3"])
+@pytest.mark.parametrize("override_origin", [False, True])
 def test_ray_conversion_uses_explicit_hf_assets_with_real_model_dispatch(
-    local_ray_converter: ModuleType, tmp_path: Path, model_name: str
+    local_ray_converter: ModuleType, tmp_path: Path, model_name: str, override_origin: bool
 ) -> None:
     """Workers use current HF assets while real Inkling and ordinary tensor conversion preserve values."""
     input_dir = tmp_path / "checkpoint"
@@ -30,14 +31,18 @@ def test_ray_conversion_uses_explicit_hf_assets_with_real_model_dispatch(
     )
     dist_cp.save({source_name: tensor}, checkpoint_id=str(input_dir))
     torch.save(
-        {"args": argparse.Namespace(num_layers=1, num_experts=1, hf_checkpoint=str(stale_hf))},
+        {
+            "args": argparse.Namespace(
+                num_layers=1, num_experts=1, hf_checkpoint=str(stale_hf if override_origin else current_hf)
+            )
+        },
         input_dir / "common.pt",
     )
     output_dir = tmp_path / "output"
     args = local_ray_converter.Args(
         input_dir=str(input_dir),
         output_dir=str(output_dir),
-        origin_hf_dir=str(current_hf),
+        origin_hf_dir=str(current_hf) if override_origin else None,
         model_name=model_name,
         force=False,
         max_file_bytes=1024,
@@ -65,4 +70,5 @@ def test_ray_conversion_uses_explicit_hf_assets_with_real_model_dispatch(
     else:
         assert set(tensors) == {"model.embed_tokens.weight"}
         torch.testing.assert_close(tensors["model.embed_tokens.weight"], tensor)
-    assert (output_dir / "config.json").read_bytes() == (current_hf / "config.json").read_bytes()
+    if override_origin:
+        assert (output_dir / "config.json").read_bytes() == (current_hf / "config.json").read_bytes()

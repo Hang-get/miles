@@ -111,3 +111,65 @@ class TestNamespaceSerialization:
         """A namespace payload must be an existing namespace or an explicit mapping."""
         with pytest.raises(ValueError, match="namespace or mapping"):
             TypeAdapter(_Namespace).validate_python(value)
+
+
+class TestForceAllMutable:
+    def test_fixed_fields_can_be_added_changed_and_deleted_only_inside_the_scope(self) -> None:
+        """Forced mutation covers fields outside the normal allowlist and ends at scope exit."""
+        config = _Namespace(model="old")
+        other = _Namespace(model="other")
+        with config.force_all_mutable():
+            config.model = "new"
+            config.extra = 3
+            del config.model
+            with pytest.raises(AttributeError, match="immutable"):
+                other.model = "forbidden"
+
+        assert vars(config) == {"extra": 3}
+        with pytest.raises(AttributeError, match="immutable"):
+            config.model = "forbidden"
+        with pytest.raises(AttributeError, match="immutable"):
+            del config.extra
+
+    def test_exceptional_nested_force_scope_preserves_outer_force_scope(self) -> None:
+        """An inner exception leaves outer forced mutation available until its own exit."""
+        config = _Namespace(model="old")
+        with config.force_all_mutable():
+            with pytest.raises(RuntimeError, match="abort"):
+                with config.force_all_mutable():
+                    config.model = "inner"
+                    raise RuntimeError("abort")
+            config.model = "outer"
+
+        assert config.model == "outer"
+        with pytest.raises(AttributeError, match="immutable"):
+            config.model = "forbidden"
+
+    def test_exception_restores_the_enclosing_allowlist_scope(self) -> None:
+        """Leaving forced mutation restores the outer ordinary scope's allowlist."""
+        config = _Namespace(step=1, model="old")
+        with config.mutable():
+            with pytest.raises(RuntimeError, match="abort"):
+                with config.force_all_mutable():
+                    config.model = "new"
+                    raise RuntimeError("abort")
+            config.step = 2
+            with pytest.raises(AttributeError, match="immutable"):
+                config.model = "forbidden"
+
+        assert config.step == 2
+        with pytest.raises(AttributeError, match="immutable"):
+            config.step = 3
+
+    @pytest.mark.parametrize("clone", [copy.copy, copy.deepcopy, lambda value: pickle.loads(pickle.dumps(value))])
+    def test_cloned_namespaces_do_not_inherit_forced_mutation(self, clone: Any) -> None:
+        """Copying or serializing during forced mutation produces a frozen independent object."""
+        config = _Namespace(model="old")
+        with config.force_all_mutable():
+            restored = clone(config)
+            with pytest.raises(AttributeError, match="immutable"):
+                restored.model = "forbidden"
+            config.model = "new"
+
+        assert vars(restored) == {"model": "old"}
+        assert vars(config) == {"model": "new"}
