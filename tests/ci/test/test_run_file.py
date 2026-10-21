@@ -5,10 +5,12 @@ from pathlib import Path
 
 import pytest
 from tests.ci.ci_register import register_cpu_ci
-from tests.ci.ci_utils import CI_GATE_RECORD_DIR_ENV
+from tests.ci.ci_utils import CI_GATE_RECORD_DIR_ENV, TestFile, run_unittest_files
 from tests.ci.run_file import app
 from tests.ci.test.conftest import _SnapshotFileCase
 from typer.testing import CliRunner
+
+from miles.utils.test_utils.snapshot import SNAPSHOT_RECORD_DIR_ENV_VAR
 
 register_cpu_ci(est_time=10, suite="stage-a-cpu", labels=[])
 
@@ -80,3 +82,51 @@ def test_failed_or_timed_out_child_keeps_an_incomplete_attempt(
     [attempt] = snapshot_file_case.record_root.glob("*/*/attempt.json")
     assert json.loads(attempt.read_text()) == {"test": str(snapshot_file_case.test_file), "completed": False}
     assert (attempt.parent / "records/record.json").is_file()
+
+
+@pytest.mark.parametrize("record_directory", [None, ""])
+@pytest.mark.parametrize("standalone", [False, True])
+def test_child_without_capture_runs_without_injecting_a_record_directory(
+    snapshot_file_case: _SnapshotFileCase,
+    monkeypatch: pytest.MonkeyPatch,
+    record_directory: str | None,
+    standalone: bool,
+) -> None:
+    """Standalone and suite runners preserve ordinary child execution when snapshot capture is disabled."""
+    snapshot_file_case.test_file.write_text(
+        "import os\nfrom pathlib import Path\n"
+        "assert not os.environ.get('MILES_SNAPSHOT_RECORD_DIR')\n"
+        "Path(__file__).with_suffix('.ran').touch()\n"
+    )
+    if record_directory is None:
+        monkeypatch.delenv(SNAPSHOT_RECORD_DIR_ENV_VAR)
+    else:
+        monkeypatch.setenv(SNAPSHOT_RECORD_DIR_ENV_VAR, record_directory)
+
+    if standalone:
+        result = CliRunner().invoke(app, ["--test-file", str(snapshot_file_case.test_file), "--timeout-seconds", "10"])
+        assert result.exit_code == 0, result.output
+    else:
+        assert (
+            run_unittest_files(
+                [TestFile(name=str(snapshot_file_case.test_file), estimated_time=0)],
+                timeout_per_file=10,
+                enable_retry=False,
+                continue_on_error=False,
+            )
+            == 0
+        )
+
+    assert snapshot_file_case.test_file.with_suffix(".ran").exists()
+    assert not snapshot_file_case.record_root.exists()
+    assert os.environ.get(SNAPSHOT_RECORD_DIR_ENV_VAR) == record_directory
+
+
+def test_enabled_capture_rejects_a_missing_golden(snapshot_file_case: _SnapshotFileCase) -> None:
+    """Explicitly enabled recording still requires a runtime baseline for captured configuration."""
+    result = CliRunner().invoke(app, ["--test-file", str(snapshot_file_case.test_file), "--timeout-seconds", "10"])
+
+    assert result.exit_code == -1, result.output
+    [attempt] = snapshot_file_case.record_root.glob("*/*/attempt.json")
+    assert json.loads(attempt.read_text())["completed"] is True
+    assert not snapshot_file_case.golden.exists()

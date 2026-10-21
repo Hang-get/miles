@@ -573,8 +573,10 @@ def run_unittest_files(
 
             try:
                 try:
-                    snapshot_runner = ConfigSnapshotTestRunner.create(
-                        test=filename, repo_root=Path(__file__).resolve().parents[2]
+                    snapshot_runner = (
+                        ConfigSnapshotTestRunner.create(test=filename, repo_root=Path(__file__).resolve().parents[2])
+                        if os.environ.get(SNAPSHOT_RECORD_DIR_ENV_VAR)
+                        else None
                     )
                     ret_code = run_with_timeout(
                         run_one_file,
@@ -584,12 +586,17 @@ def run_unittest_files(
                             "record_dir": attempt_record_dir,
                             "env": {
                                 **os.environ,
-                                SNAPSHOT_RECORD_DIR_ENV_VAR: str(snapshot_runner.record_directory),
+                                **(
+                                    {SNAPSHOT_RECORD_DIR_ENV_VAR: str(snapshot_runner.record_directory)}
+                                    if snapshot_runner is not None
+                                    else {}
+                                ),
                             },
                         },
                         timeout=effective_timeout,
                     )
-                    snapshot_runner.finish(returncode=ret_code)
+                    if snapshot_runner is not None:
+                        snapshot_runner.finish(returncode=ret_code)
                     attempt_elapsed = time.perf_counter() - attempt_tic
 
                     if ret_code == 0:
