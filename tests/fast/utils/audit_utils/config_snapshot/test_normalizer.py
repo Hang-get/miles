@@ -431,3 +431,30 @@ class TestWandbCredentialProvenance:
             )
             snapshots.append(normalize_record(record))
         assert snapshots == [{"args": {"wandb_key": "$WANDB_KEY_environment"}}] * 2
+
+
+class TestOtherBackendGeneratedPaths:
+    @pytest.mark.parametrize("backend", ["raw_fsdp", "raw_torchtitan"])
+    def test_registered_load_path_is_normalized_only_in_the_backend_container(
+        self, make_record: Callable, backend: str
+    ) -> None:
+        """FSDP and TorchTitan load paths normalize registered directories while preserving unrelated values."""
+        directory = "/tmp/generated-checkpoint"
+        fields = {"load": directory + "/weights", "model_name": directory, "save": "/user/checkpoints"}
+        record = make_record(config={backend: fields, "custom": {backend: fields}}).model_copy(
+            update={
+                "generated_values": [
+                    ConfigSnapshotGeneratedValue(kind="temporary_directory", name="checkpoint", value=directory)
+                ]
+            }
+        )
+
+        normalized = normalize_record(record)["args"]
+
+        assert normalized[backend] == {
+            "load": "/tmp/$TEMPORARY_DIRECTORY_checkpoint/weights",
+            "model_name": directory,
+            "save": "/user/checkpoints",
+        }
+        assert normalized["custom"][backend] == fields
+        assert record.config["args"][backend] == fields
