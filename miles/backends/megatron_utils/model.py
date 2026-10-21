@@ -1023,6 +1023,7 @@ def load_model_state(
     opt_param_scheduler: OptimizerParamScheduler | None,
     role: str,
     checkpointing_context: dict | None,
+    resume_from_ckpt: bool = True,
 ) -> LoadCheckpointOutput:
     if is_multi_lora_enabled(args):
         # Hide adapter params so the bridge's conversion-task walk doesn't see them
@@ -1056,6 +1057,7 @@ def load_model_state(
         iteration = 0
         restored_trained_iteration = not args.backend.finetune
 
+    adapter_iteration = None
     if is_lora_enabled(args) and role == "actor" and args.lora_adapter_path is not None:
         adapter_iteration = restore_lora_adapter(
             model, args, optimizer=optimizer, opt_param_scheduler=opt_param_scheduler
@@ -1077,7 +1079,9 @@ def load_model_state(
     if not restored_trained_iteration:
         assert iteration == 0, f"Weight initialization returned a trained iteration: {iteration}"
         start_rollout_id = 0
-    else:
+    elif resume_from_ckpt or adapter_iteration is not None:
         start_rollout_id = iteration + 1
+    else:
+        start_rollout_id = 0
 
     return LoadCheckpointOutput(loaded_rollout_id=iteration, start_rollout_id=start_rollout_id)
