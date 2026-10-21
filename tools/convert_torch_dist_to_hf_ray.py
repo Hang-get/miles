@@ -142,6 +142,7 @@ class Args:
     progress_interval_seconds: float
     moe_runner_backend: str | None = None
     moe_a2a_backend: str | None = None
+    extra_high_precision_layers_megatron: list[str] | None = None
 
 
 @dataclass(frozen=True)
@@ -1325,10 +1326,12 @@ def convert_torch_dist_to_hf_ray(args: Args) -> str:
     if not tasks:
         raise ValueError("No checkpoint tensor tasks were planned")
 
+    conversion_args = _make_conversion_args(
+        args=args, megatron_args=megatron_args, quantization_config=quantization_config
+    )
     staging_dir = prepare_output_dir(args.output_dir, args.force)
     initialize_ray()
     metadata_ref = ray.put(metadata)
-    conversion_args = _make_conversion_args(args=args, megatron_args=megatron_args)
     task_results = collect_ray_results(
         tasks,
         args.input_dir,
@@ -1346,8 +1349,26 @@ def convert_torch_dist_to_hf_ray(args: Args) -> str:
     return args.output_dir
 
 
-def _make_conversion_args(*, args: Args, megatron_args: argparse.Namespace) -> argparse.Namespace:
+def _make_conversion_args(
+    *, args: Args, megatron_args: argparse.Namespace, quantization_config: dict[str, Any] | None = None
+) -> argparse.Namespace:
     saved = vars(megatron_args)
+    precision_layers = args.extra_high_precision_layers_megatron
+    if precision_layers is None:
+        if (
+            quantization_config is not None
+            and (
+                quantization_config["quant_method"] in {"mxfp8", "nvfp4"}
+                or quantization_config.get("quant_algo") == "NVFP4"
+            )
+            and "extra_high_precision_layers_megatron" not in saved
+        ):
+            raise ValueError(
+                "MXFP8/NVFP4 export requires --extra-high-precision-layers-megatron because the checkpoint "
+                "does not contain this setting; pass the flag without values to explicitly select no extra layers"
+            )
+        precision_layers = saved.get("extra_high_precision_layers_megatron")
+
     hf_checkpoint = args.origin_hf_dir if args.origin_hf_dir is not None else saved.get("hf_checkpoint")
     overrides = {"moe_runner_backend": args.moe_runner_backend, "moe_a2a_backend": args.moe_a2a_backend}
     base_args = {
@@ -1358,7 +1379,7 @@ def _make_conversion_args(*, args: Args, megatron_args: argparse.Namespace) -> a
     return argparse.Namespace(
         backend=megatron_args,
         hf_checkpoint=Path(hf_checkpoint) if hf_checkpoint is not None else None,
-        extra_high_precision_layers_megatron=saved.get("extra_high_precision_layers_megatron"),
+        extra_high_precision_layers_megatron=precision_layers,
         sglang=_ExportSglangConfig(models=[], base_args=base_args),
     )
 
@@ -1382,6 +1403,7 @@ def parse_args() -> Args:
     parser.add_argument("--model-name", default=None)
     parser.add_argument("--moe-runner-backend", default=None)
     parser.add_argument("--moe-a2a-backend", default=None)
+    parser.add_argument("--extra-high-precision-layers-megatron", nargs="*", default=None)
     parser.add_argument("-f", "--force", action="store_true")
     parser.add_argument("--max-file-bytes", type=int, default=20 * 1024**3)
     parser.add_argument("--concurrency", type=int, default=None)
@@ -1399,6 +1421,7 @@ def parse_args() -> Args:
         model_name=ns.model_name,
         moe_runner_backend=ns.moe_runner_backend,
         moe_a2a_backend=ns.moe_a2a_backend,
+        extra_high_precision_layers_megatron=ns.extra_high_precision_layers_megatron,
         force=ns.force,
         max_file_bytes=ns.max_file_bytes,
         concurrency=ns.concurrency,

@@ -151,3 +151,85 @@ class TestExportExpertScaleSelection:
                 quantizer_fp8._get_scale_format(conversion, name, [128, 128])
         else:
             assert quantizer_fp8._get_scale_format(conversion, name, [128, 128]) == expected
+
+
+class TestExportHighPrecisionLayers:
+    @pytest.mark.parametrize("method", ["mxfp8", "nvfp4"])
+    @pytest.mark.parametrize(
+        ("saved", "flags", "expected"),
+        [
+            ({"extra_high_precision_layers_megatron": ["linear_fc1"]}, [], ["linear_fc1"]),
+            ({"extra_high_precision_layers_megatron": None}, [], None),
+            ({}, ["--extra-high-precision-layers-megatron", "linear_fc1"], ["linear_fc1"]),
+            (
+                {"extra_high_precision_layers_megatron": ["linear_fc2"]},
+                ["--extra-high-precision-layers-megatron", "linear_fc1"],
+                ["linear_fc1"],
+            ),
+            (
+                {"extra_high_precision_layers_megatron": ["linear_fc1"]},
+                ["--extra-high-precision-layers-megatron"],
+                [],
+            ),
+            ({}, ["--extra-high-precision-layers-megatron"], []),
+        ],
+    )
+    def test_export_preserves_explicit_and_legacy_precision_choices(
+        self,
+        local_ray_converter: ModuleType,
+        monkeypatch: pytest.MonkeyPatch,
+        method: str,
+        saved: dict[str, list[str] | None],
+        flags: list[str],
+        expected: list[str] | None,
+    ) -> None:
+        """CLI precision choices override legacy metadata and matched layers bypass real quantizers."""
+        from miles.backends.megatron_utils.megatron_to_hf.processors import quantize_params
+
+        monkeypatch.setattr(sys, "argv", ["convert", "--input-dir", "/input", "--output-dir", "/output", *flags])
+        quantization_config = {"quant_method": method}
+        conversion = local_ray_converter._make_conversion_args(
+            args=local_ray_converter.parse_args(),
+            megatron_args=argparse.Namespace(**saved),
+            quantization_config=quantization_config,
+        )
+        assert conversion.extra_high_precision_layers_megatron == expected
+        if expected:
+            tensor = torch.arange(8, dtype=torch.bfloat16).reshape(2, 4)
+            tensors = [("model.layers.0.mlp.gate_proj.weight", tensor)]
+            result = quantize_params(
+                conversion, "decoder.layers.0.mlp.linear_fc1.weight", tensors, quantization_config
+            )
+            assert result is tensors
+            assert result[0][1] is tensor
+
+    @pytest.mark.parametrize(
+        ("quantization_config", "requires_input"),
+        [
+            ({"quant_method": "mxfp8"}, True),
+            ({"quant_method": "nvfp4"}, True),
+            ({"quant_method": "modelopt", "quant_algo": "NVFP4"}, True),
+            ({"quant_method": "fp8"}, False),
+            (None, False),
+        ],
+    )
+    def test_missing_precision_metadata_is_rejected_only_for_relevant_export_modes(
+        self,
+        local_ray_converter: ModuleType,
+        monkeypatch: pytest.MonkeyPatch,
+        quantization_config: dict[str, str] | None,
+        requires_input: bool,
+    ) -> None:
+        """Modern checkpoints cannot silently infer absent precision choices for MXFP8 or NVFP4."""
+        monkeypatch.setattr(sys, "argv", ["convert", "--input-dir", "/input", "--output-dir", "/output"])
+        args = local_ray_converter.parse_args()
+        if requires_input:
+            with pytest.raises(ValueError, match="--extra-high-precision-layers-megatron"):
+                local_ray_converter._make_conversion_args(
+                    args=args, megatron_args=argparse.Namespace(), quantization_config=quantization_config
+                )
+        else:
+            conversion = local_ray_converter._make_conversion_args(
+                args=args, megatron_args=argparse.Namespace(), quantization_config=quantization_config
+            )
+            assert conversion.extra_high_precision_layers_megatron is None
