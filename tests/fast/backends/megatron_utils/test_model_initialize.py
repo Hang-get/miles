@@ -239,6 +239,8 @@ def _load_model_state_with(
     restored_trained_iteration: bool | None = None,
     adapter_iteration: int | None = None,
     lora_adapter_path: str | None = None,
+    resume_from_ckpt: bool = True,
+    megatron_to_hf_mode: str = "core",
 ) -> "LoadCheckpointOutput":
     from miles.backends.megatron_utils.model import load_model_state
 
@@ -265,7 +267,7 @@ def _load_model_state_with(
                 global_batch_size=8,
                 finetune=finetune,
                 lora_rank=0 if lora_adapter_path is None else 8,
-                megatron_to_hf_mode="core",
+                megatron_to_hf_mode=megatron_to_hf_mode,
                 lora_adapter_path=lora_adapter_path,
                 load=str(load_dir),
             ),
@@ -274,6 +276,7 @@ def _load_model_state_with(
             opt_param_scheduler=None,
             role="actor",
             checkpointing_context=None,
+            resume_from_ckpt=resume_from_ckpt,
         )
 
 
@@ -292,6 +295,15 @@ class TestWhereALoadSaysTheRunStarts:
 
         assert output.start_rollout_id == 1
 
+    def test_reference_checkpoint_iteration_does_not_resume_a_new_run(self, tmp_path: Path) -> None:
+        """Reference initialization retains the loaded iteration but starts new rollout state at zero."""
+        output = _load_model_state_with(
+            tmp_path=tmp_path, finetune=False, iteration=100, resume_from_ckpt=False, megatron_to_hf_mode="bridge"
+        )
+
+        assert output.loaded_rollout_id == 100
+        assert output.start_rollout_id == 0
+
     def test_weight_initialization_with_a_trained_iteration_is_refused(self, tmp_path: Path):
         """Weight initialization cannot claim a nonzero trained iteration."""
         with pytest.raises(AssertionError, match="Weight initialization returned a trained iteration"):
@@ -309,6 +321,7 @@ class TestALoraAdapterThatCarriesItsOwnIteration:
             iteration=0,
             adapter_iteration=adapter_iteration,
             lora_adapter_path=str(tmp_path / "adapter"),
+            resume_from_ckpt=False,
         )
 
     def test_a_resume_at_iteration_zero_continues_after_it(self, tmp_path: Path) -> None:
