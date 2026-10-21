@@ -29,7 +29,10 @@ def test_child_captures_metrics_without_a_database_store(
         monkeypatch.setenv(CI_GATE_RECORD_DIR_ENV, str(supplied_directory))
     monkeypatch.setenv("NEON_DATABASE_URL", "postgresql://invalid.invalid/forbidden")
 
-    result = CliRunner().invoke(app, ["--test-file", str(snapshot_file_case.test_file), "--timeout-seconds", "10"])
+    result = CliRunner().invoke(
+        app,
+        ["--suite", "stage-c-2-gpu-h200", "--test-file", str(snapshot_file_case.test_file), "--timeout-seconds", "10"],
+    )
 
     assert result.exit_code == 0, result.output
     record_directory = Path(snapshot_file_case.test_file.with_suffix(".capture").read_text())
@@ -52,11 +55,18 @@ def test_successful_child_completes_attempt_and_checks_the_golden(
     snapshot_file_case.write_golden(value=golden_value)
     before = snapshot_file_case.golden.read_bytes()
 
-    result = CliRunner().invoke(app, ["--test-file", str(snapshot_file_case.test_file), "--timeout-seconds", "10"])
+    result = CliRunner().invoke(
+        app,
+        ["--suite", "stage-c-2-gpu-h200", "--test-file", str(snapshot_file_case.test_file), "--timeout-seconds", "10"],
+    )
 
     assert result.exit_code == (0 if golden_value == "actual" else -1), result.output
     [attempt] = snapshot_file_case.record_root.glob("*/*/attempt.json")
-    assert json.loads(attempt.read_text()) == {"test": str(snapshot_file_case.test_file), "completed": True}
+    assert json.loads(attempt.read_text()) == {
+        "test": str(snapshot_file_case.test_file),
+        "completed": True,
+        "variant": {"hardware": "h200", "wandb_available": False},
+    }
     assert (attempt.parent / "records/record.json").is_file()
     assert snapshot_file_case.golden.read_bytes() == before
 
@@ -75,12 +85,19 @@ def test_failed_or_timed_out_child_keeps_an_incomplete_attempt(
         "FILE_RUN_TEST_EXIT" if failure == "exit" else "FILE_RUN_TEST_SLEEP", "7" if failure == "exit" else "60"
     )
 
-    result = CliRunner().invoke(app, ["--test-file", str(snapshot_file_case.test_file), "--timeout-seconds", "2"])
+    result = CliRunner().invoke(
+        app,
+        ["--suite", "stage-c-2-gpu-h200", "--test-file", str(snapshot_file_case.test_file), "--timeout-seconds", "2"],
+    )
 
     assert result.exit_code == -1, result.output
     assert ("returned exit code 7" if failure == "exit" else "after 2 seconds") in caplog.text
     [attempt] = snapshot_file_case.record_root.glob("*/*/attempt.json")
-    assert json.loads(attempt.read_text()) == {"test": str(snapshot_file_case.test_file), "completed": False}
+    assert json.loads(attempt.read_text()) == {
+        "test": str(snapshot_file_case.test_file),
+        "completed": False,
+        "variant": {"hardware": "h200", "wandb_available": False},
+    }
     assert (attempt.parent / "records/record.json").is_file()
 
 
@@ -124,9 +141,50 @@ def test_child_without_capture_runs_without_injecting_a_record_directory(
 
 def test_enabled_capture_rejects_a_missing_golden(snapshot_file_case: _SnapshotFileCase) -> None:
     """Explicitly enabled recording still requires a runtime baseline for captured configuration."""
-    result = CliRunner().invoke(app, ["--test-file", str(snapshot_file_case.test_file), "--timeout-seconds", "10"])
+    result = CliRunner().invoke(
+        app,
+        ["--suite", "stage-c-2-gpu-h200", "--test-file", str(snapshot_file_case.test_file), "--timeout-seconds", "10"],
+    )
 
     assert result.exit_code == -1, result.output
     [attempt] = snapshot_file_case.record_root.glob("*/*/attempt.json")
     assert json.loads(attempt.read_text())["completed"] is True
+    assert not snapshot_file_case.golden.exists()
+
+
+@pytest.mark.parametrize("suite", [None, "unknown-h200"])
+def test_capture_without_a_known_execution_suite_cannot_run_the_child(
+    snapshot_file_case: _SnapshotFileCase, suite: str | None
+) -> None:
+    """Recording cannot silently attribute a standalone execution to a guessed hardware."""
+    arguments = ["--test-file", str(snapshot_file_case.test_file), "--timeout-seconds", "10"]
+    if suite is not None:
+        arguments += ["--suite", suite]
+
+    result = CliRunner().invoke(app, arguments)
+
+    assert result.exit_code != 0
+    assert not snapshot_file_case.test_file.with_suffix(".capture").exists()
+
+
+@pytest.mark.parametrize("available", [False, True])
+def test_actual_suite_and_credential_availability_are_frozen_without_secrets(
+    snapshot_file_case: _SnapshotFileCase, monkeypatch: pytest.MonkeyPatch, available: bool
+) -> None:
+    """Single-file capture uses the selected suite and stores only credential availability."""
+    monkeypatch.setenv("MILES_UPDATE_SNAPSHOTS", "1")
+    if available:
+        monkeypatch.setenv("WANDB_API_KEY", "synthetic-secret-not-for-recording")
+    else:
+        monkeypatch.delenv("WANDB_API_KEY", raising=False)
+
+    result = CliRunner().invoke(
+        app,
+        ["--suite", "stage-c-4-gpu-b200", "--test-file", str(snapshot_file_case.test_file), "--timeout-seconds", "10"],
+    )
+
+    assert result.exit_code == 0, result.output
+    [attempt] = snapshot_file_case.record_root.glob("*/*/attempt.json")
+    assert json.loads(attempt.read_text())["variant"] == {"hardware": "b200", "wandb_available": available}
+    assert "synthetic-secret" not in attempt.read_text()
     assert not snapshot_file_case.golden.exists()

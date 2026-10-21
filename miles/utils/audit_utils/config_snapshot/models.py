@@ -80,8 +80,17 @@ class ConfigSnapshotCase(FrozenStrictBaseModel):
 # =============================== Test attempts ================================
 
 
+class ConfigSnapshotVariant(FrozenStrictBaseModel):
+    hardware: Literal["cpu", "h100", "h200", "b200", "mi350"]
+    wandb_available: bool = Field(strict=True)
+
+    def to_key(self) -> str:
+        return f"{self.hardware}/{'wandb' if self.wandb_available else 'no-wandb'}"
+
+
 class ConfigSnapshotTestAttempt(FrozenStrictBaseModel):
     """Record the test identity and whether its execution completed successfully."""
 
     test: str
+    variant: ConfigSnapshotVariant
     completed: bool

@@ -438,6 +438,7 @@ def run_unittest_files(
     retry_wait_seconds: int = 60,
     gate_store=None,
     gate_executing_suite: str = "",
+    snapshot_hardware: str | None = None,
     gate_write_baseline: bool = False,
     gate_provenance: RunProvenance | None = None,
     reap_leftovers: bool = False,
@@ -464,6 +465,7 @@ def run_unittest_files(
                     attempt. Off by default because reaping is process-wide: it would
                     also reach the caller when this function runs inside a test.
     """
+    from miles.utils.audit_utils.config_snapshot.models import ConfigSnapshotVariant
     from miles.utils.audit_utils.config_snapshot.runner import ConfigSnapshotMismatch, ConfigSnapshotTestRunner
     from miles.utils.test_utils.snapshot import SNAPSHOT_RECORD_DIR_ENV_VAR
 
@@ -574,7 +576,14 @@ def run_unittest_files(
             try:
                 try:
                     snapshot_runner = (
-                        ConfigSnapshotTestRunner.create(test=filename, repo_root=Path(__file__).resolve().parents[2])
+                        ConfigSnapshotTestRunner.create(
+                            test=filename,
+                            repo_root=Path(__file__).resolve().parents[2],
+                            variant=ConfigSnapshotVariant(
+                                hardware=snapshot_hardware,
+                                wandb_available=bool(os.environ.get("WANDB_API_KEY")),
+                            ),
+                        )
                         if os.environ.get(SNAPSHOT_RECORD_DIR_ENV_VAR)
                         else None
                     )
