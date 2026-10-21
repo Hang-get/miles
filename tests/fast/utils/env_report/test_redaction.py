@@ -3,6 +3,7 @@ import json
 import pytest
 
 from miles.utils.env_report.redaction import _redact, redact_arg, redact_argv, redact_env_vars, redact_server_info
+from miles.utils.workers.env_vars import WORKER_METADATA_ENV_VAR
 
 
 class TestRedactArgv:
@@ -225,3 +226,16 @@ class TestSerializedConfigSecrets:
         result = redact_argv(["--config-json", payload])
 
         assert result == ["--config-json", _redact(payload)]
+
+
+class TestWorkerMetadataEnvironment:
+    @pytest.mark.parametrize("payload", ['{"static_meta":', '["synthetic-secret"]', '"synthetic-secret"', "null"])
+    def test_uninspectable_metadata_is_redacted_without_dropping_the_environment(self, payload: str) -> None:
+        """Malformed or non-object worker metadata cannot escape the environment redactor."""
+        ordinary = '{"api_key": "opaque-user-value"}'
+        original = {WORKER_METADATA_ENV_VAR: payload, "CUSTOM_METADATA": ordinary, "RANK": "3"}
+
+        result = redact_env_vars(original)
+
+        assert result == {WORKER_METADATA_ENV_VAR: _redact(payload), "CUSTOM_METADATA": ordinary, "RANK": "3"}
+        assert original[WORKER_METADATA_ENV_VAR] == payload
