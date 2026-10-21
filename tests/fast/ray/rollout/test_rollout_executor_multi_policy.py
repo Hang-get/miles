@@ -57,6 +57,9 @@ def _make_executor() -> RolloutExecutor:
         ci_inject_missing_prefetched_batch_bug=False,
         starts_inference_engines=True,
         inference_runtime_mut_state=InferenceRuntimeMutState(),
+        sglang_server_concurrency=512,
+        use_distributed_post=False,
+        eval_uses_snapshots=False,
     )
     executor._inference_controller_provider = FakeInferenceTopologyProvider(
         InferenceRuntimeImmutState(engine_count=2, gpu_count=2)

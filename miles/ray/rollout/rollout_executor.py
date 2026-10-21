@@ -44,7 +44,7 @@ from miles.utils.dp_schedule import TrainParallelConfig
 from miles.utils.environ import use_legacy_rollout_v1
 from miles.utils.function_registry import load_function
 from miles.utils.hf_utils.config import is_complete_hf_export
-from miles.utils.http_utils import init_http_client
+from miles.utils.http_utils import refresh_http_client
 from miles.utils.init_once import InitOnce, init_once
 from miles.utils.logging_utils import configure_logger
 from miles.utils.metric_checker import MetricChecker
@@ -105,8 +105,6 @@ class RolloutExecutor(DedicatedRpcLoopWorker):
         # TODO make args immutable
         init_tracking(args, primary=False, router_addr=f"http://{args.sglang_router_ip}:{args.sglang_router_port}")
         object_store.init_instance(args, contribute_segment=False)
-
-        init_http_client(args)
 
         data_source_cls = load_function(self.args.data_source_path)
         fn_args = compute_custom_function_config(args, self.args.data_source_path)
@@ -407,10 +405,10 @@ class RolloutExecutor(DedicatedRpcLoopWorker):
     # -------------------------- misc APIs -----------------------------
 
     async def _refresh_inference_runtime_mut_state(self) -> None:
-        if not self.args.starts_inference_engines:
-            return
-        controller = self._inference_controller_provider.get_handle(inference_controller_worker_name())
-        self.args.inference_runtime_mut_state.set_(await controller.get_inference_runtime_immut_state())
+        if self.args.starts_inference_engines:
+            controller = self._inference_controller_provider.get_handle(inference_controller_worker_name())
+            self.args.inference_runtime_mut_state.set_(await controller.get_inference_runtime_immut_state())
+        await refresh_http_client(self.args)
 
     def get_num_rollout_per_epoch(self) -> int:
         assert self.args.rollout_global_dataset

@@ -2,6 +2,7 @@ import asyncio
 import ipaddress
 import json
 import logging
+import math
 import mmap
 import multiprocessing
 import os
@@ -10,10 +11,18 @@ import socket
 import subprocess
 import time
 import urllib.parse
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING
 
 import aiohttp
 import httpx
 import numpy as np
+
+from miles.utils.async_utils import DynamicLimitSemaphore
+
+if TYPE_CHECKING:
+    from miles.utils.args.runtime import RolloutConfig
 
 logger = logging.getLogger(__name__)
 
@@ -200,11 +209,13 @@ class GeneralHttpClientProvider:
 # limit as an argument) once the rollout request path is reworked.
 _http_clients: dict[asyncio.AbstractEventLoop, httpx.AsyncClient] = {}
 _client_concurrency: int = 0
+_request_semaphores: dict[asyncio.AbstractEventLoop, DynamicLimitSemaphore] = {}
 
 # Optional Ray-based distributed POST dispatch
 _distributed_post_enabled: bool = False
 _post_actors: list[object] = []
 _post_actor_idx: int = 0
+_post_actor_concurrency: int = 0
 
 
 def _next_actor():
@@ -338,7 +349,12 @@ async def _post_buffer(url: str, payload: dict) -> np.ndarray:
 def init_http_client(args):
     """Initialize HTTP client and optionally enable distributed POST via Ray."""
     global _client_concurrency, _distributed_post_enabled
-    if args.inference_runtime_mut_state.engine_count == 0 and not args.eval_uses_snapshots:
+    if (
+        args.inference_runtime_mut_state.engine_count == 0
+        and args.inference_runtime_mut_state.eval_engine_count == 0
+        and not args.eval_uses_snapshots
+        and _client_concurrency == 0
+    ):
         return
 
     initial_engine_count = (
@@ -353,14 +369,37 @@ def init_http_client(args):
         _distributed_post_enabled = True
 
 
+async def refresh_http_client(args: "RolloutConfig") -> None:
+    previous_concurrency = _client_concurrency
+    init_http_client(args)
+    if _client_concurrency <= previous_concurrency:
+        return
+
+    current_loop = asyncio.get_running_loop()
+    for loop, semaphore in list(_request_semaphores.items()):
+        if loop.is_closed():
+            del _request_semaphores[loop]
+        elif loop is current_loop:
+            await semaphore.notify_limit_changed()
+        else:
+            try:
+                loop.call_soon_threadsafe(
+                    lambda semaphore=semaphore: asyncio.create_task(semaphore.notify_limit_changed())
+                )
+            except RuntimeError:
+                if not loop.is_closed():
+                    raise
+                _request_semaphores.pop(loop, None)
+
+
 def _init_ray_distributed_post(args):
     """Initialize one or more Ray async actors per node for HTTP POST.
 
     Uses NodeAffinitySchedulingStrategy to place actors on distinct nodes.
     Controlled by MILES_HTTP_POST_ACTORS_PER_NODE.
     """
-    global _post_actors
-    if _post_actors:
+    global _post_actor_concurrency
+    if _post_actors and len(_post_actors) * _post_actor_concurrency >= _client_concurrency:
         return  # Already initialized
 
     import ray
@@ -387,23 +426,25 @@ def _init_ray_distributed_post(args):
     # Create actors per node
     created = []
     # Distribute client concurrency across actors (at least 1 per actor)
-    per_actor_conc = (_client_concurrency + len(nodes)) // len(nodes)
+    if not _post_actors:
+        _post_actor_concurrency = (_client_concurrency + len(nodes)) // len(nodes)
+    per_actor_conc = _post_actor_concurrency
+    desired_count = max(len(nodes) * args.num_gpus_per_node, math.ceil(_client_concurrency / per_actor_conc))
 
-    for node in nodes:
-        node_id = node["NodeID"]
+    for index in range(len(_post_actors), desired_count):
+        node_id = nodes[index % len(nodes)]["NodeID"]
         scheduling = NodeAffinitySchedulingStrategy(node_id=node_id, soft=False)
-        for _ in range(args.num_gpus_per_node):
-            actor = _HttpPosterActor.options(
-                name=None,
-                lifetime="detached",
-                scheduling_strategy=scheduling,
-                max_concurrency=per_actor_conc,
-                # Use tiny CPU to schedule
-                num_cpus=0.001,
-            ).remote(concurrency=per_actor_conc)
-            created.append(actor)
+        actor = _HttpPosterActor.options(
+            name=None,
+            lifetime="detached",
+            scheduling_strategy=scheduling,
+            max_concurrency=per_actor_conc,
+            # Use tiny CPU to schedule
+            num_cpus=0.001,
+        ).remote(concurrency=per_actor_conc)
+        created.append(actor)
 
-    _post_actors = created
+    _post_actors.extend(created)
 
 
 def _rollout_client() -> httpx.AsyncClient:
@@ -414,7 +455,7 @@ def _rollout_client() -> httpx.AsyncClient:
     loop = asyncio.get_running_loop()
     if (client := _http_clients.get(loop)) is None:
         client = httpx.AsyncClient(
-            limits=httpx.Limits(max_connections=_client_concurrency),
+            limits=httpx.Limits(max_connections=None),
             timeout=httpx.Timeout(None),
         )
         _http_clients[loop] = client
@@ -423,22 +464,40 @@ def _rollout_client() -> httpx.AsyncClient:
 
 # TODO may generalize the name since it now contains http DELETE/GET etc (with retries and remote-execution)
 async def post(url, payload, max_retries=60, action="post", headers=None):
-    # If distributed mode is enabled and actors exist, dispatch via Ray.
-    if _distributed_post_enabled and _post_actors:
-        try:
-            actor = _next_actor()
-            if actor is not None:
-                return await actor.do_post.remote(url, payload, max_retries, action=action, headers=headers)
-        except Exception as e:
-            logger.info(f"[http_utils] Distributed POST failed, falling back to local: {e} (url={url})")
-            # fall through to local
+    async with _request_slot():
+        # If distributed mode is enabled and actors exist, dispatch via Ray.
+        if _distributed_post_enabled and _post_actors:
+            try:
+                actor = _next_actor()
+                if actor is not None:
+                    return await actor.do_post.remote(url, payload, max_retries, action=action, headers=headers)
+            except Exception as e:
+                logger.info(
+                    f"[http_utils] Distributed POST failed, falling back to local: {e} (url={url})", exc_info=True
+                )
+                # fall through to local
 
-    return await _post(_rollout_client(), url, payload, max_retries, action=action, headers=headers)
+        return await _post(_rollout_client(), url, payload, max_retries, action=action, headers=headers)
 
 
 # TODO unify w/ `post` to add retries and remote-execution
 async def get(url):
-    response = await _rollout_client().get(url)
-    response.raise_for_status()
-    output = response.json()
-    return output
+    async with _request_slot():
+        response = await _rollout_client().get(url)
+        response.raise_for_status()
+        output = response.json()
+        return output
+
+
+@asynccontextmanager
+async def _request_slot() -> AsyncIterator[None]:
+    if _client_concurrency == 0:
+        yield
+        return
+
+    loop = asyncio.get_running_loop()
+    if (semaphore := _request_semaphores.get(loop)) is None:
+        semaphore = DynamicLimitSemaphore(lambda: _client_concurrency)
+        _request_semaphores[loop] = semaphore
+    async with semaphore:
+        yield
