@@ -187,3 +187,28 @@ class TestResetMetadata:
         assert vars(parser.parse_args(["data"])) == {"path": "data", "limit": None}
         assert vars(parser.parse_args(["data", "--limit"])) == {"path": "data", "limit": 7}
         assert vars(parser.parse_args(["data", "--limit", "9"])) == {"path": "data", "limit": 9}
+
+
+@pytest.mark.parametrize("argv, expected", [([], False), (["--enable-sample-ownership-checker"], True)])
+def test_omitted_cli_default_preserves_callback_default(argv: list[str], expected: bool) -> None:
+    """A legacy omitted default preserves early callback defaults and explicit CLI overrides."""
+    from miles.utils.args.configs.debug import DebugConfig
+
+    parser = argparse.ArgumentParser()
+    parser.set_defaults(enable_sample_ownership_checker=False)
+    DebugConfig.add_arguments(parser)
+
+    assert parser.parse_args(argv).enable_sample_ownership_checker is expected
+
+
+def test_explicit_cli_default_still_overrides_early_callback() -> None:
+    """An explicitly declared None default keeps its precedence over an early callback."""
+
+    class Config(BaseConfig):
+        enabled: Annotated[bool | None, Arg(action=argparse.BooleanOptionalAction)] = None
+
+    parser = argparse.ArgumentParser()
+    parser.set_defaults(enabled=False)
+    Config.add_arguments(parser)
+
+    assert parser.parse_args([]).enabled is None

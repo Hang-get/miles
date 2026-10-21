@@ -192,6 +192,7 @@ class DebugConfig(BaseConfig):
         bool | None,
         Arg(
             action=argparse.BooleanOptionalAction,
+            omit_cli_default=True,
             help="Verify exactly one outcome for every consumed sample and every mature issued sample; "
             "CI enables this unless it is explicitly disabled. Every actor step appends one full "
             "consumption snapshot per replica to the event log, whose size therefore grows with steps "
