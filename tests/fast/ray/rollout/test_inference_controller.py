@@ -20,6 +20,7 @@ from miles.ray.rollout.rollout_server import RolloutServer
 from miles.ray.rollout.server_cell import ServerCell, ServerCellMetadata
 from miles.ray.specs.inference import InferenceEngineSpec, compute_router_pool_id
 from miles.utils.audit_utils.checksum_utils import ChecksumCollectionFailure
+from miles.utils.args.configs.scaling import ScalingConfig
 from miles.utils.context_lock import ContextLock
 from miles.utils.ft_utils.health_checker import ActivenessTracker
 from miles.utils.workers.registration.hub import RegistrationHub
@@ -763,7 +764,7 @@ class TestEngineMetaContract:
             alive=True,
             worker_names=["inference-engine-0-0-1-0"],
             workers_hash="pseudo-hash-0",
-            meta=spec.partial_static_meta.resolve(cell_index=1),
+            meta=spec.compute_static_meta(ScalingConfig(sglang_scaling=args.sglang_scaling)).resolve(cell_index=1),
         )
 
         assert _compute_server_cell_meta_from_info(info) == ServerCellMetadata(
