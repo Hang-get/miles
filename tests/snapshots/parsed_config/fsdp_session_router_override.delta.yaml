@@ -1,0 +1,11 @@
+base: fsdp
+base_sha256: 463aa2fec11aa23b88f363a3c9477f1bb2d1d409ccf8b89a6e4ef47fedb7ea4a
+edits:
+- at: 947
+  delete: 1
+  insert: |2
+      sglang_router_policy: round_robin
+- at: 1010
+  delete: 1
+  insert: |2
+      use_session_server: true
