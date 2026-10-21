@@ -5,6 +5,7 @@ from collections.abc import Callable
 from typing import Any
 
 from miles.utils.workers.argv_utils import CONFIG_JSON_FLAG, ORCHESTRATOR_CONFIG_FLAG
+from miles.utils.workers.env_vars import WORKER_METADATA_ENV_VAR
 
 _SECRET_ENV_VAR_PATTERN = re.compile(
     r"(^|_)(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|DATABASE_URL)$", re.IGNORECASE
@@ -28,10 +29,14 @@ _REDACTED_HASH_CHARS = 16
 
 
 def redact_env_vars(env_vars: dict[str, Any]) -> dict[str, Any]:
-    return {
-        name: _redact_secret_value(value) if _SECRET_ENV_VAR_PATTERN.search(name) else value
-        for name, value in sorted(env_vars.items())
-    }
+    redacted = {}
+    for name, value in sorted(env_vars.items()):
+        if name == WORKER_METADATA_ENV_VAR:
+            value = _redact_config_json(str(value))
+        elif _SECRET_ENV_VAR_PATTERN.search(name):
+            value = _redact_secret_value(value)
+        redacted[name] = value
+    return redacted
 
 
 def redact_argv(argv: list[str]) -> list[str]:
