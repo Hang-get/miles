@@ -26,6 +26,7 @@ from miles.utils.external_utils.command_utils.helm_backend.launcher.command_wrap
 from miles.utils.external_utils.command_utils.helm_backend.launcher.manifest_types import Manifest
 from miles.utils.external_utils.model_args_utils import shell_safe_model_args
 from miles.utils.pydantic_utils import FrozenStrictBaseModel
+from miles.utils.test_utils.snapshot import SNAPSHOT_RECORD_DIR_ENV_VAR
 from miles.utils.typer_utils import dataclass_from_env
 from miles.utils.workers.types import ClusterBackend, DeployComponent, HotRestartComponent, parse_hot_restart
 
@@ -433,6 +434,8 @@ def _assert_train_args_name_no_other_run_uuid(train_argv: list[str], *, run_uuid
 
 
 def _add_config_snapshot_name(train_args: str) -> str:
+    if not os.environ.get(SNAPSHOT_RECORD_DIR_ENV_VAR):
+        return train_args
     argv = shlex.split(train_args)
     if not ArgvManipulator.is_defined(argv=argv, flag="--ci-test"):
         return train_args
