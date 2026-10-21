@@ -5,6 +5,7 @@ import pickle
 import re
 import shutil
 import time
+from pathlib import Path
 
 import safetensors.torch
 import torch
@@ -199,8 +200,6 @@ if __name__ == "__main__":
     print(f"loading model from {args.input_dir}")
     t = time.time()
     megatron_args = torch.load(os.path.join(args.input_dir, "common.pt"), weights_only=False)["args"]
-    if args.origin_hf_dir:
-        megatron_args.hf_checkpoint = args.origin_hf_dir
     dist_cp.state_dict_loader._load_state_dict(
         state_dict,
         storage_reader=WrappedStorageReader(args.input_dir),
@@ -209,7 +208,10 @@ if __name__ == "__main__":
     )
     print(f"model loaded in {time.time()-t:.2f} sec.")
 
-    conversion_args = argparse.Namespace(backend=megatron_args, hf_checkpoint=args.origin_hf_dir)
+    hf_checkpoint = args.origin_hf_dir if args.origin_hf_dir is not None else vars(megatron_args).get("hf_checkpoint")
+    conversion_args = argparse.Namespace(
+        backend=megatron_args, hf_checkpoint=Path(hf_checkpoint) if hf_checkpoint is not None else None
+    )
     save_tensors(conversion_args, args.model_name, state_dict, args.output_dir, args.chunk_size, args.vocab_size)
 
     if args.origin_hf_dir:
