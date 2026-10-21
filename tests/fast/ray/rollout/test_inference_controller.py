@@ -19,8 +19,8 @@ from miles.ray.rollout.inference_controller import (
 from miles.ray.rollout.rollout_server import RolloutServer
 from miles.ray.rollout.server_cell import ServerCell, ServerCellMetadata
 from miles.ray.specs.inference import InferenceEngineSpec, compute_router_pool_id
-from miles.utils.audit_utils.checksum_utils import ChecksumCollectionFailure
 from miles.utils.args.configs.scaling import ScalingConfig
+from miles.utils.audit_utils.checksum_utils import ChecksumCollectionFailure
 from miles.utils.context_lock import ContextLock
 from miles.utils.ft_utils.health_checker import ActivenessTracker
 from miles.utils.workers.registration.hub import RegistrationHub
