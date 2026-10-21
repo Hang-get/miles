@@ -44,6 +44,20 @@ class TestServe:
         assert str(request.url) == "http://router:30000/generate"
         assert json.loads(request.content)["input_ids"] == [1, 2]
 
+    async def test_trainer_receives_tracking_ids_initialized_by_orchestration(
+        self, tinker_startup: SimpleNamespace
+    ) -> None:
+        """The trainer request captures tracking run IDs only after orchestration initializes them."""
+        assert tinker_startup.args.wandb_run_id is None
+        assert tinker_startup.args.mlflow_run_id is None
+
+        await with_disposer(serve_tinker.serve, tinker_startup.args)
+
+        assert len(tinker_startup.orchestration_calls) == 1
+        assert tinker_startup.trainer.request.wandb_run_id == "initialized-wandb-run"
+        assert tinker_startup.trainer.request.mlflow_run_id == "initialized-mlflow-run"
+        assert tinker_startup.trainer.request.ckpt_load_config.load == "base-model"
+
     async def test_topology_query_failure_disposes_the_initialized_controller(
         self, tinker_startup: SimpleNamespace
     ) -> None:
@@ -66,6 +80,7 @@ class TestServe:
         with pytest.raises(AssertionError, match="same frozen HF base"):
             await with_disposer(serve_tinker.serve, tinker_startup.args)
 
+        assert not tinker_startup.orchestration_calls
         assert not tinker_startup.controller.initialized
         assert tinker_startup.trainer.request is None
 
@@ -87,6 +102,7 @@ class TestTrainerTokenBudget:
         if rejected:
             with pytest.raises(AssertionError, match="at least one padding block"):
                 await with_disposer(serve_tinker.serve, args)
+            assert not tinker_startup.orchestration_calls
             assert not tinker_startup.controller.initialized
             assert tinker_startup.trainer.request is None
         else:

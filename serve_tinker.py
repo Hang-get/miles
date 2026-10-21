@@ -14,6 +14,7 @@ from miles.tinker.core.service import TinkerService
 from miles.tinker.core.types import GatewayConfig
 from miles.tinker.runtime import MilesBackend
 from miles.tinker.server.app import build_app
+from miles.utils.args.trainer_utils import compute_trainer_ckpt_load_config
 from miles.utils.arguments import parse_args
 from miles.utils.async_utils import Disposer, with_disposer
 from miles.utils.hf_utils.config import load_hf_config
@@ -27,11 +28,9 @@ async def serve(args, *, disposer: Disposer):
     assert args.multi_lora, "serve_tinker requires --multi-lora-n-adapters > 0"
     trainer_configs = compute_trainer_configs(args)
     [actor_config] = [config for config in trainer_configs if config.role == ACTOR_ROLE]
-    trainer_request = TrainerControllerInitRequest.from_args(args, trainer=actor_config)
-    assert trainer_request.ckpt_load_config is not None
-    assert (
-        trainer_request.ckpt_load_config.load == args.hf_checkpoint
-    ), "Tinker trainers and engines must load the same frozen HF base"
+    ckpt_load_config = compute_trainer_ckpt_load_config(args, actor_config)
+    assert ckpt_load_config is not None
+    assert ckpt_load_config.load == args.hf_checkpoint, "Tinker trainers and engines must load the same frozen HF base"
     checkpoint_root = args.tinker_checkpoint_root or (args.save and f"{args.save}/tinker")
     assert checkpoint_root, "set --tinker-checkpoint-root (or --save to derive <save>/tinker)"
     hf_config = load_hf_config(args.hf_checkpoint).get_text_config()
@@ -47,6 +46,12 @@ async def serve(args, *, disposer: Disposer):
         max_tokens_per_datum = min(max_tokens_per_datum, trainer_token_limit)
     assert max_tokens_per_datum > 0, "trainer token budget must fit at least one padding block"
     capability = init_orchestration_script(ArgvOrchestratorStartupInfo.create(args), disposer=disposer)
+    trainer_request = TrainerControllerInitRequest(
+        num_rollout=args.num_rollout,
+        wandb_run_id=args.wandb_run_id,
+        mlflow_run_id=args.mlflow_run_id,
+        ckpt_load_config=ckpt_load_config,
+    )
 
     await resolve_router_addrs(args, router_providers=compute_router_providers(args, capability=capability))
     inference_controller = create_inference_controller_handle(capability=capability)
