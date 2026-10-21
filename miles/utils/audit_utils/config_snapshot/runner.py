@@ -8,7 +8,7 @@ import yaml
 
 from miles.utils.audit_utils.config_snapshot.compact_codec import ConfigSnapshotBases
 from miles.utils.audit_utils.config_snapshot.converter import ConfigSnapshotConverter
-from miles.utils.audit_utils.config_snapshot.models import ConfigSnapshotTestAttempt
+from miles.utils.audit_utils.config_snapshot.models import ConfigSnapshotTestAttempt, ConfigSnapshotVariant
 from miles.utils.audit_utils.config_snapshot.serialization import dump_config_snapshot
 from miles.utils.audit_utils.config_snapshot.storage import ConfigSnapshotStorage
 from miles.utils.file_utils import atomic_write_text
@@ -29,6 +29,7 @@ class ConfigSnapshotMismatch(AssertionError):
 @dataclass(frozen=True)
 class ConfigSnapshotTestRunner:
     test: str
+    variant: ConfigSnapshotVariant
     directory: Path
     storage: ConfigSnapshotStorage
     golden: Path
@@ -39,16 +40,17 @@ class ConfigSnapshotTestRunner:
         return self.storage.directory
 
     @classmethod
-    def create(cls, *, test: str, repo_root: Path) -> "ConfigSnapshotTestRunner":
+    def create(cls, *, test: str, repo_root: Path, variant: ConfigSnapshotVariant) -> "ConfigSnapshotTestRunner":
         if not (record_directory := os.environ.get(SNAPSHOT_RECORD_DIR_ENV_VAR)):
             raise ValueError(f"{SNAPSHOT_RECORD_DIR_ENV_VAR} is required for configuration snapshots")
         root = Path(record_directory).resolve()
         directory = root / Path(test).stem / uuid.uuid4().hex
         attempt = cls(
             test=test,
+            variant=variant,
             directory=directory,
             storage=ConfigSnapshotStorage(directory=directory / "records"),
-            golden=cls.golden_path(test=test, repo_root=repo_root),
+            golden=cls.golden_path(test=test, repo_root=repo_root, variant=variant),
             bases=repo_root.resolve() / SNAPSHOT_DIRECTORY / "runtime_config/base.yaml",
         )
         attempt.record_directory.mkdir(parents=True)
@@ -84,14 +86,16 @@ class ConfigSnapshotTestRunner:
             raise ConfigSnapshotMismatch(str(error)) from error
 
     @staticmethod
-    def golden_path(*, test: str, repo_root: Path) -> Path:
+    def golden_path(*, test: str, repo_root: Path, variant: ConfigSnapshotVariant) -> Path:
         root = repo_root.resolve()
         relative = Path(test)
         if relative.is_absolute():
             relative = relative.relative_to(root)
         if ".." in relative.parts:
             raise ValueError(f"Test path must stay within the repository: {test}")
-        target = (root / SNAPSHOT_DIRECTORY / "runtime_config" / relative.with_suffix(".yaml")).resolve()
+        target = (
+            root / SNAPSHOT_DIRECTORY / "runtime_config/variants" / variant.to_key() / relative.with_suffix(".yaml")
+        ).resolve()
         if not target.is_relative_to(root / SNAPSHOT_DIRECTORY / "runtime_config"):
             raise ValueError(f"Snapshot target must stay within the snapshot directory: {target}")
         return target
@@ -100,5 +104,7 @@ class ConfigSnapshotTestRunner:
         self.directory.mkdir(parents=True, exist_ok=True)
         atomic_write_text(
             path=self.directory / "attempt.json",
-            text=ConfigSnapshotTestAttempt(test=self.test, completed=completed).model_dump_json(),
+            text=ConfigSnapshotTestAttempt(
+                test=self.test, variant=self.variant, completed=completed
+            ).model_dump_json(),
         )
