@@ -737,12 +737,14 @@ class TestDebugRolloutData:
 
 @pytest.mark.asyncio
 class TestLegacyRolloutProtocol:
-    async def test_train_generation_keeps_the_legacy_call_signature(self, ray_local_mode, patch_low_level):
-        """Without the experimental flag the train fn is still called as (args, rollout_id, data_source)."""
+    async def test_train_generation_keeps_the_legacy_call_signature(
+        self, ray_local_mode, patch_low_level, monkeypatch
+    ):
+        """Legacy training retains its call signature and configuration identity across rollouts."""
         args = _make_test_args(global_batch_size=4)
+        monkeypatch.setenv("MILES_USE_LEGACY_ROLLOUT_V1", "1")
 
         executor = await _make_executor(args)
-        executor.use_legacy_rollout_v1 = True
         executor.data_source = SimpleNamespace()
         executor.set_train_parallel_config(make_train_parallel_config(dp_size=1))
         calls: list[tuple] = []
@@ -754,18 +756,21 @@ class TestLegacyRolloutProtocol:
         executor.generate_rollout = legacy_rollout_fn
 
         await executor.get(rollout_id=11)
+        executor.set_weight_version(12)
+        await executor.get(rollout_id=12)
 
+        assert calls[0][0] is calls[1][0]
         fn_args = _compute_rollout_function_config(args, args.rollout_function_path)
-        assert calls == [(fn_args, 11, executor.data_source, False)]
+        assert calls == [(fn_args, 11, executor.data_source, False), (fn_args, 12, executor.data_source, False)]
 
     async def test_eval_keeps_the_legacy_call_signature_with_the_evaluation_flag(
-        self, ray_local_mode, patch_low_level
+        self, ray_local_mode, patch_low_level, monkeypatch
     ):
-        """Without the experimental flag eval uses the same legacy protocol, flagged as evaluation."""
+        """Legacy evaluation reuses its configuration identity across calls."""
         args = _make_test_args()
+        monkeypatch.setenv("MILES_USE_LEGACY_ROLLOUT_V1", "1")
 
         executor = await _make_executor(args)
-        executor.use_legacy_rollout_v1 = True
         executor.data_source = SimpleNamespace()
         calls: list[tuple] = []
 
@@ -776,9 +781,11 @@ class TestLegacyRolloutProtocol:
         executor.eval_generate_rollout = legacy_eval_fn
 
         await executor.eval(rollout_id=12)
+        await executor.eval(rollout_id=13)
 
+        assert calls[0][0] is calls[1][0]
         fn_args = _compute_rollout_function_config(args, args.eval_function_path)
-        assert calls == [(fn_args, 12, executor.data_source, True)]
+        assert calls == [(fn_args, 12, executor.data_source, True), (fn_args, 13, executor.data_source, True)]
 
 
 class _RecordingMetricChecker:
