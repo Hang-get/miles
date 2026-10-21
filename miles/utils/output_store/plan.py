@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any
 import msgspec
 import numpy as np
 
-from miles.utils.output_store.fields import DenseForwardField, FieldDef, SamplingMaskField, Stored
+from miles.utils.output_store.fields import FieldDef, IndexerTopkField, RoutedExpertsField, SamplingMaskField, Stored
 from miles.utils.output_store.rows import Rows, Seg, SeqRows, StorePlanError
 
 if TYPE_CHECKING:
@@ -129,21 +129,19 @@ def is_no_output_abort(meta_info: Mapping[str, Any], *, aborted: bool, num_outpu
 
 # Adding a stored dtype = adding it to store_dtypes; train_dtype is the training column's contract.
 FIELDS: tuple[FieldDef, ...] = (
-    DenseForwardField(
+    RoutedExpertsField(
         name=ROUTED_EXPERTS,
         stored=(Stored(ROUTED_EXPERTS, ("int32",), np.int32),),
         request_key="return_routed_experts",
         required_by="use_rollout_routing_replay",
         column="rollout_routed_experts",
-        check_nonzero=True,
     ),
-    DenseForwardField(
+    IndexerTopkField(
         name=INDEXER_TOPK,
         stored=(Stored(INDEXER_TOPK, ("int32",), np.int32),),
         request_key="return_indexer_topk",
         required_by="use_rollout_indexer_replay",
         column="rollout_indexer_topk",
-        num_streams_arg="rollout_indexer_topk_num_streams",
     ),
     SamplingMaskField(
         name=SAMPLING_MASK,

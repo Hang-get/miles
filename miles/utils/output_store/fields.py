@@ -23,8 +23,8 @@ import numpy as np
 import torch
 
 from miles.utils.output_store.materialize import (
+    StoreExecError,
     check_csr_objects,
-    check_nonzero_objects,
     check_support,
     compact_candidates,
     expand_rows,
@@ -77,39 +77,52 @@ class FieldDef:
 
 @dataclass(frozen=True, kw_only=True)
 class DenseForwardField(FieldDef):
-    """A forward field stored dense, a row per forward position (R3, indexer top-k); never forced."""
+    """A forward field stored dense, a row per forward position; never forced."""
 
     kind: ClassVar[type[Rows]] = SeqRows
     column: str
-    # R3 only, as on the inline path: an all-zero object means the engine skipped routed-expert
-    # capture (e.g. the flashinfer_trtllm MoE runner).
-    check_nonzero: bool = False
-    # The arg fixing a row's dim 1, when the model does (indexer streams).
-    num_streams_arg: str | None = None
 
     def materialize(
         self, args: Namespace, rollout_data: Mapping[str, Any], objects: Objects, segments: Segments
     ) -> dict[str, list]:
         (stored,) = self.stored
-        self._check_streams(args, objects)
+        for key, arrays in objects.items():
+            self._check_object(args, key, arrays[stored.name])
         values, obj_row_offsets = _stack(objects, stored)
-        if self.check_nonzero:
-            check_nonzero_objects(values, obj_row_offsets)
         index = expand_rows(*segments, obj_row_offsets)
         # No fill: a forced row has no source, which the gather rejects.
         rows = gather_dense_rows(values, index.source, out_dtype=np.dtype(stored.train_dtype))
         return {self.column: _split(rows, index.sample_row_offsets)}
 
-    def _check_streams(self, args: Namespace, objects: Objects) -> None:
-        expected = getattr(args, self.num_streams_arg, None) if self.num_streams_arg else None
-        if expected is None:
-            return
-        for key, arrays in objects.items():
-            if (streams := arrays[self.stored[0].name].shape[1]) != expected:
-                raise ValueError(
-                    f"output store object {key} has {self.name} with {streams} streams but the model has "
-                    f"{expected} indexer layers; replaying it would map streams to the wrong layers."
-                )
+    def _check_object(self, args: Namespace, key: str, values: np.ndarray) -> None:
+        """The field's checks of one used object's array."""
+
+
+@dataclass(frozen=True, kw_only=True)
+class RoutedExpertsField(DenseForwardField):
+    """R3: ``[rows, layers, topk]`` routed experts."""
+
+    def _check_object(self, args: Namespace, key: str, values: np.ndarray) -> None:
+        # As on the inline path: an all-zero object means the engine skipped routed-expert capture.
+        if len(values) and not values.any():
+            raise StoreExecError(
+                f"routed_experts payload is all zeros: the sglang engine did not capture routed experts "
+                f"(topk-bypassing --moe-runner-backend such as flashinfer_trtllm?); output store object {key}"
+            )
+
+
+@dataclass(frozen=True, kw_only=True)
+class IndexerTopkField(DenseForwardField):
+    """Indexer top-k: ``[rows, streams, topk]``, a stream per DSA indexer layer."""
+
+    def _check_object(self, args: Namespace, key: str, values: np.ndarray) -> None:
+        # As on the inline path: streams map to the model's indexer layers by position.
+        expected = getattr(args, "rollout_indexer_topk_num_streams", None)
+        if expected is not None and values.shape[1] != expected:
+            raise ValueError(
+                f"output store object {key} has {self.name} with {values.shape[1]} streams but the model has "
+                f"{expected} indexer layers; replaying it would map streams to the wrong layers."
+            )
 
 
 @dataclass(frozen=True, kw_only=True)

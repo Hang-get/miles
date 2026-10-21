@@ -128,19 +128,6 @@ def check_csr_objects(lengths: np.ndarray, obj_row_offsets: np.ndarray, value_of
         raise StoreExecError("an object's sampling support lengths do not sum to its entry count")
 
 
-def check_nonzero_objects(values: np.ndarray, obj_row_offsets: np.ndarray) -> None:
-    """Every object with rows has a nonzero value; an all-zero one was never captured by the engine."""
-    nonzero_rows = (values.reshape(len(values), -1) != 0).any(axis=1)
-    counts = np.zeros(len(values) + 1, dtype=np.int64)
-    np.cumsum(nonzero_rows, out=counts[1:])
-    empty = (np.diff(obj_row_offsets) > 0) & (counts[obj_row_offsets[1:]] == counts[obj_row_offsets[:-1]])
-    if empty.any():
-        raise StoreExecError(
-            "routed_experts payload is all zeros: the sglang engine did not capture routed experts "
-            f"(topk-bypassing --moe-runner-backend such as flashinfer_trtllm?); object {int(np.argmax(empty))}"
-        )
-
-
 def check_support(ids: np.ndarray, row_offsets: np.ndarray, sampled_tokens: np.ndarray, *, exactly_once: bool) -> None:
     """Every support is non-empty and holds its sampled token (exactly once in support mode)."""
     row_lengths = np.diff(row_offsets)

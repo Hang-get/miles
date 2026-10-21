@@ -6,7 +6,6 @@ import pytest
 from miles.utils.output_store.materialize import (
     StoreExecError,
     check_csr_objects,
-    check_nonzero_objects,
     check_support,
     compact_candidates,
     expand_rows,
@@ -136,13 +135,6 @@ class TestSupportChecks:
             check_support(np.asarray([5, 6, 7, 8, 8]), offsets, np.asarray([6, 7, 8]), exactly_once=True)
         with pytest.raises(StoreExecError, match="at least one token.*row=1"):
             check_support(ids[:2], np.asarray([0, 2, 2]), np.asarray([5, 1]), exactly_once=False)
-
-    def test_all_zero_objects_are_rejected(self):
-        values = np.zeros((5, 1, 2), dtype=np.int32)
-        values[1, 0, 1] = 3
-        check_nonzero_objects(values[:2], np.asarray([0, 2, 2]))
-        with pytest.raises(StoreExecError, match="all zeros.*object 2"):
-            check_nonzero_objects(values, np.asarray([0, 2, 2, 5]))
 
 
 class TestSupportTopk:
