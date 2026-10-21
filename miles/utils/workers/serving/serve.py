@@ -4,6 +4,7 @@ import os
 import sys
 
 from miles.ray.specs.entrypoint import SERVE_SPEC_CLASSES
+from miles.utils.args.schema import validate_complete_config
 from miles.utils.workers.argv_utils import python_argv_prefix
 from miles.utils.workers.env_vars import PLATFORM_IDENTITY_ENV_VARS
 from miles.utils.workers.serving.utils import parse_own_args, parse_serve_worker_config
@@ -18,7 +19,9 @@ def main() -> None:
 
     worker_config = parse_serve_worker_config(own_args.config)
     spec_class = SERVE_SPEC_CLASSES[worker_config.worker_type]
-    spec = spec_class.create(spec_class.config_class.model_validate(worker_config.args))
+    spec = spec_class.create(
+        validate_complete_config(config_class=spec_class.config_class, payload=worker_config.args)
+    )
     identity = read_worker_identity(os.environ)
     env_vars = spec.env_var(
         WorkerLaunchContext(
