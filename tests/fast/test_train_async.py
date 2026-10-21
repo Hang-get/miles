@@ -277,9 +277,9 @@ class TestTerminalLifecycle:
 
         if audit_fails:
             with pytest.raises(RuntimeError, match="audit failed"):
-                await with_disposer(train_async_driver.train, args)
+                await with_disposer(train_async_driver.train, _startup_info(args))
         else:
-            await with_disposer(train_async_driver.train, args)
+            await with_disposer(train_async_driver.train, _startup_info(args))
 
         assert events.count("audit") == 1
         assert events.index("audit") < events.index("api_closed") < events.index("actor_dispose")
@@ -291,12 +291,12 @@ class TestTerminalLifecycle:
         args = _make_args()
         _install_driver_fakes(monkeypatch, args, events)
 
-        async def fail_creation(*args: Any) -> None:
+        async def fail_creation(*args: Any, handles: dict[str, FakeTrainingModel]) -> None:
             raise RuntimeError("model creation failed")
 
         monkeypatch.setattr(train_async_driver, "create_training_models", fail_creation)
         with pytest.raises(RuntimeError, match="model creation failed"):
-            await with_disposer(train_async_driver.train, args)
+            await with_disposer(train_async_driver.train, _startup_info(args))
 
         assert events == ["executor_dispose", "inference_dispose"]
 
