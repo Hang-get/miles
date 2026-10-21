@@ -78,6 +78,7 @@ def _make_launch_context(**overrides) -> WorkerLaunchContext:
 def _make_launch_command_context(**overrides) -> LaunchCommandContext:
     kwargs = dict(
         args=None,
+        scaling=_make_scaling(),
         cell_index=0,
         worker_in_cell_index=0,
         num_workers_per_cell=1,
