@@ -47,11 +47,16 @@ def compute_trainer_ckpt_load_config(
 ) -> MegatronCkptLoadConfig | None:
     if all_config.train_backend != "megatron":
         return None
-    args = copy.deepcopy(Namespace(**(dict(all_config) | all_config.raw_megatron.base_args | trainer.overrides)))
+    single_policy_critic = trainer.role == CRITIC_ROLE and trainer.model_id is None
+    overrides = {} if single_policy_critic else trainer.overrides
+    args = copy.deepcopy(Namespace(**(dict(all_config) | all_config.raw_megatron.base_args | overrides)))
     if trainer.model_id is not None:
         args.load = compute_trainer_checkpoint_dir(base_dir=args.load, trainer_id=trainer.trainer_id)
 
     resume_from_ckpt = resolve_args_checkpoint_load(args)
+    if single_policy_critic and all_config.critic_load is not None:
+        args.load = all_config.critic_load
+
     return MegatronCkptLoadConfig(
         load=args.load,
         resume_from_ckpt=resume_from_ckpt,

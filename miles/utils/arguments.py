@@ -1207,7 +1207,7 @@ def miles_validate_args(args):
         )
         args.critic_num_gpus_per_node = args.actor_num_gpus_per_node
         args.critic_num_nodes = args.actor_num_nodes
-    if args.critic_load is None:
+    if args.critic_load is None and (args.train_backend != "megatron" or args.megatron_config is not None):
         args.critic_load = args.load
     if args.critic_lr is None:
         args.critic_lr = args.lr

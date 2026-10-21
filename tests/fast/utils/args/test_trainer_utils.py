@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import pytest
-from tests.fast.fixtures.args_fixtures import parse_megatron_test_config
+from tests.fast.fixtures.args_fixtures import parse_fsdp_test_config, parse_megatron_test_config
 from tests.fast.fixtures.megatron_config_fixtures import encode_megatron_config
 
 from miles.backends.megatron_utils.megatron_config import MegatronArgsNamespace
@@ -65,3 +65,105 @@ class TestOrchestratorCheckpointRequests:
         assert orchestrator.requested_load == "/run"
         assert "requested_load" not in trainer.model_dump()
         assert "requested_load" not in vars(trainer.backend)
+
+
+class TestSinglePolicyCriticCheckpointRequests:
+    @pytest.mark.parametrize("critic_source", ["unset", "hf", "tracked", "same_as_actor"])
+    def test_fresh_actor_controls_flags_without_replacing_explicit_critic_weights(
+        self, tmp_path: Path, critic_source: str
+    ) -> None:
+        """Fresh PPO keeps explicit critic weights while inheriting the actor's fresh-load flags."""
+        actor = tmp_path / "actor"
+        reference = tmp_path / "reference"
+        critic = actor if critic_source == "same_as_actor" else tmp_path / "critic"
+        critic.mkdir()
+        if critic_source == "tracked":
+            (critic / "latest_checkpointed_iteration.txt").write_text("7")
+        extra = [] if critic_source == "unset" else ["--critic-load", str(critic)]
+        args = parse_megatron_test_config(
+            "--advantage-estimator", "ppo", "--load", str(actor), "--ref-load", str(reference), *extra
+        )
+        orchestrator = OrchestratorConfig.slice_from(args)
+        [actor_config, critic_config] = args.raw_megatron.trainers
+        before = orchestrator.model_dump(mode="python")
+
+        actor_request = compute_trainer_ckpt_load_config(orchestrator, actor_config)
+        critic_request = compute_trainer_ckpt_load_config(orchestrator, critic_config)
+
+        assert actor_request.load == str(reference)
+        assert critic_request.load == str(reference if critic_source == "unset" else critic)
+        assert critic_request.resume_from_ckpt is False
+        assert critic_request.finetune is True
+        assert critic_request.no_load_optim is True
+        assert critic_request.no_load_rng is True
+        assert critic_request.model_dump(exclude={"load"}) == actor_request.model_dump(exclude={"load"})
+        assert orchestrator.model_dump(mode="python") == before
+        assert args.critic_load == (None if critic_source == "unset" else str(critic))
+        trainer = compute_trainer_config(args, critic_config)
+        assert not {"load", "finetune", "no_load_optim", "no_load_rng", "ckpt_step"} & vars(trainer.backend).keys()
+
+    def test_resuming_actor_keeps_critic_checkpoint_and_optimizer_restore_flags(self, tmp_path: Path) -> None:
+        """A normal PPO resume preserves each checkpoint path and the actor's optimizer restore policy."""
+        actor = tmp_path / "actor"
+        critic = tmp_path / "critic"
+        for directory in (actor, critic):
+            directory.mkdir()
+            (directory / "latest_checkpointed_iteration.txt").write_text("7")
+        args = parse_megatron_test_config(
+            "--advantage-estimator", "ppo", "--load", str(actor), "--critic-load", str(critic)
+        )
+        [actor_config, critic_config] = args.raw_megatron.trainers
+
+        actor_request = compute_trainer_ckpt_load_config(args, actor_config)
+        critic_request = compute_trainer_ckpt_load_config(args, critic_config)
+
+        assert actor_request.load == str(actor)
+        assert critic_request.load == str(critic)
+        assert critic_request.resume_from_ckpt is True
+        assert not critic_request.finetune
+        assert not critic_request.no_load_optim
+        assert not critic_request.no_load_rng
+        assert critic_request.model_dump(exclude={"load"}) == actor_request.model_dump(exclude={"load"})
+
+    def test_named_critic_still_resolves_its_own_checkpoint_independently(self, tmp_path: Path) -> None:
+        """Named trainer checkpoint namespaces retain their existing per-trainer resolution."""
+        critic = tmp_path / "critic"
+        directory = critic / "trainers" / "policy-critic"
+        directory.mkdir(parents=True)
+        (directory / "latest_checkpointed_iteration.txt").write_text("7")
+        args = parse_megatron_test_config(
+            "--advantage-estimator",
+            "ppo",
+            "--megatron-config",
+            encode_megatron_config("policy"),
+            "--load",
+            str(tmp_path / "actor"),
+            "--ref-load",
+            str(tmp_path / "reference"),
+            "--critic-load",
+            str(critic),
+        )
+        [actor_config, critic_config] = args.raw_megatron.trainers
+
+        actor_request = compute_trainer_ckpt_load_config(args, actor_config)
+        critic_request = compute_trainer_ckpt_load_config(args, critic_config)
+
+        assert actor_request.resume_from_ckpt is False
+        assert critic_request.resume_from_ckpt is True
+        assert critic_request.load == str(directory)
+
+
+class TestCriticLoadDefaultBoundaries:
+    def test_non_megatron_default_still_uses_the_resolved_actor_source(self, tmp_path: Path) -> None:
+        """Non-Megatron parsing keeps its existing eager critic default."""
+        reference = str(tmp_path / "reference")
+        args = parse_fsdp_test_config("--load", str(tmp_path / "missing"), "--ref-load", reference)
+
+        assert args.critic_load == reference
+
+    def test_named_megatron_default_still_uses_the_requested_actor_source(self, tmp_path: Path) -> None:
+        """Named trainer parsing retains its existing critic default and directory resolution."""
+        actor = str(tmp_path / "actor")
+        args = parse_megatron_test_config("--megatron-config", encode_megatron_config("policy"), "--load", actor)
+
+        assert args.critic_load == actor

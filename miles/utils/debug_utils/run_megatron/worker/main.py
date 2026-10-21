@@ -164,8 +164,6 @@ def _parse_args() -> _WorkerInputs:
     assert args.actor_num_gpus_per_node == local_world_size
     if script_args.role == "critic":
         assert args.advantage_estimator == "ppo", "Standalone critic requires PPO configuration"
-        if script_args.ref_load is not None:
-            assert Path(args.critic_load) == script_args.ref_load
 
     trainers = [trainer for trainer in args.raw_megatron.trainers if trainer.role == script_args.role]
     assert len(trainers) == 1, "Standalone Megatron requires exactly one trainer for the requested role"
@@ -174,6 +172,8 @@ def _parse_args() -> _WorkerInputs:
     assert not trainer_args.offload_train
     ckpt_load_config = compute_trainer_ckpt_load_config(args, trainers[0])
     assert ckpt_load_config is not None
+    if script_args.role == "critic" and script_args.ref_load is not None:
+        assert Path(ckpt_load_config.load) == script_args.ref_load
     return _WorkerInputs(trainer=trainer_args, script=script_args, ckpt_load_config=ckpt_load_config)
 
 
