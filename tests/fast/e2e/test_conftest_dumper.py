@@ -38,7 +38,7 @@ class TestDumperSourceInjection:
     ) -> None:
         """The injected dump reads the installed plan API and retains pending reductions."""
         plan = StagePlan.__new__(StagePlan)
-        monkeypatch.setattr(plan, "_batch_steps", lambda batch: SimpleNamespace(output=SimpleNamespace(group=group)))
+        monkeypatch.setattr(plan, "path_for", lambda batch: SimpleNamespace(output=SimpleNamespace(group=group)))
         config = PatchConfig.model_validate(yaml.safe_load(SGLANG_SOURCE_PATCHER_CONFIG_YAML))
         patch = next(p for p in config.patches if p.target.endswith("Qwen3MoeDecoderLayer.forward"))
         edit = next(e for e in patch.edits if e.match == "hidden_states = self.mlp(hidden_states, forward_batch)")
