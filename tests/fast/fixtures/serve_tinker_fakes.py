@@ -19,6 +19,7 @@ async def tinker_startup(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[Simpl
     controller = _InferenceController()
     trainer = _Trainer()
     requests: list[httpx.Request] = []
+    orchestration_calls: list[object] = []
     args = ConfigNamespace(
         train_backend="megatron",
         megatron_to_hf_mode="bridge",
@@ -62,7 +63,14 @@ async def tinker_startup(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[Simpl
     actor_config = SimpleNamespace(role=serve_tinker.ACTOR_ROLE, trainer_id="actor", overrides={}, model_id=None)
     monkeypatch.setattr(serve_tinker, "load_hf_config", lambda _: SimpleNamespace(get_text_config=lambda: hf_config))
     monkeypatch.setattr(serve_tinker.ArgvOrchestratorStartupInfo, "create", lambda _: object())
-    monkeypatch.setattr(serve_tinker, "init_orchestration_script", lambda _, *, disposer: object())
+
+    def init_orchestration(startup_info: object, *, disposer: object) -> object:
+        orchestration_calls.append(startup_info)
+        args.wandb_run_id = "initialized-wandb-run"
+        args.mlflow_run_id = "initialized-mlflow-run"
+        return object()
+
+    monkeypatch.setattr(serve_tinker, "init_orchestration_script", init_orchestration)
     monkeypatch.setattr(serve_tinker, "compute_router_providers", lambda _, *, capability: [])
     monkeypatch.setattr(serve_tinker, "resolve_router_addrs", _resolve_router_addrs)
     monkeypatch.setattr(serve_tinker, "create_inference_controller_handle", lambda *, capability: controller)
@@ -84,7 +92,13 @@ async def tinker_startup(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[Simpl
         http_utils.httpx, "AsyncClient", partial(httpx.AsyncClient, transport=httpx.MockTransport(respond))
     )
     try:
-        yield SimpleNamespace(args=args, controller=controller, trainer=trainer, requests=requests)
+        yield SimpleNamespace(
+            args=args,
+            controller=controller,
+            trainer=trainer,
+            requests=requests,
+            orchestration_calls=orchestration_calls,
+        )
     finally:
         for client in http_utils._http_clients.values():
             await client.aclose()
