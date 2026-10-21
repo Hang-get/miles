@@ -105,3 +105,24 @@ class TestSnapshotAttemptLifecycle:
 
         with pytest.raises(ValueError, match="within the snapshot directory"):
             ConfigSnapshotTestRunner.golden_path(test="escaped/test.py", repo_root=root)
+
+
+class TestMissingSnapshotEvidence:
+    @pytest.mark.parametrize("update", [False, True])
+    def test_existing_golden_requires_records_even_in_update_mode(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, update: bool
+    ) -> None:
+        """A successful child cannot bypass an existing golden by emitting no configuration records."""
+        monkeypatch.setenv(SNAPSHOT_RECORD_DIR_ENV_VAR, str(tmp_path / "records"))
+        if update:
+            monkeypatch.setenv(SNAPSHOT_UPDATE_ENV_VAR, "1")
+        else:
+            monkeypatch.delenv(SNAPSHOT_UPDATE_ENV_VAR, raising=False)
+        runner = ConfigSnapshotTestRunner.create(test="tests/e2e/test_example.py", repo_root=tmp_path)
+        runner.golden.parent.mkdir(parents=True)
+        runner.golden.write_text("preserve existing golden")
+
+        with pytest.raises(ConfigSnapshotMismatch, match="No configuration snapshots were recorded"):
+            runner.finish(returncode=0)
+
+        assert runner.golden.read_text() == "preserve existing golden"
