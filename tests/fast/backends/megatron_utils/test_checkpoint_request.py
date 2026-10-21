@@ -138,3 +138,23 @@ class TestCheckpointLoadScope:
                 vars(args)["requested_load"] = "unexpected"
 
         assert not {"load", "finetune", "no_load_optim", "no_load_rng", "ckpt_step"} & vars(args).keys()
+
+
+class TestBridgeReferenceInitialization:
+    def test_reference_checkpoint_does_not_claim_resume_from_the_new_destination(self, tmp_path: Path) -> None:
+        """A bridge reference checkpoint supplies weights without restoring a new run's rollout state."""
+        reference = tmp_path / "reference"
+        reference.mkdir()
+        (reference / "latest_checkpointed_iteration.txt").write_text("100")
+        destination = tmp_path / "new-run"
+        args = parse_megatron_test_config(
+            "--megatron-to-hf-mode", "bridge", "--load", str(destination), "--ref-load", str(reference)
+        )
+        [trainer] = args.raw_megatron.trainers
+
+        request = compute_trainer_ckpt_load_config(args, trainer)
+
+        assert request.load == str(reference)
+        assert request.resume_from_ckpt is False
+        assert args.load == str(destination)
+        assert args.start_rollout_id is None

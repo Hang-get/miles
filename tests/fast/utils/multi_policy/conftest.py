@@ -32,6 +32,7 @@ class _LoadingTrainer:
                 opt_param_scheduler=None,
                 role="actor",
                 checkpointing_context=None,
+                resume_from_ckpt=request.ckpt_load_config.resume_from_ckpt,
             )
         return [result.start_rollout_id]
 

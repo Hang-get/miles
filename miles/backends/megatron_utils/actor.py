@@ -235,7 +235,9 @@ class MegatronTrainRayActor(TrainRayActor):
         if role == "critic":
             with ckpt_load_config.apply(args.backend):
                 load_output = self._load_state_core(
-                    checkpointing_context=checkpointing_context, overrider_for_loading={}
+                    checkpointing_context=checkpointing_context,
+                    overrider_for_loading={},
+                    resume_from_ckpt=ckpt_load_config.resume_from_ckpt,
                 )
             if self.args.offload_train:
                 self.sleep()
@@ -256,7 +258,11 @@ class MegatronTrainRayActor(TrainRayActor):
                 self.args.backend.vocab_size = self.tokenizer.vocab_size
 
         with ckpt_load_config.apply(args.backend):
-            load_output = self._load_state_core(checkpointing_context=checkpointing_context, overrider_for_loading={})
+            load_output = self._load_state_core(
+                checkpointing_context=checkpointing_context,
+                overrider_for_loading={},
+                resume_from_ckpt=ckpt_load_config.resume_from_ckpt,
+            )
 
         self._init_training_state()
 
@@ -396,6 +402,7 @@ class MegatronTrainRayActor(TrainRayActor):
             load_output = self._load_state_core(
                 checkpointing_context=None,
                 overrider_for_loading=overrider_for_loading,
+                resume_from_ckpt=resume_from_ckpt,
             )
         self._last_rollout_id = None
 
@@ -404,7 +411,7 @@ class MegatronTrainRayActor(TrainRayActor):
         return load_output.start_rollout_id
 
     def _load_state_core(
-        self, *, checkpointing_context: dict | None, overrider_for_loading: dict[str, object]
+        self, *, checkpointing_context: dict | None, overrider_for_loading: dict[str, object], resume_from_ckpt: bool
     ) -> LoadCheckpointOutput:
         with self.args.backend.mutable(), inplace_modify_args(self.args.backend, overrider_for_loading):
             load_output = load_model_state(
@@ -414,6 +421,7 @@ class MegatronTrainRayActor(TrainRayActor):
                 opt_param_scheduler=self.opt_param_scheduler,
                 role=self.role,
                 checkpointing_context=checkpointing_context,
+                resume_from_ckpt=resume_from_ckpt,
             )
 
         if self.role != "critic":
