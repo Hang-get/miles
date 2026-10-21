@@ -14,7 +14,11 @@ from miles.ray.rollout import rollout_executor as rollout_executor_module
 from miles.ray.rollout.eval_fleet import EvalFleetInfo, EvalFleetPin
 from miles.ray.rollout.output_snapshotter import _RolloutExecutorOutputSnapshotter
 from miles.ray.rollout.rollout_data_conversion import postprocess_rollout_data
-from miles.ray.rollout.rollout_executor import RolloutExecutor, compute_rollout_checkpoint_dir
+from miles.ray.rollout.rollout_executor import (
+    RolloutExecutor,
+    _compute_rollout_function_config,
+    compute_rollout_checkpoint_dir,
+)
 from miles.rollout.base_types import (
     BaseRolloutFn,
     RolloutFnConstructorInput,
@@ -308,6 +312,9 @@ def _make_executor(tmp_path: Path, rollout_fn: _CountingRolloutFn) -> RolloutExe
     executor = RolloutExecutor.__new__(RolloutExecutor)
     executor.args = _make_runtime_args(load=str(tmp_path), save=str(tmp_path))
     executor.use_legacy_rollout_v1 = True
+    hook_config = make_rollout_config(save=str(tmp_path))
+    executor._legacy_rollout_args = _compute_rollout_function_config(hook_config, hook_config.rollout_function_path)
+    executor._legacy_eval_args = _compute_rollout_function_config(hook_config, hook_config.eval_function_path)
     executor.generate_rollout = rollout_fn
     executor.eval_generate_rollout = rollout_fn
     executor.data_source = _FakeDataSource(tmp_path)

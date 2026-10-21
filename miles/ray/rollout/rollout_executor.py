@@ -135,6 +135,8 @@ class RolloutExecutor(DedicatedRpcLoopWorker):
                     eval_input = RolloutFnConstructorInput(args=fn_args, data_source=self.data_source)
                     self.eval_generate_rollout = load_rollout_function(eval_input, self.args.eval_function_path)
         else:
+            self._legacy_rollout_args = _compute_rollout_function_config(args, self.args.rollout_function_path)
+            self._legacy_eval_args = _compute_rollout_function_config(args, self.args.eval_function_path)
             self.generate_rollout = load_function(self.args.rollout_function_path)
             self.eval_generate_rollout = load_function(self.args.eval_function_path)
         self.custom_reward_post_process_func = None
@@ -261,11 +263,10 @@ class RolloutExecutor(DedicatedRpcLoopWorker):
             if not self.use_legacy_rollout_v1:
                 result = await maybe_await(self.eval_generate_rollout(RolloutFnEvalInput(rollout_id=rollout_id)))
             else:
-                fn_args = _compute_rollout_function_config(self.args, self.args.eval_function_path)
                 result = await asyncio.to_thread(
                     call_rollout_fn,
                     self.eval_generate_rollout,
-                    fn_args,
+                    self._legacy_eval_args,
                     rollout_id,
                     self.data_source,
                     evaluation=True,
@@ -329,9 +330,13 @@ class RolloutExecutor(DedicatedRpcLoopWorker):
                 )
                 data = await maybe_await(self.generate_rollout(input))
             else:
-                fn_args = _compute_rollout_function_config(self.args, self.args.rollout_function_path)
                 data = await asyncio.to_thread(
-                    call_rollout_fn, self.generate_rollout, fn_args, rollout_id, self.data_source, evaluation=False
+                    call_rollout_fn,
+                    self.generate_rollout,
+                    self._legacy_rollout_args,
+                    rollout_id,
+                    self.data_source,
+                    evaluation=False,
                 )
             metrics = data.metrics
             data = data.samples
