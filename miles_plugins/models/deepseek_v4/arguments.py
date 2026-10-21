@@ -16,9 +16,7 @@ DSV41_SPEC_MODULE = "miles_plugins.models.deepseek_v4_1.deepseek_v4_1"
 
 def is_dsv4_model(args: Namespace) -> bool:
     """Whether this run builds its layers from the DeepSeek-V4 plugin spec."""
-    spec = getattr(
-        args, "spec", None
-    )  # config-access-exempt: native Megatron namespaces may omit the optional model spec
+    spec = args.spec
     return bool(spec) and spec[0] in (DSV4_SPEC_MODULE, DSV41_SPEC_MODULE)
 
 
