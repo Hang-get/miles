@@ -1076,7 +1076,7 @@ class TestEngineMetaApiKey:
         )
         args = make_args(sglang_config=str(config_path), rollout_num_gpus=8, **args_overrides)
         (spec,) = specs_inference_engine(args)
-        return spec.static_meta.resolve(cell_index=0)
+        return spec.partial_static_meta.resolve(cell_index=0)
 
     def test_a_group_api_key_override_wins_over_the_args_key(self, tmp_path):
         """The ServerArgs-named api_key override reaches the cell meta ahead of the global args key."""
@@ -1246,19 +1246,19 @@ class TestEngineCellChunking:
     def test_single_gpu_cells_carry_contiguous_gpu_offsets(self, tmp_path):
         """Every cell must claim its own gpu span, otherwise two engines share the same devices."""
         spec = self._spec_for(tmp_path, num_gpus=8, num_gpus_per_engine=1)
-        offsets = [spec.static_meta.resolve(cell_index=index)["gpu_offset"] for index in range(8)]
+        offsets = [spec.partial_static_meta.resolve(cell_index=index)["gpu_offset"] for index in range(8)]
         assert offsets == list(range(8))
 
     def test_multi_node_cells_advance_by_a_whole_engine(self, tmp_path):
         """The per-cell stride is workers x slots, so a 16-gpu engine advances the offset by 16, not by 1."""
         spec = self._spec_for(tmp_path, num_gpus=32, num_gpus_per_engine=16)
-        offsets = [spec.static_meta.resolve(cell_index=index)["gpu_offset"] for index in range(2)]
+        offsets = [spec.partial_static_meta.resolve(cell_index=index)["gpu_offset"] for index in range(2)]
         assert offsets == [0, 16]
 
     def test_the_group_gpu_offset_shifts_every_cell(self, tmp_path):
         """A group placed after another starts counting from that group's end, per cell as well as overall."""
         spec = self._spec_for(tmp_path, num_gpus=16, num_gpus_per_engine=1, gpu_offset=8)
-        offsets = [spec.static_meta.resolve(cell_index=index)["gpu_offset"] for index in range(16)]
+        offsets = [spec.partial_static_meta.resolve(cell_index=index)["gpu_offset"] for index in range(16)]
         assert offsets == list(range(8, 24))
 
 
