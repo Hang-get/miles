@@ -5,6 +5,7 @@ import pytest
 
 from miles.utils.external_utils.command_utils import base_backend
 from miles.utils.external_utils.command_utils.base_backend import _add_config_snapshot_name
+from miles.utils.test_utils.snapshot import SNAPSHOT_RECORD_DIR_ENV_VAR
 
 
 class TestAutomaticSnapshotNames:
@@ -21,6 +22,7 @@ class TestAutomaticSnapshotNames:
         self, arguments: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Automatic naming cannot override an explicit identity or enable disabled capture."""
+        monkeypatch.setenv(SNAPSHOT_RECORD_DIR_ENV_VAR, "/snapshot/records")
         monkeypatch.setattr(base_backend, "_CONFIG_SNAPSHOT_LAUNCH_COUNTS", {})
 
         assert _add_config_snapshot_name(arguments) == arguments
@@ -28,6 +30,7 @@ class TestAutomaticSnapshotNames:
 
     def test_launch_indices_are_scoped_to_the_invoking_script(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Each script's launches keep stable identities independent of other scripts' launches."""
+        monkeypatch.setenv(SNAPSHOT_RECORD_DIR_ENV_VAR, "/snapshot/records")
         monkeypatch.setattr(base_backend, "_CONFIG_SNAPSHOT_LAUNCH_COUNTS", {})
         root = Path(base_backend.repo_base_dir)
         monkeypatch.setattr("sys.argv", [str(root / "tests/e2e/first.py")])
@@ -39,3 +42,18 @@ class TestAutomaticSnapshotNames:
         assert first[-2:] == ["--config-snapshot-name", "tests/e2e/first/run-0000"]
         assert second[-2:] == ["--config-snapshot-name", "tests/e2e/first/run-0001"]
         assert other[-2:] == ["--config-snapshot-name", "tests/e2e/second/run-0000"]
+
+    @pytest.mark.parametrize("record_directory", [None, ""])
+    def test_external_ci_script_without_capture_keeps_its_arguments(
+        self, monkeypatch: pytest.MonkeyPatch, record_directory: str | None
+    ) -> None:
+        """CI mode outside the repository does not require a snapshot identity when capture is disabled."""
+        if record_directory is None:
+            monkeypatch.delenv(SNAPSHOT_RECORD_DIR_ENV_VAR, raising=False)
+        else:
+            monkeypatch.setenv(SNAPSHOT_RECORD_DIR_ENV_VAR, record_directory)
+        monkeypatch.setattr("sys.argv", ["/outside/experiment.py"])
+        monkeypatch.setattr(base_backend, "_CONFIG_SNAPSHOT_LAUNCH_COUNTS", {})
+
+        assert _add_config_snapshot_name("--ci-test --model-name qwen") == "--ci-test --model-name qwen"
+        assert base_backend._CONFIG_SNAPSHOT_LAUNCH_COUNTS == {}
