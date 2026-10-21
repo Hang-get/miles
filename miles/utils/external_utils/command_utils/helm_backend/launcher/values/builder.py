@@ -24,6 +24,7 @@ from miles.utils.external_utils.command_utils.helm_backend.launcher.values.pool_
 from miles.utils.external_utils.command_utils.helm_backend.naming import RunNames
 from miles.utils.workers.connection_config import StaticConnConfig, build_static_conn_config
 from miles.utils.workers.naming import compute_cell_id
+from miles.utils.workers.serving.utils import override_env
 from miles.utils.workers.types import PlatformAccess
 from miles.utils.workers.worker_provider.kubernetes.helm.naming import static_cell_addrs
 from miles.utils.workers.worker_spec import RPC_PORT_NAME, BaseServeSpec, BaseSpec, NamedHostAndPorts
@@ -34,10 +35,11 @@ _COLOCATE_PAIRING_COMPONENT = "colocate-pairing"
 def build_values(
     specs: list[BaseSpec], plan: LaunchPlan, *, scaling: ScalingConfig, static_connections: StaticConnConfig
 ) -> MilesRunChartValues:
-    return MilesRunChartValues(
-        run=_build_run_values(specs, plan, scaling=scaling, static_connections=static_connections),
-        extra_manifests=plan.extra_manifests or None,
-    )
+    with override_env(plan.env):
+        return MilesRunChartValues(
+            run=_build_run_values(specs, plan, scaling=scaling, static_connections=static_connections),
+            extra_manifests=plan.extra_manifests or None,
+        )
 
 
 def compute_static_connections(specs: list[BaseSpec], *, scaling: ScalingConfig) -> StaticConnConfig:
