@@ -150,6 +150,7 @@ class MegatronTrainRayActor(TrainRayActor):
             args,
             indep_dp_store_addr=indep_dp_store_addr,
             indep_dp_info=indep_dp_info,
+            ckpt_load_config=ckpt_load_config,
         )
 
         trainer_pool_id = compute_trainer_pool_id(args.trainer_id)
