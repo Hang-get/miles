@@ -105,6 +105,7 @@ from typing_extensions import override
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from miles.backends.megatron_utils import megatron_to_hf as m2hf
+from miles.backends.sglang_utils.sglang_config import SglangConfig
 from miles.utils.hf_utils.config import load_hf_config as _load_hf_config
 
 DEFAULT_DIRECT_MOE_GROUP_SIZE = 2 * 1024**3
@@ -139,6 +140,8 @@ class Args:
     dry_run_plan: bool
     progress: bool
     progress_interval_seconds: float
+    moe_runner_backend: str | None = None
+    moe_a2a_backend: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1325,12 +1328,7 @@ def convert_torch_dist_to_hf_ray(args: Args) -> str:
     staging_dir = prepare_output_dir(args.output_dir, args.force)
     initialize_ray()
     metadata_ref = ray.put(metadata)
-    hf_checkpoint = args.origin_hf_dir if args.origin_hf_dir is not None else vars(megatron_args).get("hf_checkpoint")
-    conversion_args = argparse.Namespace(
-        backend=megatron_args,
-        hf_checkpoint=Path(hf_checkpoint) if hf_checkpoint is not None else None,
-        extra_high_precision_layers_megatron=getattr(megatron_args, "extra_high_precision_layers_megatron", None),
-    )
+    conversion_args = _make_conversion_args(args=args, megatron_args=megatron_args)
     task_results = collect_ray_results(
         tasks,
         args.input_dir,
@@ -1348,12 +1346,31 @@ def convert_torch_dist_to_hf_ray(args: Args) -> str:
     return args.output_dir
 
 
+def _make_conversion_args(*, args: Args, megatron_args: argparse.Namespace) -> argparse.Namespace:
+    saved = vars(megatron_args)
+    hf_checkpoint = args.origin_hf_dir if args.origin_hf_dir is not None else saved.get("hf_checkpoint")
+    overrides = {"moe_runner_backend": args.moe_runner_backend, "moe_a2a_backend": args.moe_a2a_backend}
+    base_args = {
+        name: value
+        for name, explicit in overrides.items()
+        if (value := explicit if explicit is not None else saved.get(f"sglang_{name}")) is not None
+    }
+    return argparse.Namespace(
+        backend=megatron_args,
+        hf_checkpoint=Path(hf_checkpoint) if hf_checkpoint is not None else None,
+        extra_high_precision_layers_megatron=saved.get("extra_high_precision_layers_megatron"),
+        sglang=SglangConfig(models=[], base_args=base_args),
+    )
+
+
 def parse_args() -> Args:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input-dir", required=True)
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--origin-hf-dir", default=None)
     parser.add_argument("--model-name", default=None)
+    parser.add_argument("--moe-runner-backend", default=None)
+    parser.add_argument("--moe-a2a-backend", default=None)
     parser.add_argument("-f", "--force", action="store_true")
     parser.add_argument("--max-file-bytes", type=int, default=20 * 1024**3)
     parser.add_argument("--concurrency", type=int, default=None)
@@ -1369,6 +1386,8 @@ def parse_args() -> Args:
         output_dir=ns.output_dir,
         origin_hf_dir=ns.origin_hf_dir,
         model_name=ns.model_name,
+        moe_runner_backend=ns.moe_runner_backend,
+        moe_a2a_backend=ns.moe_a2a_backend,
         force=ns.force,
         max_file_bytes=ns.max_file_bytes,
         concurrency=ns.concurrency,
