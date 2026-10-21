@@ -242,6 +242,10 @@ class DynamicLimitSemaphore:
         self._condition = asyncio.Condition()
         self._active = 0
 
+    async def notify_limit_changed(self) -> None:
+        async with self._condition:
+            self._condition.notify_all()
+
     async def __aenter__(self) -> Self:
         async with self._condition:
             await self._condition.wait_for(lambda: self._active < self._limit())

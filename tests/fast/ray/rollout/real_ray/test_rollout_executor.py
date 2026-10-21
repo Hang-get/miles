@@ -37,7 +37,11 @@ def http_client_calls(monkeypatch) -> list[str]:
     import miles.ray.rollout.rollout_executor as rexec
 
     recorded: list[str] = []
-    monkeypatch.setattr(rexec, "init_http_client", lambda args: recorded.append("init_http_client"))
+
+    async def record_refresh(args):
+        recorded.append("refresh_http_client")
+
+    monkeypatch.setattr(rexec, "refresh_http_client", record_refresh)
     return recorded
 
 
@@ -113,7 +117,7 @@ class TestProcessSetup:
         """The rollout functions issue their HTTP from this actor, so the client is created here."""
         await _make_executor(_make_test_args())
 
-        assert http_client_calls == ["init_http_client"]
+        assert http_client_calls == ["refresh_http_client"]
 
     async def test_initializes_the_http_client_in_debug_train_only(
         self, ray_local_mode, patch_low_level, http_client_calls
@@ -123,7 +127,7 @@ class TestProcessSetup:
 
         await _make_executor(args)
 
-        assert http_client_calls == ["init_http_client"]
+        assert http_client_calls == ["refresh_http_client"]
 
     async def test_it_resolves_the_router_and_session_servers_on_its_own_args(
         self, ray_local_mode, patch_low_level, own_args_resolutions
