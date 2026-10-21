@@ -1,5 +1,6 @@
 import shlex
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
@@ -54,3 +55,18 @@ class TestScalingRolloutHealthChecks:
         )
         option = "--rollout-health-check-interval"
         assert float(tokens[tokens.index(option) + 1]) == 1.0
+
+
+class TestScalingInitialLauncher:
+    def test_initial_launcher_can_be_replaced_by_a_resize(self, scaling_launcher: ModuleType) -> None:
+        """A resize replacement is followed to completion instead of failing the initial launch."""
+        scaling_launcher.run_scaling_scenario(
+            test_name="scaling",
+            mode=compute_scaling_mode(("train",)),
+            pool_id="actor",
+            cell_type="actor",
+            scaling_flag="--actor-num-gpus",
+            num_gpus_per_cell=4,
+            read_counts_of_rollout_id=lambda events, path: {},
+            counted="trainers",
+        )
