@@ -2132,7 +2132,7 @@ class TestCheckpointLoadFallbackWiring:
         )
 
         assert args.load == str(tmp_path / "absent")
-        assert args.critic_load == args.load
+        assert args.critic_load is None
         assert [compute_trainer_ckpt_load_config(args, trainer).load for trainer in args.raw_megatron.trainers] == [
             str(ref_load),
             str(ref_load),
@@ -2144,10 +2144,16 @@ class TestCheckpointLoadFallbackWiring:
         load.mkdir()
         (load / "latest_checkpointed_iteration.txt").write_text("10")
 
-        args = self._validate(["--advantage-estimator", "ppo", "--load", str(load), "--ref-load", str(tmp_path)])
+        args = parse_megatron_test_config(
+            "--advantage-estimator", "ppo", "--load", str(load), "--ref-load", str(tmp_path)
+        )
 
         assert args.load == str(load)
-        assert args.critic_load == str(load)
+        assert args.critic_load is None
+        assert [compute_trainer_ckpt_load_config(args, trainer).load for trainer in args.raw_megatron.trainers] == [
+            str(load),
+            str(load),
+        ]
 
 
 class TestSessionServerV2Validation:
