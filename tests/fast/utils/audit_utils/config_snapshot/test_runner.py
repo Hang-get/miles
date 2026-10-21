@@ -195,3 +195,52 @@ class TestSnapshotVariants:
 
         with pytest.raises(ValidationError):
             ConfigSnapshotVariant.model_validate(fields)
+
+
+class TestMissingVariantCapture:
+    @pytest.mark.parametrize("existing", ["canonical", "other-hardware", "other-tracking"])
+    @pytest.mark.parametrize("update", [False, True])
+    def test_known_test_cannot_lose_capture_when_its_variant_has_no_golden(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, existing: str, update: bool
+    ) -> None:
+        """Known snapshot coverage survives variant migration without using another baseline for comparison."""
+        monkeypatch.setenv(SNAPSHOT_RECORD_DIR_ENV_VAR, str(tmp_path / "records"))
+        if update:
+            monkeypatch.setenv(SNAPSHOT_UPDATE_ENV_VAR, "1")
+        else:
+            monkeypatch.delenv(SNAPSHOT_UPDATE_ENV_VAR, raising=False)
+        test = "tests/e2e/test_example.py"
+        if existing == "canonical":
+            baseline = tmp_path / SNAPSHOT_DIRECTORY / "runtime_config" / Path(test).with_suffix(".yaml")
+        else:
+            variant = ConfigSnapshotVariant(hardware="b200", wandb_available=False)
+            if existing == "other-tracking":
+                variant = ConfigSnapshotVariant(hardware="h200", wandb_available=True)
+            baseline = ConfigSnapshotTestRunner.golden_path(test=test, repo_root=tmp_path, variant=variant)
+        baseline.parent.mkdir(parents=True)
+        baseline.write_text("not parsed as YAML: [")
+        runner = ConfigSnapshotTestRunner.create(test=test, repo_root=tmp_path, variant=_VARIANT)
+
+        with pytest.raises(ConfigSnapshotMismatch, match="No configuration snapshots were recorded"):
+            runner.finish(returncode=0)
+
+        assert not runner.golden.exists()
+        assert baseline.read_text() == "not parsed as YAML: ["
+
+    def test_unrelated_test_with_the_same_basename_does_not_require_capture(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Coverage belongs to the complete test path rather than its filename alone."""
+        monkeypatch.setenv(SNAPSHOT_RECORD_DIR_ENV_VAR, str(tmp_path / "records"))
+        baseline = ConfigSnapshotTestRunner.golden_path(
+            test="tests/e2e/test_example.py", repo_root=tmp_path, variant=_VARIANT
+        )
+        baseline.parent.mkdir(parents=True)
+        baseline.write_text("existing unrelated baseline")
+        runner = ConfigSnapshotTestRunner.create(
+            test="tests/fast-gpu/test_example.py", repo_root=tmp_path, variant=_VARIANT
+        )
+
+        runner.finish(returncode=0)
+
+        assert not runner.golden.exists()

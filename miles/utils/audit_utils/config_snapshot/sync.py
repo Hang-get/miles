@@ -22,7 +22,7 @@ import yaml
 from miles.utils.audit_utils.config_snapshot.compact_codec import ConfigSnapshotBases
 from miles.utils.audit_utils.config_snapshot.converter import ConfigSnapshotConverter
 from miles.utils.audit_utils.config_snapshot.models import ConfigSnapshotTestAttempt, ConfigSnapshotVariant
-from miles.utils.audit_utils.config_snapshot.runner import ConfigSnapshotTestRunner
+from miles.utils.audit_utils.config_snapshot.runner import ConfigSnapshotTestRunner, assert_empty_snapshot_allowed
 from miles.utils.audit_utils.config_snapshot.serialization import dump_config_snapshot
 from miles.utils.audit_utils.config_snapshot.storage import ConfigSnapshotStorage
 from miles.utils.file_utils import atomic_write_text
@@ -94,6 +94,7 @@ def _collect_snapshots(*, directory: Path, repo_root: Path) -> dict[Path, str]:
         if any(content != contents[0] for content in contents[1:]):
             raise ValueError(f"Completed attempts disagree for {test} ({variant.to_key()}): {directories}")
         if not cases[0].processes:
+            assert_empty_snapshot_allowed(test=test, repo_root=repo_root)
             continue
         if target in snapshots and snapshots[target] != contents[0]:
             raise ValueError(f"Tests disagree on golden file {target}")
