@@ -6,8 +6,9 @@ response to one object of the output store (``radix_transfer_plugins``) and retu
 on a sample (a response, a tool observation, a session merge, a truncation) only edits the
 sample's ``StorePlan``, the rows of which object each field takes and where forced rows go
 (``miles.utils.output_store.rows``). The trainer executes the plans
-(``miles.backends.training_utils.data.store_columns``) and writes the training columns of the
-inline path, which this module does not touch.
+(``miles.backends.training_utils.data.store_columns``), each field by its ``materialize``
+(``miles.utils.output_store.fields``), and writes the training columns of the inline path, which
+this module does not touch.
 """
 
 from __future__ import annotations
@@ -20,7 +21,8 @@ from typing import TYPE_CHECKING, Any
 import msgspec
 import numpy as np
 
-from miles.utils.output_store.rows import RespRows, Rows, Seg, SeqRows, StorePlanError
+from miles.utils.output_store.fields import DenseForwardField, FieldDef, SamplingMaskField, Stored
+from miles.utils.output_store.rows import Rows, Seg, SeqRows, StorePlanError
 
 if TYPE_CHECKING:
     from radix_transfer_plugins import StoreRef
@@ -125,51 +127,26 @@ def is_no_output_abort(meta_info: Mapping[str, Any], *, aborted: bool, num_outpu
 # ============================== the field table ==============================
 
 
-@dataclass(frozen=True)
-class Stored:
-    """One stored array of a field: the dtypes SGLang may write and the training column's dtype."""
-
-    name: str
-    store_dtypes: tuple[str, ...]
-    train_dtype: type[np.generic]
-    # Stored only in some modes (support log-probs); the others are required.
-    optional: bool = False
-
-
-@dataclass(frozen=True)
-class FieldDef:
-    name: str
-    kind: type[Rows]
-    # The first one's leading dimension counts the object's rows.
-    stored: tuple[Stored, ...]
-    request_key: str
-    # R3 only, as on the inline path: an all-zero object means the engine skipped routed-expert
-    # capture (e.g. the flashinfer_trtllm MoE runner).
-    check_nonzero: bool = False
-    # The launch flag that makes the field required on every training sample.
-    required_by: str | None = None
-
-
 # Adding a stored dtype = adding it to store_dtypes; train_dtype is the training column's contract.
 FIELDS: tuple[FieldDef, ...] = (
-    FieldDef(
-        ROUTED_EXPERTS,
-        SeqRows,
+    DenseForwardField(
+        name=ROUTED_EXPERTS,
         stored=(Stored(ROUTED_EXPERTS, ("int32",), np.int32),),
         request_key="return_routed_experts",
-        check_nonzero=True,
         required_by="use_rollout_routing_replay",
+        column="rollout_routed_experts",
+        check_nonzero=True,
     ),
-    FieldDef(
-        INDEXER_TOPK,
-        SeqRows,
+    DenseForwardField(
+        name=INDEXER_TOPK,
         stored=(Stored(INDEXER_TOPK, ("int32",), np.int32),),
         request_key="return_indexer_topk",
         required_by="use_rollout_indexer_replay",
+        column="rollout_indexer_topk",
+        num_streams_arg="rollout_indexer_topk_num_streams",
     ),
-    FieldDef(
-        SAMPLING_MASK,
-        RespRows,
+    SamplingMaskField(
+        name=SAMPLING_MASK,
         stored=(
             Stored(MASK_LENGTHS, ("int32",), np.int32),
             Stored(MASK_TOKEN_IDS, ("int32",), np.int32),
@@ -337,12 +314,7 @@ def _field_from_response(
             raise StorePlanError(f"output store ref carries {rows_spec.name} without {stored.name}")
         if spec is not None and spec.dtype not in stored.store_dtypes:
             raise StorePlanError(f"stored {stored.name} has dtype {spec.dtype}; Miles accepts {stored.store_dtypes}")
-    if (logprobs := specs.get(MASK_LOGPROBS)) is not None and field.name == SAMPLING_MASK:
-        if logprobs.shape[0] != specs[MASK_TOKEN_IDS].shape[0]:
-            raise StorePlanError(
-                f"stored support log-probs have {logprobs.shape[0]} values for "
-                f"{specs[MASK_TOKEN_IDS].shape[0]} support entries"
-            )
+    field.check_specs(specs)
     rows = rows_spec.shape[0]
     if rows != expected and not (allow_extra_row and rows == expected + 1):
         raise StorePlanError(f"stored {rows_spec.name} has {rows} rows; expected {expected}")
