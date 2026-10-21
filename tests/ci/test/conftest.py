@@ -10,6 +10,7 @@ from miles.utils.audit_utils.config_snapshot.models import (
     ConfigSnapshotContext,
     ConfigSnapshotPoint,
     ConfigSnapshotRecord,
+    ConfigSnapshotVariant,
 )
 from miles.utils.audit_utils.config_snapshot.runner import ConfigSnapshotTestRunner
 from miles.utils.audit_utils.config_snapshot.serialization import dump_config_snapshot
@@ -81,6 +82,7 @@ def snapshot_file_case(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Snap
     monkeypatch.setattr(ci_utils, "__file__", str(tmp_path / "tests/ci/ci_utils.py"))
     monkeypatch.setenv(SNAPSHOT_RECORD_DIR_ENV_VAR, str(record_root))
     monkeypatch.setenv("CI", "false")
+    monkeypatch.delenv("WANDB_API_KEY", raising=False)
     monkeypatch.setenv(ci_utils.CI_GATE_RECORD_DIR_ENV, "")
     for name in (
         SNAPSHOT_UPDATE_ENV_VAR,
@@ -92,7 +94,11 @@ def snapshot_file_case(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Snap
     return _SnapshotFileCase(
         test_file=relative,
         record_root=record_root,
-        golden=ConfigSnapshotTestRunner.golden_path(test=str(relative), repo_root=tmp_path),
+        golden=ConfigSnapshotTestRunner.golden_path(
+            test=str(relative),
+            repo_root=tmp_path,
+            variant=ConfigSnapshotVariant(hardware="h200", wandb_available=False),
+        ),
         bases=tmp_path / SNAPSHOT_DIRECTORY / "runtime_config/base.yaml",
         record=record,
     )

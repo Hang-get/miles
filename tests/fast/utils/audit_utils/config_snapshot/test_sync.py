@@ -3,10 +3,13 @@ from pathlib import Path
 
 import pytest
 
-from miles.utils.audit_utils.config_snapshot.models import ConfigSnapshotTestAttempt
+from miles.utils.audit_utils.config_snapshot.models import ConfigSnapshotTestAttempt, ConfigSnapshotVariant
 from miles.utils.audit_utils.config_snapshot.storage import ConfigSnapshotStorage
 from miles.utils.audit_utils.config_snapshot.sync import _collect_snapshots
 from miles.utils.test_utils.snapshot import SNAPSHOT_DIRECTORY
+
+
+_VARIANT = ConfigSnapshotVariant(hardware="h200", wandb_available=False)
 
 
 def test_completed_unit_test_without_records_does_not_block_training_snapshot(
@@ -23,7 +26,9 @@ def test_completed_unit_test_without_records_does_not_block_training_snapshot(
 
     snapshots = _collect_snapshots(directory=raw, repo_root=tmp_path)
 
-    assert list(snapshots) == [tmp_path / SNAPSHOT_DIRECTORY / "runtime_config/tests/e2e/test_training.yaml"]
+    assert list(snapshots) == [
+        tmp_path / SNAPSHOT_DIRECTORY / "runtime_config/variants/h200/no-wandb/tests/e2e/test_training.yaml"
+    ]
     assert "value: retained" in next(iter(snapshots.values()))
     assert (empty / "attempt.json").is_file()
     assert not (empty / "records").exists()
@@ -47,7 +52,9 @@ def test_empty_and_populated_completed_attempts_for_one_test_still_disagree(
 
 def _write_attempt(*, directory: Path, test: str) -> None:
     directory.mkdir(parents=True)
-    (directory / "attempt.json").write_text(ConfigSnapshotTestAttempt(test=test, completed=True).model_dump_json())
+    (directory / "attempt.json").write_text(
+        ConfigSnapshotTestAttempt(variant=_VARIANT, test=test, completed=True).model_dump_json()
+    )
 
 
 def _write_bases(*, repo_root: Path) -> None:
@@ -64,7 +71,9 @@ class TestCompletedAttemptSelection:
         attempt = tmp_path / "raw" / "attempt"
         _write_attempt(directory=attempt, test="tests/e2e/test_training.py")
         (attempt / "attempt.json").write_text(
-            ConfigSnapshotTestAttempt(test="tests/e2e/test_training.py", completed=False).model_dump_json()
+            ConfigSnapshotTestAttempt(
+                variant=_VARIANT, test="tests/e2e/test_training.py", completed=False
+            ).model_dump_json()
         )
         ConfigSnapshotStorage(directory=attempt / "records").write(make_record())
 
@@ -80,7 +89,9 @@ class TestCompletedAttemptSelection:
         for directory in (failed, succeeded):
             _write_attempt(directory=directory, test="tests/e2e/test_training.py")
         (failed / "attempt.json").write_text(
-            ConfigSnapshotTestAttempt(test="tests/e2e/test_training.py", completed=False).model_dump_json()
+            ConfigSnapshotTestAttempt(
+                variant=_VARIANT, test="tests/e2e/test_training.py", completed=False
+            ).model_dump_json()
         )
         ConfigSnapshotStorage(directory=failed / "records").write(make_record(config={"value": "partial"}))
         ConfigSnapshotStorage(directory=succeeded / "records").write(make_record(config={"value": "complete"}))
@@ -94,4 +105,56 @@ class TestCompletedAttemptSelection:
     def test_an_archive_without_completed_records_is_rejected(self, tmp_path: Path) -> None:
         """An empty artifact download cannot report a successful golden refresh."""
         with pytest.raises(ValueError, match="No completed snapshot records"):
+            _collect_snapshots(directory=tmp_path, repo_root=tmp_path)
+
+
+class TestVariantSelection:
+    def test_same_test_with_distinct_variants_syncs_distinct_contents(
+        self, tmp_path: Path, make_record: Callable
+    ) -> None:
+        """Successful platform and tracking variants retain their actual differing configurations."""
+        for hardware in ("h200", "b200"):
+            for available in (False, True):
+                variant = ConfigSnapshotVariant(hardware=hardware, wandb_available=available)
+                directory = tmp_path / "raw" / hardware / str(available)
+                directory.mkdir(parents=True)
+                (directory / "attempt.json").write_text(
+                    ConfigSnapshotTestAttempt(
+                        test="tests/e2e/test_training.py", variant=variant, completed=True
+                    ).model_dump_json()
+                )
+                ConfigSnapshotStorage(directory=directory / "records").write(
+                    make_record(config={"hardware": hardware, "use_wandb": available})
+                )
+
+        snapshots = _collect_snapshots(directory=tmp_path / "raw", repo_root=tmp_path)
+
+        assert len(snapshots) == 4
+        assert len(set(snapshots.values())) == 4
+
+    def test_success_on_other_hardware_cannot_complete_a_failed_variant(
+        self, tmp_path: Path, make_record: Callable
+    ) -> None:
+        """An incomplete hardware variant cannot borrow success from another platform."""
+        for hardware, completed in (("h200", True), ("b200", False)):
+            directory = tmp_path / "raw" / hardware
+            directory.mkdir(parents=True)
+            (directory / "attempt.json").write_text(
+                ConfigSnapshotTestAttempt(
+                    test="tests/e2e/test_training.py",
+                    variant=ConfigSnapshotVariant(hardware=hardware, wandb_available=False),
+                    completed=completed,
+                ).model_dump_json()
+            )
+            ConfigSnapshotStorage(directory=directory / "records").write(make_record())
+
+        with pytest.raises(ValueError, match="No completed attempt.*b200"):
+            _collect_snapshots(directory=tmp_path / "raw", repo_root=tmp_path)
+
+    def test_legacy_attempt_without_variant_is_rejected(self, tmp_path: Path) -> None:
+        """Old raw records cannot acquire fabricated platform or credential provenance."""
+        from pydantic import ValidationError
+
+        (tmp_path / "attempt.json").write_text('{"test":"tests/e2e/test_training.py","completed":true}')
+        with pytest.raises(ValidationError, match="variant"):
             _collect_snapshots(directory=tmp_path, repo_root=tmp_path)
