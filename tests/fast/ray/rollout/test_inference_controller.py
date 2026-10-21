@@ -763,7 +763,7 @@ class TestEngineMetaContract:
             alive=True,
             worker_names=["inference-engine-0-0-1-0"],
             workers_hash="pseudo-hash-0",
-            meta=spec.static_meta.resolve(cell_index=1),
+            meta=spec.partial_static_meta.resolve(cell_index=1),
         )
 
         assert _compute_server_cell_meta_from_info(info) == ServerCellMetadata(

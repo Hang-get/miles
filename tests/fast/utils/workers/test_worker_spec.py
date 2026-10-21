@@ -182,8 +182,8 @@ class TestBaseSpec:
         """Cell meta is opt-in, so an undeclared one must resolve to nothing rather than leak another cell's."""
         spec = _PlainCommandSpec.create(None)
 
-        assert spec.static_meta == StaticMeta()
-        assert spec.static_meta.resolve(cell_index=3) == {}
+        assert spec.partial_static_meta == StaticMeta()
+        assert spec.partial_static_meta.resolve(cell_index=3) == {}
 
     def test_an_incomplete_spec_cannot_be_instantiated(self):
         """A spec missing its scheduling or creation hooks would only fail once a worker is launched."""
