@@ -40,6 +40,7 @@ from miles.ray.specs.inference import (
 )
 from miles.rollout.session.config import SessionServerConfig
 from miles.router.config import MilesRouterConfig
+from miles.utils.args.configs.scaling import ScalingConfig
 from miles.utils.external_utils.command_utils.helm_backend.launcher.values.builder import (
     build_values,
     compute_static_connections,
@@ -123,6 +124,7 @@ def _make_router_ctx(
 ) -> LaunchCommandContext:
     return LaunchCommandContext(
         args=args,
+        scaling=ScalingConfig(sglang_scaling=args.sglang_scaling),
         num_workers_per_cell=1,
         cell_index=0,
         worker_in_cell_index=0,
@@ -319,10 +321,11 @@ class TestComputeSpecSessionServer:
             lora_adapter_path=None,
         )
         spec = spec_session_server(args)
-        assert spec.scheduling(SCALING).num_cells == 2
+        assert spec.scheduling(ScalingConfig(sglang_scaling=spec.args.sglang_scaling)).num_cells == 2
 
         ctx = LaunchCommandContext(
             args=spec.args,
+            scaling=ScalingConfig(sglang_scaling=spec.args.sglang_scaling),
             num_workers_per_cell=1,
             cell_index=1,
             worker_in_cell_index=0,
@@ -344,7 +347,7 @@ class TestComputeSpecSessionServer:
         """When pinned to the head, a CPU reservation would leave it pending forever on a head started with --num-cpus=0."""
         spec = spec_session_server(_make_session_server_args())
 
-        assert spec.scheduling(SCALING).num_cpus_per_worker == 0
+        assert spec.scheduling(ScalingConfig(sglang_scaling=spec.args.sglang_scaling)).num_cpus_per_worker == 0
 
     def test_disabled_schedules_zero_cells(self):
         """Disabling the session server removes its cells instead of launching idle servers."""
@@ -401,6 +404,7 @@ class TestSessionServerAddressPinning:
         spec = spec_session_server(args)
         ctx = LaunchCommandContext(
             args=spec.args,
+            scaling=ScalingConfig(sglang_scaling=spec.args.sglang_scaling),
             num_workers_per_cell=1,
             cell_index=0,
             worker_in_cell_index=0,
@@ -427,6 +431,7 @@ class TestSessionServerInterpreterFlags:
         spec = spec_session_server(_make_session_server_args())
         ctx = LaunchCommandContext(
             args=spec.args,
+            scaling=ScalingConfig(sglang_scaling=spec.args.sglang_scaling),
             num_workers_per_cell=1,
             cell_index=0,
             worker_in_cell_index=0,
@@ -448,6 +453,7 @@ class TestSessionServerInterpreterFlags:
         monkeypatch.setattr(sys, "orig_argv", [sys.executable, "/ray/workers/setup_worker.py"])
         ctx = LaunchCommandContext(
             args=spec.args,
+            scaling=ScalingConfig(sglang_scaling=spec.args.sglang_scaling),
             num_workers_per_cell=1,
             cell_index=0,
             worker_in_cell_index=0,
@@ -466,6 +472,7 @@ class TestSessionServerRouterPoolLookup:
     def _make_ctx(self, args: Namespace, pool_addrs: dict) -> LaunchCommandContext:
         return LaunchCommandContext(
             args=args,
+            scaling=ScalingConfig(sglang_scaling=args.sglang_scaling),
             num_workers_per_cell=1,
             cell_index=0,
             worker_in_cell_index=0,
@@ -605,9 +612,20 @@ class TestSpecsInferenceEngine:
         specs = specs_inference_engine(args)
 
         assert [spec.name for spec in specs] == ["inference-engine-all-0-0", "inference-engine-all-0-2"]
-        assert [spec.scheduling(SCALING).pg_slot_offset for spec in specs] == [0, 8]
-        assert [spec.scheduling(SCALING).num_gpu_slots_per_worker for spec in specs] == [2, 4]
-        assert all(spec.scheduling(SCALING).pg_name == "rollout" for spec in specs)
+        assert [
+            spec.scheduling(ScalingConfig(sglang_scaling=spec.args.sglang_scaling)).pg_slot_offset for spec in specs
+        ] == [0, 8]
+        assert [
+            spec.scheduling(ScalingConfig(sglang_scaling=spec.args.sglang_scaling)).num_gpu_slots_per_worker
+            for spec in specs
+        ] == [
+            2,
+            4,
+        ]
+        assert all(
+            spec.scheduling(ScalingConfig(sglang_scaling=spec.args.sglang_scaling)).pg_name == "rollout"
+            for spec in specs
+        )
 
     def test_debug_train_only_produces_no_engine_spec(self, tmp_path):
         """In --debug-train-only the rollout placement group is the trainer's own gpus, so no engine may be specced."""
@@ -877,7 +895,7 @@ class TestInferenceEngineGatedLaunch:
 
         monkeypatch.setattr(inference_specs, "compute_engine_launch_cmd", _record)
         (spec,) = specs_inference_engine(args)
-        spec.launch_command(_make_engine_ctx(spec.args))
+        spec.launch_command(_make_engine_ctx(spec))
 
         assert recorded["gated_launch_port"] == 13007
 
@@ -903,7 +921,7 @@ class TestInferenceEngineGatedLaunch:
         for cell_index in range(2):
             for worker_in_cell_index in range(2):
                 spec.launch_command(
-                    _make_engine_ctx(spec.args, cell_index=cell_index, worker_in_cell_index=worker_in_cell_index)
+                    _make_engine_ctx(spec, cell_index=cell_index, worker_in_cell_index=worker_in_cell_index)
                 )
 
         assert recorded == [0, 1, 0, 1]
@@ -938,10 +956,12 @@ class TestInferenceEngineRandomSeed:
                 return "launch-cmd"
 
             monkeypatch.setattr(inference_specs, "compute_engine_launch_cmd", _record)
-            for cell_index in range(spec.scheduling(SCALING).num_cells):
-                for worker_in_cell_index in range(spec.scheduling(SCALING).num_workers_per_cell):
+            for cell_index in range(spec.scheduling(ScalingConfig(sglang_scaling=spec.args.sglang_scaling)).num_cells):
+                for worker_in_cell_index in range(
+                    spec.scheduling(ScalingConfig(sglang_scaling=spec.args.sglang_scaling)).num_workers_per_cell
+                ):
                     spec.launch_command(
-                        _make_engine_ctx(spec.args, cell_index=cell_index, worker_in_cell_index=worker_in_cell_index)
+                        _make_engine_ctx(spec, cell_index=cell_index, worker_in_cell_index=worker_in_cell_index)
                     )
         return recorded
 
@@ -990,9 +1010,9 @@ class TestInferenceEngineRandomSeed:
 
         monkeypatch.setattr(inference_specs, "compute_engine_launch_cmd", _record)
         spec = specs_inference_engine(args)[-1]
-        spec.launch_command(_make_engine_ctx(spec.args, cell_index=1, worker_in_cell_index=1))
+        spec.launch_command(_make_engine_ctx(spec, cell_index=1, worker_in_cell_index=1))
         spec.launch_command(
-            _make_engine_ctx(spec.args, cell_index=1, worker_in_cell_index=1, gpu_ids=[26, 27], local_gpu_ids=[2, 3])
+            _make_engine_ctx(spec, cell_index=1, worker_in_cell_index=1, gpu_ids=[26, 27], local_gpu_ids=[2, 3])
         )
 
         assert recorded == [1008, 1008]
@@ -1014,16 +1034,18 @@ class TestInferenceEngineRandomSeed:
 
 
 def _make_engine_ctx(
-    args: Namespace,
+    spec: InferenceEngineSpec,
     *,
     cell_index: int = 0,
     worker_in_cell_index: int = 0,
     gpu_ids: list[int] | None = None,
     local_gpu_ids: list[int] | None = None,
 ) -> LaunchCommandContext:
+    scaling = ScalingConfig(sglang_scaling=spec.args.sglang_scaling)
     return LaunchCommandContext(
-        args=args,
-        num_workers_per_cell=1,
+        args=spec.args,
+        scaling=scaling,
+        num_workers_per_cell=spec.scheduling(scaling).num_workers_per_cell,
         cell_index=cell_index,
         worker_in_cell_index=worker_in_cell_index,
         self_addrs=dict(
@@ -1058,7 +1080,7 @@ class TestEngineBaseGpuId:
 
         monkeypatch.setattr(inference_specs, "compute_engine_launch_cmd", _record)
         (spec,) = specs_inference_engine(args)
-        spec.launch_command(_make_engine_ctx(spec.args, gpu_ids=[6, 7], local_gpu_ids=[2, 3]))
+        spec.launch_command(_make_engine_ctx(spec, gpu_ids=[6, 7], local_gpu_ids=[2, 3]))
 
         assert recorded["base_gpu_id"] == 2
 
@@ -1076,7 +1098,7 @@ class TestEngineMetaApiKey:
         )
         args = make_args(sglang_config=str(config_path), rollout_num_gpus=8, **args_overrides)
         (spec,) = specs_inference_engine(args)
-        return spec.static_meta.resolve(cell_index=0)
+        return spec.compute_static_meta(ScalingConfig(sglang_scaling=spec.args.sglang_scaling)).resolve(cell_index=0)
 
     def test_a_group_api_key_override_wins_over_the_args_key(self, tmp_path):
         """The ServerArgs-named api_key override reaches the cell meta ahead of the global args key."""
@@ -1123,7 +1145,7 @@ class TestTrailingPartialEngineRejection:
     def test_a_whole_number_of_multi_node_engines_passes(self, tmp_path):
         """32 GPUs host exactly two 16-GPU engines and resolve into two cells."""
         (spec,) = self._specs_for(tmp_path, num_gpus=32, num_gpus_per_engine=16)
-        assert spec.scheduling(SCALING).num_cells == 2
+        assert spec.scheduling(ScalingConfig(sglang_scaling=spec.args.sglang_scaling)).num_cells == 2
 
 
 class TestCrossNodeEngineWidth:
@@ -1154,12 +1176,12 @@ class TestCrossNodeEngineWidth:
     def test_an_engine_that_fits_in_one_node_is_accepted(self, tmp_path):
         """Anything up to a node wide needs no tiling at all."""
         (spec,) = self._specs_for(tmp_path, num_gpus=8, num_gpus_per_engine=4)
-        assert spec.scheduling(SCALING).num_workers_per_cell == 1
+        assert spec.scheduling(ScalingConfig(sglang_scaling=spec.args.sglang_scaling)).num_workers_per_cell == 1
 
     def test_an_engine_spanning_whole_nodes_is_accepted(self, tmp_path):
         """A 16-gpu engine covers exactly two 8-gpu nodes, so every rank has a node to run on."""
         (spec,) = self._specs_for(tmp_path, num_gpus=32, num_gpus_per_engine=16)
-        assert spec.scheduling(SCALING).num_workers_per_cell == 2
+        assert spec.scheduling(ScalingConfig(sglang_scaling=spec.args.sglang_scaling)).num_workers_per_cell == 2
 
     def test_a_lone_cross_node_engine_is_rejected_even_with_no_leftover_gpus(self, tmp_path):
         """One 12-gpu engine on 12 gpus divides evenly, so only the tiling rule can catch its four unlaunched ranks."""
@@ -1169,7 +1191,10 @@ class TestCrossNodeEngineWidth:
     def test_an_engine_narrower_than_a_node_need_not_divide_the_node(self, tmp_path):
         """A 6-gpu engine lives inside one 8-gpu node, so the node size need not be a multiple of it."""
         (spec,) = self._specs_for(tmp_path, num_gpus=12, num_gpus_per_engine=6)
-        assert (spec.scheduling(SCALING).num_workers_per_cell, spec.scheduling(SCALING).num_gpu_slots_per_worker) == (
+        assert (
+            spec.scheduling(ScalingConfig(sglang_scaling=spec.args.sglang_scaling)).num_workers_per_cell,
+            spec.scheduling(ScalingConfig(sglang_scaling=spec.args.sglang_scaling)).num_gpu_slots_per_worker,
+        ) == (
             1,
             6,
         )
@@ -1182,7 +1207,10 @@ class TestCrossNodeEngineWidth:
     def test_an_engine_tiling_a_smaller_node_is_accepted(self, tmp_path):
         """An 8-gpu engine covers exactly two 4-gpu nodes, which a check hardcoded to 8-gpu nodes would misread."""
         (spec,) = self._specs_for(tmp_path, num_gpus=16, num_gpus_per_engine=8, num_gpus_per_node=4)
-        assert (spec.scheduling(SCALING).num_cells, spec.scheduling(SCALING).num_workers_per_cell) == (2, 2)
+        assert (
+            spec.scheduling(ScalingConfig(sglang_scaling=spec.args.sglang_scaling)).num_cells,
+            spec.scheduling(ScalingConfig(sglang_scaling=spec.args.sglang_scaling)).num_workers_per_cell,
+        ) == (2, 2)
 
     def test_a_later_group_is_checked_and_named_in_the_rejection(self, tmp_path):
         """Every group carries its own width, so a good first group must not excuse a bad second one."""
@@ -1204,7 +1232,9 @@ class TestCrossNodeEngineWidth:
                 {"worker_type": "regular", "num_gpus": 8, "num_gpus_per_engine": 8},
             ],
         )
-        assert [spec.scheduling(SCALING).num_cells for spec in specs] == [1]
+        assert [
+            spec.scheduling(ScalingConfig(sglang_scaling=spec.args.sglang_scaling)).num_cells for spec in specs
+        ] == [1]
 
 
 class TestEngineCellChunking:
@@ -1223,42 +1253,69 @@ class TestEngineCellChunking:
     def test_a_single_gpu_engine_becomes_its_own_cell(self, tmp_path):
         """With one gpu per engine on 8-gpu nodes, the group resolves into eight one-worker cells."""
         spec = self._spec_for(tmp_path, num_gpus=8, num_gpus_per_engine=1)
-        assert (spec.scheduling(SCALING).num_cells, spec.scheduling(SCALING).num_workers_per_cell) == (8, 1)
+        assert (
+            spec.scheduling(ScalingConfig(sglang_scaling=spec.args.sglang_scaling)).num_cells,
+            spec.scheduling(ScalingConfig(sglang_scaling=spec.args.sglang_scaling)).num_workers_per_cell,
+        ) == (8, 1)
 
     def test_a_multi_node_engine_chunks_its_node_ranks_into_one_cell(self, tmp_path):
         """A 16-gpu engine on 8-gpu nodes spans two workers, so 32 gpus collapse into two cells."""
         spec = self._spec_for(tmp_path, num_gpus=32, num_gpus_per_engine=16)
-        assert (spec.scheduling(SCALING).num_cells, spec.scheduling(SCALING).num_workers_per_cell) == (2, 2)
+        assert (
+            spec.scheduling(ScalingConfig(sglang_scaling=spec.args.sglang_scaling)).num_cells,
+            spec.scheduling(ScalingConfig(sglang_scaling=spec.args.sglang_scaling)).num_workers_per_cell,
+        ) == (2, 2)
 
     def test_a_multi_node_engine_gets_one_pod_per_node(self, tmp_path):
         """The chart turns this into the pods of a leaderworkerset, so a wrong count mis-sizes every group."""
         spec = self._spec_for(tmp_path, num_gpus=32, num_gpus_per_engine=16)
 
-        assert spec.scheduling(SCALING).num_gpus_per_node == 8
-        assert (spec.scheduling(SCALING).pods_per_cell(), spec.scheduling(SCALING).workers_per_pod()) == (2, 1)
+        assert spec.scheduling(ScalingConfig(sglang_scaling=spec.args.sglang_scaling)).num_gpus_per_node == 8
+        assert (
+            spec.scheduling(ScalingConfig(sglang_scaling=spec.args.sglang_scaling)).pods_per_cell(),
+            spec.scheduling(ScalingConfig(sglang_scaling=spec.args.sglang_scaling)).workers_per_pod(),
+        ) == (2, 1)
 
     def test_an_engine_inside_one_node_stays_in_one_pod(self, tmp_path):
         """A cell that fits a node must not be split, or its ranks would talk over the network for nothing."""
         spec = self._spec_for(tmp_path, num_gpus=8, num_gpus_per_engine=4)
 
-        assert (spec.scheduling(SCALING).pods_per_cell(), spec.scheduling(SCALING).workers_per_pod()) == (1, 1)
+        assert (
+            spec.scheduling(ScalingConfig(sglang_scaling=spec.args.sglang_scaling)).pods_per_cell(),
+            spec.scheduling(ScalingConfig(sglang_scaling=spec.args.sglang_scaling)).workers_per_pod(),
+        ) == (1, 1)
 
     def test_single_gpu_cells_carry_contiguous_gpu_offsets(self, tmp_path):
         """Every cell must claim its own gpu span, otherwise two engines share the same devices."""
         spec = self._spec_for(tmp_path, num_gpus=8, num_gpus_per_engine=1)
-        offsets = [spec.static_meta.resolve(cell_index=index)["gpu_offset"] for index in range(8)]
+        offsets = [
+            spec.compute_static_meta(ScalingConfig(sglang_scaling=spec.args.sglang_scaling)).resolve(cell_index=index)[
+                "gpu_offset"
+            ]
+            for index in range(8)
+        ]
         assert offsets == list(range(8))
 
     def test_multi_node_cells_advance_by_a_whole_engine(self, tmp_path):
         """The per-cell stride is workers x slots, so a 16-gpu engine advances the offset by 16, not by 1."""
         spec = self._spec_for(tmp_path, num_gpus=32, num_gpus_per_engine=16)
-        offsets = [spec.static_meta.resolve(cell_index=index)["gpu_offset"] for index in range(2)]
+        offsets = [
+            spec.compute_static_meta(ScalingConfig(sglang_scaling=spec.args.sglang_scaling)).resolve(cell_index=index)[
+                "gpu_offset"
+            ]
+            for index in range(2)
+        ]
         assert offsets == [0, 16]
 
     def test_the_group_gpu_offset_shifts_every_cell(self, tmp_path):
         """A group placed after another starts counting from that group's end, per cell as well as overall."""
         spec = self._spec_for(tmp_path, num_gpus=16, num_gpus_per_engine=1, gpu_offset=8)
-        offsets = [spec.static_meta.resolve(cell_index=index)["gpu_offset"] for index in range(16)]
+        offsets = [
+            spec.compute_static_meta(ScalingConfig(sglang_scaling=spec.args.sglang_scaling)).resolve(cell_index=index)[
+                "gpu_offset"
+            ]
+            for index in range(16)
+        ]
         assert offsets == list(range(8, 24))
 
 
@@ -1308,7 +1365,7 @@ class TestEngineInterpreterFlags:
 
         monkeypatch.setattr(inference_specs, "compute_engine_launch_cmd", _record)
         (spec,) = specs_inference_engine(args)
-        spec.launch_command(_make_engine_ctx(spec.args))
+        spec.launch_command(_make_engine_ctx(spec))
 
         assert recorded["interpreter_prefix"] == [sys.executable, "-O", "-X", "faulthandler"]
 
@@ -1576,7 +1633,7 @@ class TestEngineEnvironmentTiming:
         monkeypatch.setenv("SGLANG_JIT_DEEPGEMM_PRECOMPILE", "before")
         args = make_args()
         (spec,) = specs_inference_engine(args)
-        context = _make_engine_ctx(spec.args)
+        context = _make_engine_ctx(spec)
 
         monkeypatch.setenv("SGLANG_JIT_DEEPGEMM_PRECOMPILE", "first-launch")
         first = spec.env_var(context)

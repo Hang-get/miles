@@ -1512,7 +1512,7 @@ class TestGetCellInfos:
     async def test_each_cell_meta_is_computed_from_its_own_cell_index(self, fake_ray_cluster: FakeRayCluster):
         """Meta carries per-cell placement facts, so a shared index would mislabel every cell but one."""
         spec = _make_spec("engine", num_cells=3).model_copy(
-            update={"static_meta": StaticMeta(gpu_offset_base=0, gpu_offset_stride_per_cell=2)}
+            update={"partial_static_meta": StaticMeta(gpu_offset_base=0, gpu_offset_stride_per_cell=2)}
         )
         manager = await _launch([spec])
 
@@ -1859,7 +1859,9 @@ class TestSuspendedCellInfos:
 
     async def test_the_meta_of_a_suspended_cell_is_still_known(self, fake_ray_cluster: FakeRayCluster):
         """Meta comes from the spec, so suspending a cell must not make it unidentifiable."""
-        spec = _make_spec("engine").model_copy(update={"static_meta": StaticMeta(values={"model_id": "default"})})
+        spec = _make_spec("engine").model_copy(
+            update={"partial_static_meta": StaticMeta(values={"model_id": "default"})}
+        )
         manager = await _launch([spec])
         await manager.stop_cells(["engine-00000"])
 
