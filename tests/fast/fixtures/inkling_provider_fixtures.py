@@ -9,6 +9,7 @@ import torch
 from safetensors.torch import save_file
 from tests.fast.fixtures.args_fixtures import make_trainer_config
 
+from miles.platforms import current_platform
 from miles.utils.args.custom_function import CustomFunctionConfig
 from miles.utils.function_registry import function_registry
 
@@ -86,7 +87,7 @@ def inkling_tower_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Simple
     (tmp_path / "model.safetensors.index.json").write_text(
         json.dumps({"weight_map": {name: "model.safetensors" for name in tensors}})
     )
-    monkeypatch.setattr(torch.cuda, "current_device", lambda: "cpu")
+    monkeypatch.setattr(current_platform, "current_device", lambda: torch.device("cpu"))
     return SimpleNamespace(module=hf_weight_iterator, checkpoint=tmp_path, tensors=tensors)
 
 
