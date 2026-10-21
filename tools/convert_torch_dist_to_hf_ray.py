@@ -1325,9 +1325,10 @@ def convert_torch_dist_to_hf_ray(args: Args) -> str:
     staging_dir = prepare_output_dir(args.output_dir, args.force)
     initialize_ray()
     metadata_ref = ray.put(metadata)
+    hf_checkpoint = args.origin_hf_dir if args.origin_hf_dir is not None else vars(megatron_args).get("hf_checkpoint")
     conversion_args = argparse.Namespace(
         backend=megatron_args,
-        hf_checkpoint=Path(args.origin_hf_dir) if args.origin_hf_dir is not None else None,
+        hf_checkpoint=Path(hf_checkpoint) if hf_checkpoint is not None else None,
         extra_high_precision_layers_megatron=getattr(megatron_args, "extra_high_precision_layers_megatron", None),
     )
     task_results = collect_ray_results(
