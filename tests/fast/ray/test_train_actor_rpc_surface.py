@@ -191,3 +191,19 @@ class TestTheConcreteBackends:
         actor_module = pytest.importorskip("miles.backends.fsdp_utils.actor")
 
         assert set(DRIVEN_METHODS) <= set(collect_rpc_method_specs(actor_module.FSDPTrainRayActor))
+
+
+def test_snapshot_membership_and_capture_ack_survive_rpc_serialization() -> None:
+    """Kubernetes RPC preserves the cell incarnation and the constructor capture acknowledgement."""
+    from miles.utils.audit_utils.config_snapshot.models import ConfigSnapshotMembership
+
+    spec = collect_rpc_method_specs(TrainRayActor)["configure_master_addr_and_port"]
+    membership = ConfigSnapshotMembership(
+        cell_id="trainer-engine-actor-00000", workers_hash="pod-uid-hash", expected_ranks=[0, 1]
+    )
+    query = {"master_addr": "10.0.0.1", "master_port": 23456, "snapshot_membership": membership}
+    decoded = spec.serializer.decode_query(spec.serializer.encode_query(query))
+    assert decoded["snapshot_membership"] == membership
+    assert isinstance(decoded["snapshot_membership"], ConfigSnapshotMembership)
+    assert spec.serializer.decode_result(spec.serializer.encode_result("capture-id")) == "capture-id"
+    assert spec.serializer.decode_result(spec.serializer.encode_result(None)) is None

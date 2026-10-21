@@ -3,12 +3,12 @@ from pathlib import Path
 
 import pytest
 import yaml
+from tests.fast.utils.audit_utils.config_snapshot.fixtures import write_record
 
 from miles.utils.audit_utils.config_snapshot.compact_codec import CompactConfigSnapshotCase
 from miles.utils.audit_utils.config_snapshot.models import ConfigSnapshotVariant
 from miles.utils.audit_utils.config_snapshot.runner import ConfigSnapshotMismatch, ConfigSnapshotTestRunner
 from miles.utils.test_utils.snapshot import SNAPSHOT_DIRECTORY, SNAPSHOT_RECORD_DIR_ENV_VAR, SNAPSHOT_UPDATE_ENV_VAR
-
 
 _VARIANT = ConfigSnapshotVariant(hardware="h200", wandb_available=False)
 
@@ -24,7 +24,7 @@ def test_snapshot_update_writes_overrides_without_modifying_shared_templates(
     monkeypatch.setenv(SNAPSHOT_RECORD_DIR_ENV_VAR, str(tmp_path / "records"))
     monkeypatch.setenv(SNAPSHOT_UPDATE_ENV_VAR, "1")
     runner = ConfigSnapshotTestRunner.create(test="tests/e2e/test_training.py", repo_root=tmp_path, variant=_VARIANT)
-    runner.storage.write(make_record(config={"value": "new"}))
+    write_record(runner.storage, make_record(config={"value": "new"}))
 
     runner.finish(returncode=0)
 
@@ -156,7 +156,7 @@ class TestSnapshotVariants:
                 runner = ConfigSnapshotTestRunner.create(
                     test="tests/e2e/test_example.py", repo_root=tmp_path, variant=variant
                 )
-                runner.storage.write(make_record(config={"hardware": hardware, "use_wandb": wandb_available}))
+                write_record(runner.storage, make_record(config={"hardware": hardware, "use_wandb": wandb_available}))
                 runner.finish(returncode=0)
                 assert json.loads((runner.directory / "attempt.json").read_text())["variant"] == variant.model_dump()
                 runners.append(runner)
@@ -178,7 +178,7 @@ class TestSnapshotVariants:
         runner = ConfigSnapshotTestRunner.create(
             test="tests/e2e/test_example.py", repo_root=tmp_path, variant=_VARIANT
         )
-        runner.storage.write(make_record())
+        write_record(runner.storage, make_record())
 
         with pytest.raises(ConfigSnapshotMismatch):
             runner.finish(returncode=0)
@@ -244,3 +244,18 @@ class TestMissingVariantCapture:
         runner.finish(returncode=0)
 
         assert not runner.golden.exists()
+
+
+def test_unbound_training_capture_is_retained_and_cannot_update_a_golden(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_record: Callable
+) -> None:
+    """A constructor-only worker that died before binding cannot masquerade as a complete run."""
+    monkeypatch.setenv(SNAPSHOT_RECORD_DIR_ENV_VAR, str(tmp_path / "records"))
+    monkeypatch.setenv(SNAPSHOT_UPDATE_ENV_VAR, "1")
+    runner = ConfigSnapshotTestRunner.create(test="tests/e2e/test_partial.py", repo_root=tmp_path, variant=_VARIANT)
+    record = make_record(config={"value": "partial"})
+    runner.storage.write(record)
+    with pytest.raises(ConfigSnapshotMismatch, match="Unbound training snapshot capture"):
+        runner.finish(returncode=0)
+    assert runner.storage.read() == [record]
+    assert not runner.golden.exists()

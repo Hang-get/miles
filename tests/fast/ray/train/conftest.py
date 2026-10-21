@@ -12,6 +12,7 @@ import miles.ray.train.group as group_module
 from miles.ray.specs.train import compute_trainer_pool_id
 from miles.ray.train.cell import TrainerCell
 from miles.utils import object_store
+from miles.utils.audit_utils.config_snapshot.models import ConfigSnapshotMembership
 from miles.utils.ft_utils.api_server.models import TriState
 from miles.utils.ft_utils.health_checker import BaseHealthChecker, NoopHealthChecker
 from miles.utils.ft_utils.indep_dp import IndepDPInfo
@@ -209,3 +210,30 @@ def pending_trainer_cell(pending_trainer_worker: PendingTrainerWorker) -> Traine
         health_checker=NoopHealthChecker(),
         provider=provider,
     )
+
+
+class SnapshotWorkerHandle:
+    def __init__(self, rank: int, *, fail_init: bool = False) -> None:
+        self.rank = rank
+        self.fail_init = fail_init
+        self.membership: ConfigSnapshotMembership | None = None
+        self.calls: list[str] = []
+
+    async def configure_master_addr_and_port(
+        self, *, snapshot_membership: ConfigSnapshotMembership | None = None, **kwargs: Any
+    ) -> str | None:
+        self.calls.append("configure_master_addr_and_port")
+        self.membership = snapshot_membership
+        return f"capture-{self.rank}" if snapshot_membership is not None else None
+
+    async def init(self, **kwargs: Any) -> int:
+        self.calls.append("init")
+        if self.fail_init:
+            raise RuntimeError("initialization failed")
+        return 0
+
+    async def kill_self(self) -> None:
+        return None
+
+    async def wait_dead(self, *, timeout: float) -> None:
+        return None

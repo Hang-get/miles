@@ -17,6 +17,8 @@ from miles.platforms import current_platform
 from miles.ray.rollout.inference_controller import UpdatableEngines
 from miles.utils import object_store
 from miles.utils.args.runtime import TrainerConfig
+from miles.utils.audit_utils.config_snapshot.dumper import ConfigSnapshotDumper
+from miles.utils.audit_utils.config_snapshot.models import ConfigSnapshotMembership
 from miles.utils.audit_utils.process_identity import TrainProcessIdentity
 from miles.utils.audit_utils.witness.allocator import WitnessInfo
 from miles.utils.distributed_utils import init_gloo_group, one_rank_at_a_time
@@ -131,9 +133,12 @@ class TrainRayActor(NodeProbeMixin):
     def propose_master_addr_and_port(self) -> tuple[str, int]:
         return get_current_node_ip(), get_free_port(start_port=random.randint(20000, 21000))
 
-    def configure_master_addr_and_port(self, *, master_addr: str, master_port: int) -> None:
+    def configure_master_addr_and_port(
+        self, *, master_addr: str, master_port: int, snapshot_membership: ConfigSnapshotMembership | None = None
+    ) -> str | None:
         os.environ["MASTER_ADDR"] = master_addr
         os.environ["MASTER_PORT"] = str(master_port)
+        return ConfigSnapshotDumper.bind(snapshot_membership) if snapshot_membership is not None else None
 
     # TODO mv the args into ctor
     @abc.abstractmethod

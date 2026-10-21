@@ -162,14 +162,20 @@ def normalized_source_name(source: ProcessIdentity) -> str:
 
 def collect_generated_values(
     records: list[ConfigSnapshotRecord],
+    *,
+    referenced_records: list[ConfigSnapshotRecord] | None = None,
 ) -> dict[ConfigSnapshotGeneration, list[ConfigSnapshotGeneratedValue]]:
     by_generation: dict[ConfigSnapshotGeneration, list[ConfigSnapshotRecord]] = defaultdict(list)
     for record in records:
         by_generation[record.context.generation].append(record)
 
+    references: dict[ConfigSnapshotGeneration, list[ConfigSnapshotRecord]] = defaultdict(list)
+    for record in records if referenced_records is None else referenced_records:
+        references[record.context.generation].append(record)
+
     result = {}
-    for generation, group in by_generation.items():
-        candidates = {entry for record in group for entry in record.generated_values}
+    for generation, group in references.items():
+        candidates = {entry for record in by_generation[generation] for entry in record.generated_values}
         observed: dict[tuple[str, str], ConfigSnapshotGeneratedValue] = {}
         for entry in sorted(candidates, key=lambda entry: (entry.kind, entry.name, entry.value)):
             if any(_normalize_generated_values(record.config, values=[entry]) != record.config for record in group):
