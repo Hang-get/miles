@@ -1,5 +1,6 @@
 import argparse
 import json
+import sys
 from pathlib import Path
 from types import ModuleType
 
@@ -68,3 +69,81 @@ def test_ray_conversion_uses_saved_hf_config_and_copies_explicit_assets(
         torch.testing.assert_close(tensors["model.embed_tokens.weight"], tensor)
     if provide_origin:
         assert (output_dir / "config.json").read_bytes() == (assets_hf / "config.json").read_bytes()
+
+
+class TestExportExpertScaleSelection:
+    @pytest.mark.parametrize(
+        ("legacy", "flags", "expected"),
+        [
+            ({"sglang_moe_runner_backend": "deep_gemm"}, [], "ue8m0"),
+            ({"sglang_moe_runner_backend": "auto", "sglang_moe_a2a_backend": "deepep"}, [], "ue8m0"),
+            ({"sglang_moe_runner_backend": "triton"}, [], None),
+            ({"sglang_moe_runner_backend": "deep_gemm"}, ["--moe-runner-backend", "triton"], None),
+            ({}, ["--moe-runner-backend", "deep_gemm"], "ue8m0"),
+            (
+                {"sglang_moe_runner_backend": "auto", "sglang_moe_a2a_backend": "none"},
+                ["--moe-a2a-backend", "mooncake"],
+                "ue8m0",
+            ),
+        ],
+    )
+    def test_explicit_export_target_overrides_legacy_checkpoint_values(
+        self,
+        local_ray_converter: ModuleType,
+        monkeypatch: pytest.MonkeyPatch,
+        legacy: dict[str, str],
+        flags: list[str],
+        expected: str | None,
+    ) -> None:
+        """Expert scale selection preserves old targets and honors explicit export targets."""
+        from miles.backends.megatron_utils.megatron_to_hf.processors import quantizer_fp8
+
+        monkeypatch.setattr(sys, "argv", ["convert", "--input-dir", "/input", "--output-dir", "/output", *flags])
+        args = local_ray_converter.parse_args()
+        conversion = local_ray_converter._make_conversion_args(args=args, megatron_args=argparse.Namespace(**legacy))
+        monkeypatch.setattr(quantizer_fp8, "should_deepgemm_weight_requant_ue8m0", lambda **kwargs: True)
+
+        assert (
+            quantizer_fp8._get_scale_format(conversion, "model.layers.0.mlp.experts.0.gate_proj.weight", [128, 128])
+            == expected
+        )
+
+    @pytest.mark.parametrize(
+        ("deepgemm", "name", "flags", "missing", "expected"),
+        [
+            (False, "model.layers.0.mlp.experts.0.gate_proj.weight", [], None, None),
+            (True, "model.layers.0.self_attn.q_proj.weight", [], None, "ue8m0"),
+            (True, "model.layers.0.mlp.experts.0.gate_proj.weight", [], "moe_runner_backend", None),
+            (
+                True,
+                "model.layers.0.mlp.experts.0.gate_proj.weight",
+                ["--moe-runner-backend", "auto"],
+                "moe_a2a_backend",
+                None,
+            ),
+        ],
+    )
+    def test_missing_target_is_required_only_when_scale_selection_reads_it(
+        self,
+        local_ray_converter: ModuleType,
+        monkeypatch: pytest.MonkeyPatch,
+        deepgemm: bool,
+        name: str,
+        flags: list[str],
+        missing: str | None,
+        expected: str | None,
+    ) -> None:
+        """Modern checkpoints require explicit expert targets only on the DeepGEMM expert path."""
+        from miles.backends.megatron_utils.megatron_to_hf.processors import quantizer_fp8
+
+        monkeypatch.setattr(sys, "argv", ["convert", "--input-dir", "/input", "--output-dir", "/output", *flags])
+        conversion = local_ray_converter._make_conversion_args(
+            args=local_ray_converter.parse_args(), megatron_args=argparse.Namespace()
+        )
+        monkeypatch.setattr(quantizer_fp8, "should_deepgemm_weight_requant_ue8m0", lambda **kwargs: deepgemm)
+
+        if missing is not None:
+            with pytest.raises(AttributeError, match=f"No common field {missing!r}"):
+                quantizer_fp8._get_scale_format(conversion, name, [128, 128])
+        else:
+            assert quantizer_fp8._get_scale_format(conversion, name, [128, 128]) == expected
