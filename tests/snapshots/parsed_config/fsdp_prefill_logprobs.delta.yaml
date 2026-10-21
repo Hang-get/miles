@@ -1,0 +1,19 @@
+base: fsdp
+base_sha256: 463aa2fec11aa23b88f363a3c9477f1bb2d1d409ccf8b89a6e4ef47fedb7ea4a
+edits:
+- at: 276
+  delete: 1
+  insert: |2
+      recompute_logprobs_via_prefill: true
+- at: 562
+  delete: 1
+  insert: |2
+          enable_deterministic_inference: true
+- at: 613
+  delete: 1
+  insert: |2
+          enable_prefill_only_deterministic_inference: true
+- at: 981
+  delete: 1
+  insert: |2
+      true_on_policy_mode: true

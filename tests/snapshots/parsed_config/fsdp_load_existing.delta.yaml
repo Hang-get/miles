@@ -1,0 +1,27 @@
+base: fsdp
+base_sha256: 463aa2fec11aa23b88f363a3c9477f1bb2d1d409ccf8b89a6e4ef47fedb7ea4a
+edits:
+- at: 1
+  delete: 1
+  insert: |2
+      <<: &id001 {ckpt_step: null, load: $FIXTURES/checkpoint, wandb_project: null}
+- at: 54
+  delete: 1
+  insert: |2
+      critic_load: $FIXTURES/checkpoint
+- at: 266
+  delete: 1
+  insert: |2
+        dp_replicate_size: 1, fp16: false, fsdp_cpu_backend: gloo, fsdp_cpu_offload: false, fsdp_state_dict_cpu_offload: true,
+- at: 270
+  delete: 1
+  insert: |2
+        mtp_loss_scaling_factor: 0.2, mtp_num_layers: null, no_load_optim: false, no_load_rng: false, no_save_optim: false, optimizer: adam,
+- at: 282
+  delete: 1
+  insert: |2
+      requested_load: $FIXTURES/checkpoint
+- at: 954
+  delete: 1
+  insert: |2
+      start_rollout_id: null

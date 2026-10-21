@@ -1,0 +1,23 @@
+base: fsdp
+base_sha256: 463aa2fec11aa23b88f363a3c9477f1bb2d1d409ccf8b89a6e4ef47fedb7ea4a
+edits:
+- at: 8
+  delete: 1
+  insert: |2
+      api_server_port: 18080
+- at: 150
+  delete: 1
+  insert: |2
+      ft_components: [rollout]
+- at: 210
+  delete: 1
+  insert: |2
+      mini_ft_controller_enable: true
+- at: 988
+  delete: 1
+  insert: |2
+      update_weight_transfer_mode: p2p
+- at: 995
+  delete: 1
+  insert: |2
+      use_fault_tolerance: true
