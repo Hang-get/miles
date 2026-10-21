@@ -178,7 +178,7 @@ class TestParseArgs:
             args, script_args = inputs.trainer, inputs.script
             assert sys.argv is argv
 
-        assert inputs.ckpt_load_config.load == "/model"
+        assert inputs.ckpt_load_config.load == "/checkpoint"
         assert not inputs.ckpt_load_config.resume_from_ckpt
         assert args is trainer_config
         compute.assert_called_once_with(parsed, critic)
