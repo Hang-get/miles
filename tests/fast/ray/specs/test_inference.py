@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import shlex
 import socket
 import sys
@@ -1643,3 +1644,35 @@ class TestEngineEnvironmentTiming:
         assert first["SGLANG_JIT_DEEPGEMM_PRECOMPILE"] == "first-launch"
         assert second["SGLANG_JIT_DEEPGEMM_PRECOMPILE"] == "relaunch"
         assert first is not second
+
+    @pytest.mark.parametrize("ambient_value", [None, "launcher-default"])
+    def test_helm_engine_environment_honors_launch_overrides_and_restores_ambient_environment(
+        self, monkeypatch: pytest.MonkeyPatch, ambient_value: str | None
+    ) -> None:
+        """Helm engine defaults must honor launch overrides without leaking them into later launches."""
+        key = "SGLANG_JIT_DEEPGEMM_PRECOMPILE"
+        if ambient_value is None:
+            monkeypatch.delenv(key, raising=False)
+        else:
+            monkeypatch.setenv(key, ambient_value)
+        args = make_args()
+        specs = specs_inference_engine(args)
+        scaling = ScalingConfig(sglang_scaling=args.sglang_scaling)
+        plan = _controller_layout().model_copy(update={"env": {key: "true", "NVSHMEM_DISABLE_NCCL": "0"}})
+
+        values = build_values(
+            specs, plan, scaling=scaling, static_connections=compute_static_connections(specs, scaling=scaling)
+        ).as_values()
+
+        environment = values["run"]["inferenceEngines"][0]["env"]
+        assert environment[key] == "true"
+        assert environment["NVSHMEM_DISABLE_NCCL"] == "0"
+        assert os.environ.get(key) == ambient_value
+
+        inherited_values = build_values(
+            specs,
+            _controller_layout(),
+            scaling=scaling,
+            static_connections=compute_static_connections(specs, scaling=scaling),
+        ).as_values()
+        assert inherited_values["run"]["inferenceEngines"][0]["env"][key] == (ambient_value or "false")
