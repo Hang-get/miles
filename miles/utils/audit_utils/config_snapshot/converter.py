@@ -1,21 +1,21 @@
 from collections import defaultdict
+from collections.abc import Sequence
 
 from pydantic import JsonValue
 
 from miles.utils.audit_utils.config_snapshot.compact_codec import DeltaCodec
+from miles.utils.audit_utils.config_snapshot.incarnation import group_snapshot_captures
 from miles.utils.audit_utils.config_snapshot.models import (
+    ConfigSnapshotBinding,
     ConfigSnapshotCase,
     ConfigSnapshotDelta,
     ConfigSnapshotGeneratedValue,
+    ConfigSnapshotInitialization,
     ConfigSnapshotPoint,
     ConfigSnapshotProcess,
     ConfigSnapshotRecord,
 )
-from miles.utils.audit_utils.config_snapshot.normalizer import (
-    collect_generated_values,
-    normalize_record,
-    normalized_source_name,
-)
+from miles.utils.audit_utils.config_snapshot.normalizer import collect_generated_values, normalize_record
 from miles.utils.audit_utils.process_identity import TrainProcessIdentity
 from miles.utils.test_utils.snapshot import dump_snapshot
 
@@ -24,26 +24,35 @@ _BASE = ConfigSnapshotPoint(stage="process_config", index=0).to_key()
 
 class ConfigSnapshotConverter:
     @classmethod
-    def convert(cls, records: list[ConfigSnapshotRecord]) -> ConfigSnapshotCase:
-        generated_values = collect_generated_values(records)
-        by_capture: dict[str, list[ConfigSnapshotRecord]] = defaultdict(list)
-        for record in records:
-            by_capture[record.context.capture_id].append(record)
-
+    def convert(
+        cls,
+        records: list[ConfigSnapshotRecord],
+        *,
+        bindings: Sequence[ConfigSnapshotBinding] = (),
+        initializations: Sequence[ConfigSnapshotInitialization] = (),
+    ) -> ConfigSnapshotCase:
+        groups = group_snapshot_captures(records, bindings=bindings, initializations=initializations)
+        incarnations: dict[str, list[ConfigSnapshotProcess]] = defaultdict(list)
         processes: dict[str, ConfigSnapshotProcess] = {}
-        for capture_records in by_capture.values():
-            context = capture_records[0].context
-            name = (
-                f"{context.name}/{context.deploy_component}/{context.deploy_instance_id}/"
-                f"{normalized_source_name(context.source)}"
-            )
-            process = _convert_process(
-                capture_records,
-                generated_values=generated_values[context.generation],
-            )
-            if (existing := processes.get(name)) is not None:
-                process = _merge_ranks(existing=existing, process=process, name=name)
-            processes[name] = process
+        for group in groups:
+            group_records = [record for capture in group.captures for record in capture]
+            generated_values = collect_generated_values(records, referenced_records=group_records)
+            converted = [
+                _convert_process(capture, generated_values=generated_values[capture[0].context.generation])
+                for capture in group.captures
+            ]
+            process = converted[0]
+            for other in converted[1:]:
+                process = _merge_ranks(existing=process, process=other, name=group.name)
+            if group.training:
+                incarnations[group.name].append(process)
+            elif (existing := processes.get(group.name)) is not None:
+                processes[group.name] = _merge_ranks(existing=existing, process=process, name=group.name)
+            else:
+                processes[group.name] = process
+        for name, groups in incarnations.items():
+            for index, process in enumerate(sorted(groups, key=dump_snapshot)):
+                processes[f"{name}/incarnation-{index:04d}"] = process
         return ConfigSnapshotCase(processes=dict(sorted(processes.items())))
 
 

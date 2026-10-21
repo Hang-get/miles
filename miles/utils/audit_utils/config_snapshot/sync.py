@@ -89,7 +89,14 @@ def _collect_snapshots(*, directory: Path, repo_root: Path) -> dict[Path, str]:
     snapshots: dict[Path, str] = {}
     for (test, variant), directories in completed.items():
         target = ConfigSnapshotTestRunner.golden_path(test=test, repo_root=repo_root, variant=variant)
-        cases = [ConfigSnapshotConverter.convert(ConfigSnapshotStorage(directory=path).read()) for path in directories]
+        cases = []
+        for path in directories:
+            storage = ConfigSnapshotStorage(directory=path)
+            cases.append(
+                ConfigSnapshotConverter.convert(
+                    storage.read(), bindings=storage.read_bindings(), initializations=storage.read_initializations()
+                )
+            )
         contents = [dump_config_snapshot(case, bases=bases) for case in cases]
         if any(content != contents[0] for content in contents[1:]):
             raise ValueError(f"Completed attempts disagree for {test} ({variant.to_key()}): {directories}")
