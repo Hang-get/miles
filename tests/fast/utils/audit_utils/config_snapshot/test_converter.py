@@ -2,7 +2,7 @@ from collections.abc import Callable
 
 import pytest
 
-from miles.utils.audit_utils.config_snapshot.converter import ConfigSnapshotConverter
+from tests.fast.utils.audit_utils.config_snapshot.fixtures import convert_records
 from miles.utils.audit_utils.config_snapshot.models import ConfigSnapshotDelta, ConfigSnapshotProcess
 from miles.utils.test_utils.snapshot import dump_snapshot
 
@@ -22,8 +22,8 @@ class TestSharedProcessBases:
             for stage in ("process_config", "train_first_step")
         ]
 
-        case = ConfigSnapshotConverter.convert(records)
-        assert dump_snapshot(case) == dump_snapshot(ConfigSnapshotConverter.convert(list(reversed(records))))
+        case = convert_records(records)
+        assert dump_snapshot(case) == dump_snapshot(convert_records(list(reversed(records))))
         first, second = case.processes.values()
         assert isinstance(first, ConfigSnapshotProcess)
         assert isinstance(second, ConfigSnapshotProcess)
@@ -41,7 +41,7 @@ class TestSharedProcessBases:
             for rank in range(2)
             for stage in ("process_config", "train_first_step")
         ]
-        expected = dump_snapshot(ConfigSnapshotConverter.convert(records))
+        expected = dump_snapshot(convert_records(records))
         if change == "field":
             records = [
                 (
@@ -63,14 +63,12 @@ class TestSharedProcessBases:
                 for record in records
                 if not (record.context.name.endswith("0001") and record.context.source.rank_within_cell == 1)
             ]
-        assert dump_snapshot(ConfigSnapshotConverter.convert(records)) != expected
+        assert dump_snapshot(convert_records(records)) != expected
 
     def test_rank_disagreement_is_rejected_before_compression(self, make_record: Callable) -> None:
         """Different configurations on equivalent ranks cannot become one shared base."""
         with pytest.raises(ValueError, match="Processes disagree"):
-            ConfigSnapshotConverter.convert(
-                [make_record(rank=0, config={"value": 1}), make_record(rank=1, config={"value": 2})]
-            )
+            convert_records([make_record(rank=0, config={"value": 1}), make_record(rank=1, config={"value": 2})])
 
 
 @pytest.mark.parametrize("changed", [True, 1.0])
@@ -84,7 +82,7 @@ def test_stage_type_disagreement_between_ranks_is_rejected(make_record: Callable
     ]
 
     with pytest.raises(ValueError, match="Processes disagree"):
-        ConfigSnapshotConverter.convert(records)
+        convert_records(records)
 
 
 def test_stage_delta_records_only_changed_and_removed_fields(make_record: Callable) -> None:
@@ -94,7 +92,7 @@ def test_stage_delta_records_only_changed_and_removed_fields(make_record: Callab
         make_record(stage="train_first_step", config={"nullable": None, "same": 3}),
     ]
 
-    case = ConfigSnapshotConverter.convert(records)
+    case = convert_records(records)
     process = next(iter(case.processes.values()))
 
     assert process.diffs["train_first_step-0000"] == ConfigSnapshotDelta(
@@ -106,13 +104,13 @@ class TestCaptureIntegrity:
     def test_missing_initial_configuration_is_rejected(self, make_record: Callable) -> None:
         """Later stages cannot invent the process baseline needed to interpret their deltas."""
         with pytest.raises(ValueError, match="Missing process_config-0000"):
-            ConfigSnapshotConverter.convert([make_record(stage="train_first_step")])
+            convert_records([make_record(stage="train_first_step")])
 
     def test_duplicate_stage_indices_are_rejected(self, make_record: Callable) -> None:
         """Two records claiming the same stage occurrence cannot silently overwrite one another."""
         record = make_record()
         with pytest.raises(ValueError, match="Duplicate snapshot stage"):
-            ConfigSnapshotConverter.convert([record, record])
+            convert_records([record, record])
 
     def test_one_capture_id_cannot_mix_process_contexts(self, make_record: Callable) -> None:
         """Capture IDs cannot merge records from different deployment identities."""
@@ -123,4 +121,4 @@ class TestCaptureIntegrity:
         )
 
         with pytest.raises(ValueError, match="Mixed snapshot contexts"):
-            ConfigSnapshotConverter.convert([first, second])
+            convert_records([first, second])

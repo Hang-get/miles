@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 import ray
 from tests.fast.ray.train import conftest as train_conftest
@@ -91,3 +93,51 @@ class TestMasterAddrConfigurationFailure:
         assert not cell.is_alive
         assert cell.is_errored
         assert checker.start_count == 0
+
+
+class TestSnapshotInitializationBoundary:
+    @pytest.mark.parametrize("enabled", [False, True])
+    @pytest.mark.parametrize("fails", [False, True])
+    async def test_existing_rendezvous_rpc_carries_membership_and_only_success_records_completion(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, enabled: bool, fails: bool
+    ) -> None:
+        """Cell initialization binds the observed hash without an extra RPC or false completion."""
+        from argparse import Namespace
+
+        from tests.fast.ray.train.conftest import SnapshotWorkerHandle
+
+        from miles.utils.audit_utils.config_snapshot.dumper import ConfigSnapshotDumper
+        from miles.utils.audit_utils.config_snapshot.storage import ConfigSnapshotStorage
+        from miles.utils.audit_utils.process_identity import SimpleProcessIdentity
+        from miles.utils.test_utils.snapshot import SNAPSHOT_RECORD_DIR_ENV_VAR
+
+        monkeypatch.setattr(ConfigSnapshotDumper, "_state", None)
+        monkeypatch.setenv(SNAPSHOT_RECORD_DIR_ENV_VAR, str(tmp_path))
+        args = Namespace(
+            ci_test=True,
+            ci_disable_config_snapshot=not enabled,
+            config_snapshot_name="cell-init",
+            deploy_component="all",
+            deploy_instance_id=None,
+            run_uuid="test-run",
+        )
+        ConfigSnapshotDumper.configure(args=args, source=SimpleProcessIdentity(component="main"))
+        cell = make_cell(0, actor_count=2)
+        handles = [SnapshotWorkerHandle(rank=rank, fail_init=fails) for rank in range(2)]
+        monkeypatch.setattr(cell, "_get_worker_handles", lambda: handles)
+        if fails:
+            with pytest.raises(RuntimeError, match="initialization failed"):
+                await cell.init(ckpt_load_config=None, indep_dp_info=make_indep_dp_info(), indep_dp_store_addr=None)
+        else:
+            await cell.init(ckpt_load_config=None, indep_dp_info=make_indep_dp_info(), indep_dp_store_addr=None)
+        assert all(handle.calls == ["configure_master_addr_and_port", "init"] for handle in handles)
+        if enabled:
+            assert all(handle.membership.workers_hash == cell.workers_hash for handle in handles)
+            assert all(handle.membership.expected_ranks == [0, 1] for handle in handles)
+        else:
+            assert all(handle.membership is None for handle in handles)
+            assert list(tmp_path.iterdir()) == []
+        completed = ConfigSnapshotStorage(directory=tmp_path).read_initializations()
+        assert len(completed) == int(enabled and not fails)
+        if completed:
+            assert completed[0].capture_ids == ["capture-0", "capture-1"]

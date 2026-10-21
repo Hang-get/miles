@@ -64,7 +64,11 @@ class ConfigSnapshotTestRunner:
         if returncode != 0:
             return
         try:
-            case = ConfigSnapshotConverter.convert(self.storage.read())
+            case = ConfigSnapshotConverter.convert(
+                self.storage.read(),
+                bindings=self.storage.read_bindings(),
+                initializations=self.storage.read_initializations(),
+            )
             if not case.processes:
                 assert_empty_snapshot_allowed(test=self.test, repo_root=self.repo_root)
                 return

@@ -12,11 +12,14 @@ from miles.ray.train.cell_state import (
     StateAllocatedUninitialized,
 )
 from miles.utils.async_utils import CancellableTasks
+from miles.utils.audit_utils.config_snapshot.dumper import ConfigSnapshotDumper
+from miles.utils.audit_utils.config_snapshot.models import ConfigSnapshotMembership
 from miles.utils.ft_utils.api_server.models import CellStatus
 from miles.utils.ft_utils.health_checker import BaseHealthChecker
 from miles.utils.ft_utils.indep_dp import IndepDPInfo
 from miles.utils.retry_utils import NonRetryableError
 from miles.utils.tracking_utils.structured_log import log_structured
+from miles.utils.workers.naming import parse_worker_name
 from miles.utils.workers.rpc.client.misc import ServerRestartedError
 from miles.utils.workers.worker_handle import BaseWorkerHandle, WorkerUnreachableError
 from miles.utils.workers.worker_provider.base import BaseWorkerProvider
@@ -54,6 +57,11 @@ class TrainerCell:
         self._cancellabel_tasks = CancellableTasks()
 
         (worker_infos,) = provider.get_worker_infos(cell_ids=[cell_id])
+        self._snapshot_ranks = (
+            sorted(parse_worker_name(worker.name)[2] for worker in worker_infos)
+            if ConfigSnapshotDumper.enabled()
+            else []
+        )
         self._master_addr: HostAndPort = worker_infos[0].self_addrs[MASTER_PORT_NAME]
         worker_handles = provider.get_handles_of_worker_infos(worker_infos)
         assert len(worker_handles) == len(worker_infos), f"cell {cell_id} holds workers that cannot be called"
@@ -71,10 +79,18 @@ class TrainerCell:
         indep_dp_store_addr: str | None,
         recv_ckpt_src_rank: int | None = None,
     ):
-        await self.execute(
+        snapshot_membership = (
+            ConfigSnapshotMembership(
+                cell_id=self.cell_id, workers_hash=self.workers_hash, expected_ranks=self._snapshot_ranks
+            )
+            if ConfigSnapshotDumper.enabled()
+            else None
+        )
+        captures = await self.execute(
             "configure_master_addr_and_port",
             master_addr=self._master_addr.host.strip("[]"),
             master_port=self._master_addr.port,
+            **({"snapshot_membership": snapshot_membership} if snapshot_membership is not None else {}),
         )
         results = await self.execute(
             "init",
@@ -87,6 +103,11 @@ class TrainerCell:
             indep_dp_store_addr=indep_dp_store_addr,
             recv_ckpt_src_rank=recv_ckpt_src_rank,
         )
+        if snapshot_membership is not None:
+            assert len(captures) == len(snapshot_membership.expected_ranks) and all(
+                isinstance(capture, str) for capture in captures
+            ), "Missing snapshot capture bindings"
+            ConfigSnapshotDumper.complete_initialization(captures)
         self._mark_as_alive(indep_dp_info=indep_dp_info)
         self.health_checker.start()
         await asyncio.sleep(0)

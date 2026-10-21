@@ -1,7 +1,7 @@
 import uuid
 from typing import Literal, NamedTuple
 
-from pydantic import Field, JsonValue, NonNegativeInt
+from pydantic import Field, JsonValue, NonNegativeInt, model_validator
 
 from miles.utils.audit_utils.process_identity import ProcessIdentity
 from miles.utils.pydantic_utils import FrozenStrictBaseModel
@@ -53,6 +53,31 @@ class ConfigSnapshotRecord(FrozenStrictBaseModel):
     point: ConfigSnapshotPoint
     config: JsonValue
     generated_values: list[ConfigSnapshotGeneratedValue] = Field(default_factory=list)
+
+
+class ConfigSnapshotMembership(FrozenStrictBaseModel):
+    cell_id: str = Field(min_length=1)
+    workers_hash: str = Field(min_length=1)
+    expected_ranks: list[NonNegativeInt] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _validate_ranks(self) -> "ConfigSnapshotMembership":
+        assert self.expected_ranks == sorted(set(self.expected_ranks)), "Expected ranks must be sorted and unique"
+        return self
+
+
+class ConfigSnapshotBinding(FrozenStrictBaseModel):
+    capture_id: str = Field(min_length=1)
+    membership: ConfigSnapshotMembership
+
+
+class ConfigSnapshotInitialization(FrozenStrictBaseModel):
+    capture_ids: list[str] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _validate_captures(self) -> "ConfigSnapshotInitialization":
+        assert len(set(self.capture_ids)) == len(self.capture_ids), "Initialization capture IDs must be unique"
+        return self
 
 
 # ============================ Converted snapshots =============================

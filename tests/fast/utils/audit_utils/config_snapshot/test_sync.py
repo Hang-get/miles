@@ -2,12 +2,12 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from tests.fast.utils.audit_utils.config_snapshot.fixtures import write_record
 
 from miles.utils.audit_utils.config_snapshot.models import ConfigSnapshotTestAttempt, ConfigSnapshotVariant
 from miles.utils.audit_utils.config_snapshot.storage import ConfigSnapshotStorage
 from miles.utils.audit_utils.config_snapshot.sync import _collect_snapshots
 from miles.utils.test_utils.snapshot import SNAPSHOT_DIRECTORY
-
 
 _VARIANT = ConfigSnapshotVariant(hardware="h200", wandb_available=False)
 
@@ -21,7 +21,7 @@ def test_completed_unit_test_without_records_does_not_block_training_snapshot(
     populated = raw / "training" / "attempt"
     _write_attempt(directory=empty, test="tests/fast-gpu/test_unit.py")
     _write_attempt(directory=populated, test="tests/e2e/test_training.py")
-    ConfigSnapshotStorage(directory=populated / "records").write(make_record(config={"value": "retained"}))
+    write_record(ConfigSnapshotStorage(directory=populated / "records"), make_record(config={"value": "retained"}))
     _write_bases(repo_root=tmp_path)
 
     snapshots = _collect_snapshots(directory=raw, repo_root=tmp_path)
@@ -43,7 +43,7 @@ def test_empty_and_populated_completed_attempts_for_one_test_still_disagree(
     populated = raw / "test" / "populated"
     for directory in (empty, populated):
         _write_attempt(directory=directory, test="tests/e2e/test_training.py")
-    ConfigSnapshotStorage(directory=populated / "records").write(make_record(config={"value": "retained"}))
+    write_record(ConfigSnapshotStorage(directory=populated / "records"), make_record(config={"value": "retained"}))
     _write_bases(repo_root=tmp_path)
 
     with pytest.raises(ValueError, match="Completed attempts disagree"):
@@ -75,7 +75,7 @@ class TestCompletedAttemptSelection:
                 variant=_VARIANT, test="tests/e2e/test_training.py", completed=False
             ).model_dump_json()
         )
-        ConfigSnapshotStorage(directory=attempt / "records").write(make_record())
+        write_record(ConfigSnapshotStorage(directory=attempt / "records"), make_record())
 
         with pytest.raises(ValueError, match="No completed attempt"):
             _collect_snapshots(directory=tmp_path / "raw", repo_root=tmp_path)
@@ -93,8 +93,8 @@ class TestCompletedAttemptSelection:
                 variant=_VARIANT, test="tests/e2e/test_training.py", completed=False
             ).model_dump_json()
         )
-        ConfigSnapshotStorage(directory=failed / "records").write(make_record(config={"value": "partial"}))
-        ConfigSnapshotStorage(directory=succeeded / "records").write(make_record(config={"value": "complete"}))
+        write_record(ConfigSnapshotStorage(directory=failed / "records"), make_record(config={"value": "partial"}))
+        write_record(ConfigSnapshotStorage(directory=succeeded / "records"), make_record(config={"value": "complete"}))
 
         snapshots = _collect_snapshots(directory=root, repo_root=tmp_path)
 
@@ -123,8 +123,9 @@ class TestVariantSelection:
                         test="tests/e2e/test_training.py", variant=variant, completed=True
                     ).model_dump_json()
                 )
-                ConfigSnapshotStorage(directory=directory / "records").write(
-                    make_record(config={"hardware": hardware, "use_wandb": available})
+                write_record(
+                    ConfigSnapshotStorage(directory=directory / "records"),
+                    make_record(config={"hardware": hardware, "use_wandb": available}),
                 )
 
         snapshots = _collect_snapshots(directory=tmp_path / "raw", repo_root=tmp_path)
@@ -146,7 +147,7 @@ class TestVariantSelection:
                     completed=completed,
                 ).model_dump_json()
             )
-            ConfigSnapshotStorage(directory=directory / "records").write(make_record())
+            write_record(ConfigSnapshotStorage(directory=directory / "records"), make_record())
 
         with pytest.raises(ValueError, match="No completed attempt.*b200"):
             _collect_snapshots(directory=tmp_path / "raw", repo_root=tmp_path)

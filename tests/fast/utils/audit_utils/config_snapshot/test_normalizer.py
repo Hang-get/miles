@@ -3,7 +3,7 @@ from collections.abc import Callable
 
 import pytest
 
-from miles.utils.audit_utils.config_snapshot.converter import ConfigSnapshotConverter
+from tests.fast.utils.audit_utils.config_snapshot.fixtures import convert_records
 from miles.utils.audit_utils.config_snapshot.generated_value_registry import (
     GENERATED_VALUES_ENV_VAR,
     generated_value_registry,
@@ -207,7 +207,7 @@ class TestGeneratedPathNormalization:
             assert record.config["args"]["raw_megatron"]["base_args"]["te_precision_config_file"] == (
                 f"{directory}/te_precision.yaml"
             )
-            raw_snapshot = dump_snapshot(ConfigSnapshotConverter.convert([record]))
+            raw_snapshot = dump_snapshot(convert_records([record]))
             assert directory not in raw_snapshot
             trainer = make_record(
                 config={
@@ -218,7 +218,7 @@ class TestGeneratedPathNormalization:
                     }
                 }
             )
-            snapshot = dump_snapshot(ConfigSnapshotConverter.convert([record, trainer]))
+            snapshot = dump_snapshot(convert_records([record, trainer]))
             assert directory not in snapshot
             assert snapshot.count("$TEMPORARY_DIRECTORY_dsv4_parity/te_precision.yaml") == 2
             snapshots.append(snapshot)
@@ -286,9 +286,9 @@ class TestGeneratedPathNormalization:
                 }
             )
             consumer = make_record(config={"wandb_run_id": value})
-            snapshot = dump_snapshot(ConfigSnapshotConverter.convert([consumer, source]))
+            snapshot = dump_snapshot(convert_records([consumer, source]))
             assert value not in snapshot
-            assert snapshot == dump_snapshot(ConfigSnapshotConverter.convert([source, consumer]))
+            assert snapshot == dump_snapshot(convert_records([source, consumer]))
             results.append(snapshot)
         assert results[0] == results[1]
 
@@ -373,7 +373,7 @@ class TestGeneratedPathNormalization:
             for rank, value in enumerate(["first", "second"])
         ]
         with pytest.raises(ValueError, match="Conflicting generated"):
-            ConfigSnapshotConverter.convert(records)
+            convert_records(records)
 
     def test_registrations_do_not_depend_on_raw_record_order(self, make_record: Callable) -> None:
         """Generated metadata produces identical snapshots when storage order changes."""
@@ -383,9 +383,7 @@ class TestGeneratedPathNormalization:
             )
             for run, value in enumerate(["first", "second"])
         ]
-        assert dump_snapshot(ConfigSnapshotConverter.convert(records)) == dump_snapshot(
-            ConfigSnapshotConverter.convert(list(reversed(records)))
-        )
+        assert dump_snapshot(convert_records(records)) == dump_snapshot(convert_records(list(reversed(records))))
 
 
 class TestWandbCredentialProvenance:
