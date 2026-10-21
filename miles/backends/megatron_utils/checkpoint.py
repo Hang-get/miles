@@ -146,7 +146,7 @@ def load_checkpoint(
     )
 
     if has_local_checkpoint_manager or _is_megatron_checkpoint(load_path):
-        if not has_local_checkpoint_manager and is_dsv4_model(args):
+        if not has_local_checkpoint_manager and is_dsv4_model(args.backend):
             assert_checkpoint_is_current(load_path)
         if not has_local_checkpoint_manager and _has_linear_attention(ddp_model):
             assert_linear_attn_checkpoint_is_current(load_path)
