@@ -11,7 +11,7 @@ pipeline (sglang + miles-router with session support) is launched, ``train`` is
 skipped, and the rollout drives ``session_verify_agent.run_agent`` against the
 session server.
 
-Args flow through miles' canonical ``parse_args`` Namespace.
+CLI args are validated by miles' canonical ``parse_args`` and adapted to a local Namespace.
 
 # Backend choice
 
@@ -245,7 +245,7 @@ def run_session_verify(args: argparse.Namespace, *, wire_format: SessionWireForm
     ``args`` MUST be a fully-shaped Namespace carrying miles-canonical field
     names plus the session-verify-specific fields (``session_verify_cycles``,
     ``tool_call_failure_mode``, ``assistant_text_threshold``).  Build it via
-    ``parse_args(add_custom_arguments=session_verify_extras)`` for the CLI
+    the CLI entrypoint's ``_parse_session_verify_args()`` adapter for the CLI
     path or by spreading ``SESSION_VERIFY_INVARIANT_ARGS`` into
     ``argparse.Namespace(...)`` for tests.
 
