@@ -1218,7 +1218,7 @@ def miles_validate_args(args):
         for entry in generated_value_registry.read():
             if entry.kind == "run_id" and args.save.rstrip("/").rsplit("/", 1)[-1] == entry.value:
                 generated_value_registry.register(
-                    kind="run_id", name=f"{entry.name}_critic", value=f"{entry.value}_critic"
+                    kind="critic_run_id", name=entry.name, value=f"{entry.value}_critic"
                 )
 
     if args.offload:

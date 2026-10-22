@@ -140,7 +140,7 @@ def _normalize_field(
     value: str, *, key: str, values: list[ConfigSnapshotGeneratedValue], config: dict[str, JsonValue]
 ) -> str:
     for entry in values:
-        token = f"${entry.kind.upper()}_{entry.name}"
+        token = f"$RUN_ID_{entry.name}_critic" if entry.kind == "critic_run_id" else f"${entry.kind.upper()}_{entry.name}"
         if key == "wandb_key":
             if entry.kind == "wandb_key" and value == entry.value:
                 return token
@@ -149,7 +149,7 @@ def _normalize_field(
                 value = value[: -len(entry.value)] + token
             elif entry.kind == "run_id":
                 value = "_".join(token if part == entry.value else part for part in value.split("_"))
-        elif entry.kind == "run_id":
+        elif entry.kind in {"run_id", "critic_run_id"}:
             if key == "critic_save" and value.rsplit("/", 1)[-1] == f"{entry.value}_critic":
                 save = config.get("save")
                 if not isinstance(save, str) and isinstance(backend := config.get("backend"), dict):

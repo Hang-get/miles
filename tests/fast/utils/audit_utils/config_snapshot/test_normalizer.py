@@ -68,7 +68,9 @@ class TestGeneratedPathNormalization:
             generated_value_registry.register(kind="run_id", value="generated")
         path = "/checkpoints/generated_critic"
         flags = ["--critic-save", path] if explicit_critic_save else []
-        args = parse_megatron_test_config("--advantage-estimator", "ppo", "--save", "/checkpoints/generated/", *flags)
+        args = parse_megatron_test_config(
+            "--advantage-estimator", "ppo", "--save", "/checkpoints/generated/", "--save-interval", "1", *flags
+        )
         trainer = compute_trainer_config(args, args.raw_megatron.trainers[1])
         record = make_record(config={"backend": {"save": trainer.backend.save}}).model_copy(
             update={"generated_values": generated_value_registry.read()}
@@ -77,6 +79,8 @@ class TestGeneratedPathNormalization:
         expected = "/checkpoints/$RUN_ID_0000_critic" if registered and not explicit_critic_save else path
         assert normalize_record(record)["args"]["backend"]["save"] == expected
         assert record.config["args"]["backend"]["save"] == path
+        generated_value_registry.register(kind="run_id", value="next-run")
+        assert generated_value_registry.read()[-1].name == ("0001" if registered else "0000")
 
     @pytest.mark.parametrize("registered", [False, True])
     def test_trainer_overrides_normalize_only_registered_paths(self, make_record: Callable, registered: bool) -> None:
