@@ -292,3 +292,22 @@ def test_phase_opened_before_the_window_is_still_open_in_it(tmp_path):
     stalled = [p for p in phases if p["gpu"] == 1]
     assert [p["name"] for p in stalled] == ["train_wait"]
     assert stalled[0]["t0"] == BASE + 10
+
+
+def test_phase_longer_than_the_window_slack_shows_once_in_every_window_it_spans(tmp_path):
+    """A 10 h stall closes past any window's upper slack: the hours it spanned
+    must still show it after it closes, and the window holding its close once."""
+    writer = MetricStore(tmp_path)
+    writer.write_meta(Meta(run_name="long", start_ts=BASE, args={}))
+    stall = dict(name="train_wait", t0=BASE + 10, node="n", gpus=[1], rank=1, role=Role.TRAIN)
+    writer.append(PhaseEvent(**stall, t1=PhaseEvent.OPEN_T1))
+    for hour in range(12):
+        t0 = BASE + hour * HOUR + 100
+        writer.append(PhaseEvent(name="train_wait", t0=t0, t1=t0 + 10, node="n", gpus=[0], rank=0, role=Role.TRAIN))
+    writer.append(PhaseEvent(**stall, t1=BASE + 10 * HOUR + 10))
+    writer.flush()
+    store = MetricStore.load(tmp_path)
+
+    for t0, t1 in [(BASE + HOUR, BASE + 2 * HOUR), (BASE + 9.5 * HOUR, BASE + 10.5 * HOUR)]:
+        stalled = [p for p in store.phases_by_lane(t0=t0, t1=t1) if p["gpu"] == 1]
+        assert [p["t0"] for p in stalled] == [BASE + 10], (t0, stalled)
