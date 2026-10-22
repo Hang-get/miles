@@ -28,4 +28,4 @@ class RolloutOnlyConfig(BaseConfig):
 
 
 class InferenceControllerOnlyConfig(BaseConfig):
-    pass
+    fallback_init_expected_num_cells: dict[str, int] | None = None

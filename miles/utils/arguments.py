@@ -385,6 +385,9 @@ def parse_args_and_get_parser(
         "sglang": sglang,
         "sglang_scaling": sglang_scaling,
         "sglang_model_routers": None,
+        "fallback_init_expected_num_cells": _compute_fallback_init_expected_num_cells(
+            args, sglang=sglang, sglang_scaling=sglang_scaling
+        ),
         "init_expected_num_cells": _compute_init_expected_num_cells(
             args, sglang=sglang, sglang_scaling=sglang_scaling
         ),
@@ -469,6 +472,16 @@ def _compute_init_expected_num_cells(
     if (declared := args.init_expected_num_cells) is not None:
         return declared
     if args.rollout_external or not DeployComponent(args.deploy_component).deploys_own_inference_engines():
+        return None
+    return {model.name: model.num_server_cells(sglang_scaling) for model in sglang.models}
+
+
+def _compute_fallback_init_expected_num_cells(
+    args: argparse.Namespace, *, sglang: SglangConfig, sglang_scaling: SglangScalingConfig
+) -> dict[str, int] | None:
+    if args.init_expected_num_cells is not None or not args.rollout_external:
+        return None
+    if not DeployComponent(args.deploy_component).deploys_own_inference_engines():
         return None
     return {model.name: model.num_server_cells(sglang_scaling) for model in sglang.models}
 

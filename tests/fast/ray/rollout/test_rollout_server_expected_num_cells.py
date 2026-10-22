@@ -228,6 +228,29 @@ class TestExpectedNumCellsAsksTheProvider:
 
         assert servers["default"].init_expected_num_cells == 2
 
+    @pytest.mark.parametrize("provider_count, expected", [(None, 2), (0, 0), (7, 7)])
+    async def test_an_external_provider_without_a_count_retains_the_derived_default(
+        self, provider_count: int | None, expected: int
+    ) -> None:
+        """Only a missing provider answer falls back to the configured cell count."""
+        args = make_args(rollout_num_gpus=8, rollout_num_gpus_per_engine=4, rollout_external=True)
+        provider = _StubProvider() if provider_count is None else _CountingProvider(provider_count)
+
+        servers = await _servers_of(args, provider=provider)
+
+        assert servers["default"].init_expected_num_cells == expected
+
+    async def test_an_explicit_external_count_omits_the_scaling_fallback(self) -> None:
+        """An explicit startup count keeps scaling changes out of the runtime payload."""
+        args = make_args(
+            rollout_num_gpus=8, rollout_num_gpus_per_engine=4, rollout_external=True, init_expected_num_cells=3
+        )
+
+        servers = await _servers_of(args, provider=_CountingProvider(7))
+
+        assert servers["default"].init_expected_num_cells == 3
+        assert args.fallback_init_expected_num_cells is None
+
 
 class TestEngineSpecNamingUsedByTheCrossCheck:
     def test_pool_names_carry_the_model_index_the_cross_check_parses(self) -> None:
