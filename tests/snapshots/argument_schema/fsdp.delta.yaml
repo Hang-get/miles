@@ -1,0 +1,3043 @@
+base: megatron
+base_sha256: 6547ed162947694e1f2da986bcd07d8c8f0077c072faec72b9eef6ec097f0604
+edits:
+- at: 4
+  delete: 1
+  insert: |
+    - fsdp
+- {at: 11, delete: 6, insert: ''}
+- at: 21
+  delete: 7
+  insert: |2
+        - &id001 {actor_num_gpus_per_node: 1, apply_chat_template_kwargs: {}, num_rollout: 1, rollout_batch_size: 2, train_backend: fsdp,
+          train_env_vars: {}}
+        - &id002
+- at: 30
+  delete: 1
+  insert: |2
+          adam_beta2: 0.95
+- {at: 32, delete: 5, insert: ''}
+- {at: 38, delete: 2, insert: ''}
+- {at: 41, delete: 1, insert: ''}
+- {at: 45, delete: 2, insert: ''}
+- {at: 48, delete: 8, insert: ''}
+- {at: 59, delete: 1, insert: ''}
+- at: 61
+  delete: 5
+  insert: |2
+          attn_implementation: flash_attention_2
+- at: 68
+  delete: 15
+  insert: |2
+          bf16: true
+- {at: 84, delete: 2, insert: ''}
+- {at: 87, delete: 1, insert: ''}
+- {at: 89, delete: 3, insert: ''}
+- {at: 94, delete: 1, insert: ''}
+- {at: 100, delete: 2, insert: ''}
+- {at: 123, delete: 14, insert: ''}
+- {at: 139, delete: 1, insert: ''}
+- at: 144
+  delete: 1
+  insert: |2
+          config: null
+- {at: 147, delete: 5, insert: ''}
+- {at: 158, delete: 11, insert: ''}
+- {at: 194, delete: 2, insert: ''}
+- {at: 197, delete: 5, insert: ''}
+- {at: 203, delete: 10, insert: ''}
+- {at: 220, delete: 10, insert: ''}
+- {at: 231, delete: 3, insert: ''}
+- {at: 236, delete: 1, insert: ''}
+- {at: 238, delete: 14, insert: ''}
+- {at: 253, delete: 9, insert: ''}
+- at: 264
+  delete: 1
+  insert: |2
+          dp_replicate_size: 1
+- {at: 266, delete: 1, insert: ''}
+- {at: 268, delete: 19, insert: ''}
+- {at: 289, delete: 1, insert: ''}
+- {at: 297, delete: 1, insert: ''}
+- {at: 299, delete: 5, insert: ''}
+- {at: 305, delete: 5, insert: ''}
+- {at: 311, delete: 1, insert: ''}
+- {at: 314, delete: 3, insert: ''}
+- {at: 320, delete: 2, insert: ''}
+- {at: 325, delete: 2, insert: ''}
+- {at: 329, delete: 1, insert: ''}
+- {at: 333, delete: 1, insert: ''}
+- {at: 340, delete: 1, insert: ''}
+- {at: 351, delete: 1, insert: ''}
+- {at: 353, delete: 12, insert: ''}
+- {at: 366, delete: 1, insert: ''}
+- {at: 369, delete: 11, insert: ''}
+- {at: 381, delete: 23, insert: ''}
+- at: 405
+  delete: 21
+  insert: |2
+          fsdp_cpu_backend: gloo
+          fsdp_cpu_offload: false
+          fsdp_state_dict_cpu_offload: true
+- {at: 427, delete: 2, insert: ''}
+- {at: 430, delete: 1, insert: ''}
+- {at: 432, delete: 2, insert: ''}
+- at: 436
+  delete: 6
+  insert: |2
+          gradient_checkpointing: false
+- {at: 443, delete: 8, insert: ''}
+- {at: 452, delete: 4, insert: ''}
+- {at: 457, delete: 4, insert: ''}
+- {at: 462, delete: 8, insert: ''}
+- {at: 471, delete: 3, insert: ''}
+- {at: 475, delete: 39, insert: ''}
+- {at: 515, delete: 20, insert: ''}
+- at: 536
+  delete: 4
+  insert: |2
+          keep_fp32_master: true
+- at: 541
+  delete: 1
+  insert: |2
+          kernel_backend: native
+          kernel_mapping_path: ''
+          kernel_strict: false
+- {at: 545, delete: 2, insert: ''}
+- {at: 549, delete: 4, insert: ''}
+- {at: 554, delete: 10, insert: ''}
+- {at: 567, delete: 2, insert: ''}
+- {at: 570, delete: 2, insert: ''}
+- {at: 573, delete: 6, insert: ''}
+- {at: 580, delete: 2, insert: ''}
+- {at: 585, delete: 1, insert: ''}
+- {at: 587, delete: 17, insert: ''}
+- {at: 614, delete: 2, insert: ''}
+- at: 620
+  delete: 2
+  insert: |2
+          lr_decay_style: constant
+- {at: 625, delete: 1, insert: ''}
+- at: 627
+  delete: 16
+  insert: |2
+          lr_wsd_decay_style: null
+- {at: 644, delete: 5, insert: ''}
+- {at: 650, delete: 1, insert: ''}
+- {at: 653, delete: 7, insert: ''}
+- {at: 665, delete: 1, insert: ''}
+- {at: 667, delete: 1, insert: ''}
+- {at: 669, delete: 3, insert: ''}
+- {at: 673, delete: 2, insert: ''}
+- {at: 680, delete: 2, insert: ''}
+- {at: 683, delete: 1, insert: ''}
+- {at: 687, delete: 1, insert: ''}
+- {at: 692, delete: 4, insert: ''}
+- {at: 697, delete: 70, insert: ''}
+- {at: 769, delete: 4, insert: ''}
+- {at: 774, delete: 1, insert: ''}
+- {at: 777, delete: 3, insert: ''}
+- {at: 782, delete: 17, insert: ''}
+- at: 802
+  delete: 7
+  insert: |2
+          no_load_optim: false
+          no_load_rng: false
+- {at: 810, delete: 8, insert: ''}
+- {at: 819, delete: 4, insert: ''}
+- {at: 824, delete: 2, insert: ''}
+- {at: 827, delete: 1, insert: ''}
+- {at: 829, delete: 6, insert: ''}
+- {at: 836, delete: 6, insert: ''}
+- {at: 845, delete: 2, insert: ''}
+- {at: 853, delete: 4, insert: ''}
+- {at: 867, delete: 1, insert: ''}
+- {at: 870, delete: 8, insert: ''}
+- at: 879
+  delete: 9
+  insert: |2
+          override_lr_scheduler: false
+- {at: 889, delete: 3, insert: ''}
+- {at: 893, delete: 1, insert: ''}
+- {at: 895, delete: 7, insert: ''}
+- {at: 903, delete: 6, insert: ''}
+- {at: 910, delete: 3, insert: ''}
+- {at: 919, delete: 11, insert: ''}
+- {at: 931, delete: 4, insert: ''}
+- {at: 938, delete: 3, insert: ''}
+- {at: 942, delete: 1, insert: ''}
+- {at: 946, delete: 3, insert: ''}
+- {at: 950, delete: 5, insert: ''}
+- {at: 956, delete: 5, insert: ''}
+- {at: 963, delete: 28, insert: ''}
+- {at: 1021, delete: 8, insert: ''}
+- {at: 1125, delete: 1, insert: ''}
+- {at: 1127, delete: 1, insert: ''}
+- {at: 1129, delete: 1, insert: ''}
+- {at: 1134, delete: 1, insert: ''}
+- {at: 1138, delete: 3, insert: ''}
+- {at: 1142, delete: 1, insert: ''}
+- {at: 1148, delete: 3, insert: ''}
+- {at: 1158, delete: 4, insert: ''}
+- {at: 1679, delete: 2, insert: ''}
+- {at: 1683, delete: 7, insert: ''}
+- {at: 1691, delete: 4, insert: ''}
+- {at: 1697, delete: 5, insert: ''}
+- {at: 1705, delete: 3, insert: ''}
+- {at: 1709, delete: 10, insert: ''}
+- {at: 1725, delete: 1, insert: ''}
+- {at: 1727, delete: 6, insert: ''}
+- {at: 1734, delete: 14, insert: ''}
+- {at: 1749, delete: 2, insert: ''}
+- {at: 1757, delete: 1, insert: ''}
+- {at: 1759, delete: 2, insert: ''}
+- at: 1770
+  delete: 5
+  insert: |2
+          use_checkpoint_lr_scheduler: true
+- {at: 1779, delete: 6, insert: ''}
+- {at: 1786, delete: 1, insert: ''}
+- {at: 1788, delete: 4, insert: ''}
+- {at: 1795, delete: 3, insert: ''}
+- {at: 1800, delete: 2, insert: ''}
+- {at: 1804, delete: 1, insert: ''}
+- {at: 1809, delete: 2, insert: ''}
+- {at: 1813, delete: 2, insert: ''}
+- {at: 1817, delete: 5, insert: ''}
+- {at: 1823, delete: 1, insert: ''}
+- {at: 1825, delete: 3, insert: ''}
+- {at: 1829, delete: 9, insert: ''}
+- {at: 1840, delete: 2, insert: ''}
+- at: 1849
+  delete: 1
+  insert: |2
+          wandb_run_name: null
+- at: 1851
+  delete: 6
+  insert: |2
+          warmup_ratio: 0.03
+          weight_decay: 0.0
+- at: 1860
+  delete: 7
+  insert: |2
+        - &id003 {entry: train, trainer_id: actor, trainer_model_id: null}
+- at: 1902
+  delete: 1
+  insert: |2
+        - *id002
+- {at: 2419, delete: 3, insert: ''}
+- at: 2426
+  delete: 0
+  insert: |2
+        train_backend: megatron
+- {at: 2427, delete: 1, insert: ''}
+- {at: 2434, delete: 39, insert: ''}
+- at: 2497
+  delete: 124
+  insert: |2
+          - {default: null, dest: config, group: options, help: YAML config path, option_strings: [--config], type: {$callable: builtins.str}}
+          - {default: adam, dest: optimizer, group: options, help: null, option_strings: [--optimizer], type: {$callable: builtins.str}}
+          - {default: 1.0e-06, dest: lr, group: options, help: null, option_strings: [--lr], type: {$callable: builtins.float}}
+          - {default: 0.0, dest: lr_warmup_init, group: options, help: null, option_strings: [--lr-warmup-init], type: {$callable: builtins.float}}
+          - {default: 0.0, dest: min_lr, group: options, help: null, option_strings: [--min-lr], type: {$callable: builtins.float}}
+          - {default: constant, dest: lr_decay_style, group: options, help: null, option_strings: [--lr-decay-style], type: {
+              $callable: builtins.str}}
+          - {default: null, dest: lr_decay_iters, group: options, help: null, option_strings: [--lr-decay-iters], type: {$callable: builtins.int}}
+          - {default: 0, dest: lr_warmup_iters, group: options, help: null, option_strings: [--lr-warmup-iters], type: {$callable: builtins.int}}
+          - {default: null, dest: lr_warmup_fraction, group: options, help: null, option_strings: [--lr-warmup-fraction], type: {
+              $callable: builtins.float}}
+          - {default: null, dest: lr_wsd_decay_iters, group: options, help: null, option_strings: [--lr-wsd-decay-iters], type: {
+              $callable: builtins.int}}
+          - {default: null, dest: lr_wsd_decay_style, group: options, help: null, option_strings: [--lr-wsd-decay-style], type: {
+              $callable: builtins.str}}
+          - action: &id004 {$callable: argparse.BooleanOptionalAction}
+- at: 2622
+  delete: 57
+  insert: |2
+            dest: use_checkpoint_lr_scheduler
+            group: options
+            help: null
+            nargs: 0
+            option_strings: [--use-checkpoint-lr-scheduler, --no-use-checkpoint-lr-scheduler]
+            type: null
+          - action: *id004
+            default: false
+            dest: override_lr_scheduler
+            group: options
+            help: null
+            nargs: 0
+            option_strings: [--override-lr-scheduler, --no-override-lr-scheduler]
+            type: null
+          - {default: 0.0, dest: weight_decay, group: options, help: null, option_strings: [--weight-decay], type: {$callable: builtins.float}}
+          - {default: 0.9, dest: adam_beta1, group: options, help: null, option_strings: [--adam-beta1], type: {$callable: builtins.float}}
+          - {default: 0.95, dest: adam_beta2, group: options, help: null, option_strings: [--adam-beta2], type: {$callable: builtins.float}}
+          - {default: 1.0e-08, dest: adam_eps, group: options, help: null, option_strings: [--adam-eps], type: {$callable: builtins.float}}
+          - {default: 0.03, dest: warmup_ratio, group: options, help: null, option_strings: [--warmup-ratio], type: {$callable: builtins.float}}
+          - {default: flash_attention_2, dest: attn_implementation, group: options, help: null, option_strings: [--attn-implementation],
+            type: {$callable: builtins.str}}
+          - {default: native, dest: kernel_backend, group: options, help: null, option_strings: [--kernel-backend], type: {$callable: builtins.str}}
+          - {default: '', dest: kernel_mapping_path, group: options, help: null, option_strings: [--kernel-mapping-path], type: {
+              $callable: builtins.str}}
+          - {action: *id004, default: false, dest: kernel_strict, group: options, help: null, nargs: 0, option_strings: [--kernel-strict,
+              --no-kernel-strict], type: null}
+          - {default: null, dest: wandb_project, group: options, help: null, option_strings: [--wandb-project], type: {$callable: builtins.str}}
+          - {default: null, dest: wandb_run_name, group: options, help: null, option_strings: [--wandb-run-name], type: {$callable: builtins.str}}
+          - {action: *id004, default: true, dest: bf16, group: options, help: null, nargs: 0, option_strings: [--bf16, --no-bf16],
+            type: null}
+          - {action: *id004, default: false, dest: fp16, group: options, help: null, nargs: 0, option_strings: [--fp16, --no-fp16],
+            type: null}
+          - action: *id004
+            default: false
+            dest: gradient_checkpointing
+            group: options
+            help: null
+            nargs: 0
+            option_strings: [--gradient-checkpointing, --no-gradient-checkpointing]
+            type: null
+          - {default: null, dest: recompute_granularity, group: options, help: null, option_strings: [--recompute-granularity],
+            type: {$callable: builtins.str}}
+          - {action: *id004, default: true, dest: keep_fp32_master, group: options, help: null, nargs: 0, option_strings: [--keep-fp32-master,
+              --no-keep-fp32-master], type: null}
+          - action: *id004
+- at: 2680
+  delete: 2267
+  insert: |2
+            dest: fsdp_state_dict_cpu_offload
+            group: options
+            help: null
+            nargs: 0
+            option_strings: [--fsdp-state-dict-cpu-offload, --no-fsdp-state-dict-cpu-offload]
+            type: null
+          - {action: *id004, default: false, dest: fsdp_cpu_offload, group: options, help: null, nargs: 0, option_strings: [--fsdp-cpu-offload,
+              --no-fsdp-cpu-offload], type: null}
+          - {default: gloo, dest: fsdp_cpu_backend, group: options, help: null, option_strings: [--fsdp-cpu-backend], type: {
+              $callable: builtins.str}}
+          - {default: 1, dest: dp_replicate_size, group: options, help: null, option_strings: [--dp-replicate-size], type: {$callable: builtins.int}}
+          - {action: *id004, default: false, dest: deterministic_mode, group: options, help: null, nargs: 0, option_strings: [
+              --deterministic-mode, --no-deterministic-mode], type: null}
+          - {default: 1, dest: context_parallel_size, group: options, help: null, option_strings: [--context-parallel-size], type: {
+              $callable: builtins.int}}
+          - action: *id004
+            default: false
+            dest: record_memory_history
+            group: options
+            help: null
+            nargs: 0
+            option_strings: [--record-memory-history, --no-record-memory-history]
+            type: null
+          - {default: snapshot.pickle, dest: memory_snapshot_path, group: options, help: null, option_strings: [--memory-snapshot-path],
+            type: {$callable: builtins.str}}
+          - action: *id004
+- at: 4949
+  delete: 3684
+  insert: |2
+            group: options
+            help: null
+            nargs: 0
+            option_strings: [--use-pytorch-profiler, --no-use-pytorch-profiler]
+            type: null
+          - {default: 10, dest: profile_step_start, group: options, help: null, option_strings: [--profile-step-start], type: {
+              $callable: builtins.int}}
+          - {default: 12, dest: profile_step_end, group: options, help: null, option_strings: [--profile-step-end], type: {$callable: builtins.int}}
+          - {default: null, dest: tensorboard_dir, group: options, help: null, option_strings: [--tensorboard-dir], type: {$callable: builtins.str}}
+- at: 8725
+  delete: 1
+  insert: |2
+          - action: &id005 {$callable: argparse._StoreTrueAction}
+- at: 8734
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 8743
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 8752
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 8762
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 8788
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 8883
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 8900
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 8910
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 8920
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 8932
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 8981
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 9005
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 9014
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 9024
+  delete: 1
+  insert: |2
+          - {action: *id005, const: true, default: false, dest: allgather_cp, group: options, help: null, nargs: 0, option_strings: [
+- at: 9034
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 9075
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 9159
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 9174
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 9194
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 9279
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 9304
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 9329
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 9374
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 9384
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 9448
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 9480
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 9569
+  delete: 1
+  insert: |2
+          - <<: &id006 {action: {$callable: argparse._StoreFalseAction}, const: false}
+- at: 9590
+  delete: 1
+  insert: |2
+          - {action: *id005, const: true, default: false, dest: apply_chat_template, group: options, help: null, nargs: 0, option_strings: [
+- at: 9643
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 9654
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 9665
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 9676
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 9710
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 9873
+  delete: 1
+  insert: |2
+          - <<: *id006
+- at: 9882
+  delete: 1
+  insert: |2
+          - {action: *id005, const: true, default: false, dest: use_kl_loss, group: options, help: whether to use KL loss from
+- at: 9886
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 9905
+  delete: 1
+  insert: |2
+          - {action: *id005, const: true, default: false, dest: normalize_advantages, group: options, help: null, nargs: 0, option_strings: [
+- at: 9907
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 9917
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 9927
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 9936
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 9946
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 9956
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 9968
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 9994
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 10003
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 10013
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 10022
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 10031
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 10042
+  delete: 1
+  insert: |2
+          - <<: *id006
+- at: 10050
+  delete: 1
+  insert: |2
+          - <<: *id006
+- at: 10058
+  delete: 1
+  insert: |2
+          - {default: null, dest: save, group: options, help: null, option_strings: [--save], type: {$callable: builtins.str}}
+          - {default: null, dest: save_interval, group: options, help: null, option_strings: [--save-interval], type: {$callable: builtins.int}}
+          - {action: *id005, const: true, default: false, dest: async_save, group: options, help: null, nargs: 0, option_strings: [
+              --async-save], type: null}
+          - {default: 1234, dest: seed, group: options, help: null, option_strings: [--seed], type: {$callable: builtins.int}}
+          - action: *id005
+            const: true
+            default: false
+            dest: low_memory_resume
+            group: options
+            help: 'Allocate optimizer states on CPU during checkpoint loading to prevent GPU OOM on memory spike. '
+            nargs: 0
+            option_strings: [--low-memory-resume]
+            type: null
+          - {default: nccl, dest: distributed_backend, group: options, help: null, option_strings: [--distributed-backend], type: {
+              $callable: builtins.str}}
+          - {default: 10, dest: distributed_timeout_minutes, group: options, help: null, option_strings: [--distributed-timeout-minutes],
+            type: {$callable: builtins.int}}
+          - {default: null, dest: eval_interval, group: options, help: null, option_strings: [--eval-interval], type: {$callable: builtins.int}}
+          - {default: null, dest: global_batch_size, group: options, help: null, option_strings: [--global-batch-size], type: {
+              $callable: builtins.int}}
+          - {default: 1, dest: micro_batch_size, group: options, help: null, option_strings: [--micro-batch-size], type: {$callable: builtins.int}}
+          - {default: 1.0, dest: clip_grad, group: options, help: null, option_strings: [--clip-grad], type: {$callable: builtins.float}}
+          - {action: *id005, const: true, default: false, dest: calculate_per_token_loss, group: options, help: null, nargs: 0,
+            option_strings: [--calculate-per-token-loss], type: null}
+          - {action: *id005, const: true, default: false, dest: no_load_optim, group: options, help: null, nargs: 0, option_strings: [
+              --no-load-optim], type: null}
+          - {action: *id005, const: true, default: false, dest: no_load_rng, group: options, help: null, nargs: 0, option_strings: [
+              --no-load-rng], type: null}
+          - action: *id005
+            const: true
+            default: false
+            dest: no_save_optim
+            group: options
+            help: If set, do not save the optimizer state when saving checkpoints. This reduces checkpoint size but disables training
+              resumption from the saved checkpoint.
+            nargs: 0
+            option_strings: [--no-save-optim]
+            type: null
+          - action: *id005
+- at: 10106
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 10142
+  delete: 1
+  insert: |2
+          - <<: *id006
+- at: 10174
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 10183
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 10193
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 10204
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 10220
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 10232
+  delete: 1
+  insert: |2
+          - {action: *id005, const: true, default: false, dest: use_wandb, group: options, help: null, nargs: 0, option_strings: [
+- at: 10247
+  delete: 1
+  insert: |2
+          - <<: *id006
+- at: 10256
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 10266
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 10282
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 10292
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 10301
+  delete: 1
+  insert: |2
+          - {action: *id005, const: true, default: false, dest: use_mlflow, group: options, help: null, nargs: 0, option_strings: [
+- at: 10314
+  delete: 1
+  insert: |2
+          - {action: *id005, const: true, default: false, dest: use_tensorboard, group: options, help: null, nargs: 0, option_strings: [
+- at: 10324
+  delete: 1
+  insert: |2
+          - {action: *id005, const: true, default: false, dest: use_prometheus, group: options, help: null, nargs: 0, option_strings: [
+- at: 10340
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 10369
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 10394
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 10424
+  delete: 1
+  insert: |2
+          - choices: &id007 {$set: [cache_aware, manual, power_of_two, random, round_robin]}
+- at: 10438
+  delete: 1
+  insert: |2
+          - choices: *id007
+- at: 10487
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 10496
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 10505
+  delete: 1
+  insert: |2
+          - {action: *id005, const: true, default: false, dest: router_mini_lb, group: PD Disaggregation, help: Enable MiniLB,
+- at: 10507
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 10556
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 10687
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 10716
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 10747
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 10762
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 10777
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 10899
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 10928
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 10977
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 10987
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 11012
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 11065
+  delete: 1
+  insert: |2
+          - {action: *id005, const: true, default: false, dest: check_weight_update_equal, group: options, help: null, nargs: 0,
+- at: 11084
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 11094
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 11103
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 11112
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 11121
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 11131
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 11149
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 11193
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 11204
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 11245
+  delete: 1
+  insert: |2
+          - <<: &id018 {choices: {$set: [auto, slow]}, help: 'Tokenizer mode. ''auto'' will use the fast tokenizer if available,
+- at: 11252
+  delete: 1
+  insert: |2
+          - <<: &id019
+- at: 11265
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 11274
+  delete: 1
+  insert: |2
+          - choices: &id011
+- at: 11331
+  delete: 2
+  insert: |2
+            type: &id008 {$callable: sglang.srt.utils.common.human_readable_int}
+          - action: *id005
+- at: 11341
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 11382
+  delete: 1
+  insert: |2
+          - <<: &id020
+- at: 11398
+  delete: 1
+  insert: |2
+          - choices: &id013
+- at: 11437
+  delete: 1
+  insert: |2
+          - <<: &id021
+- at: 11445
+  delete: 1
+  insert: |2
+          - <<: &id022
+- at: 11456
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 11493
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 11509
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 11543
+  delete: 1
+  insert: |2
+            type: *id008
+- at: 11559
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 11577
+  delete: 1
+  insert: |2
+            type: *id008
+- at: 11584
+  delete: 1
+  insert: |2
+          - <<: &id023 {choices: {$set: [dfs-weight, fcfs, hrrn, lof, lpm, priority, random, routing-key, shortest-prefill-first]},
+- at: 11591
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 11600
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 11611
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 11620
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 11636
+  delete: 1
+  insert: |2
+          - <<: &id024
+- at: 11668
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 11677
+  delete: 1
+  insert: |2
+          - <<: &id025
+- at: 11699
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 11712
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 11721
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 11732
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 11743
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 11752
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 11775
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 11805
+  delete: 1
+  insert: |2
+          - <<: &id026 {choices: {$set: [auto, follow_bootstrap_room, round_robin, total_requests, total_tokens]}, help: The load
+- at: 11827
+  delete: 1
+  insert: |2
+          - <<: &id027
+- at: 11838
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 11849
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 11858
+  delete: 1
+  insert: |2
+          - <<: &id028 {choices: {$set: [interleave, zigzag]}, help: Sharding strategy for prefill CP. 'zigzag' assigns each rank
+- at: 11865
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 11876
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 11886
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 11897
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 11907
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 11917
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 11929
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 11939
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 11955
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 11964
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 11975
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 11987
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 12002
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 12031
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 12040
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 12068
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 12077
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 12107
+  delete: 1
+  insert: |2
+            type: &id014 {$callable: sglang.srt.utils.common.json_list_type}
+- at: 12116
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 12147
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 12185
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 12210
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 12219
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 12229
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 12247
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 12257
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 12274
+  delete: 1
+  insert: |2
+          - <<: &id029
+- at: 12305
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 12328
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 12337
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 12346
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 12355
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 12373
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 12382
+  delete: 1
+  insert: |2
+          - <<: &id030 {choices: {$set: [0, 1, 2, 3]}, help: '0: Log metadata (no sampling parameters). 1: Log metadata and sampling
+- at: 12389
+  delete: 1
+  insert: |2
+          - <<: &id031 {choices: {$set: [json, text]}, help: 'Format for request logging: ''text'' (human-readable) or ''json''
+- at: 12419
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 12428
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 12444
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 12453
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 12544
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 12573
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 12587
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 12609
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 12631
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 12646
+  delete: 1
+  insert: |2
+          - choices: &id009
+- at: 12679
+  delete: 1
+  insert: |2
+          - choices: *id009
+- at: 12686
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 12697
+  delete: 1
+  insert: |2
+          - choices: *id009
+- at: 12704
+  delete: 1
+  insert: |2
+          - <<: &id032 {choices: {$set: [llguidance, none, outlines, xgrammar]}, help: Choose the backend for grammar-guided decoding.}
+- at: 12717
+  delete: 1
+  insert: |2
+          - <<: &id033 {choices: {$set: [aiter_attn, amx_attn, ascend_attn, fa3, fa4, flashinfer_cudnn, sdpa, triton_attn, xpu_attn]},
+- at: 12724
+  delete: 1
+  insert: |2
+          - <<: &id034
+- at: 12739
+  delete: 1
+  insert: |2
+          - <<: &id035
+- at: 12751
+  delete: 1
+  insert: |2
+          - <<: &id036
+- at: 12763
+  delete: 1
+  insert: |2
+          - <<: &id037
+- at: 12772
+  delete: 1
+  insert: |2
+          - <<: &id038
+- at: 12781
+  delete: 1
+  insert: |2
+          - <<: &id039
+- at: 12790
+  delete: 1
+  insert: |2
+          - <<: &id040
+- at: 12800
+  delete: 1
+  insert: |2
+          - choices: &id012 {$set: [flashinfer, sgl-kernel, torch]}
+- at: 12808
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 12825
+  delete: 1
+  insert: |2
+          - <<: &id041 {choices: {$set: [flashinfer, triton]}, help: 'Choose the kernel backend for Mamba SSM operations. Default
+- at: 12832
+  delete: 1
+  insert: |2
+          - <<: &id042
+- at: 12841
+  delete: 1
+  insert: |2
+          - <<: &id010 {choices: {$set: [breakable, disabled, full]}, type: {$callable: sglang.srt.model_executor.cuda_graph_config.parse_cuda_graph_backend_arg}}
+- at: 12847
+  delete: 1
+  insert: |2
+          - <<: *id010
+- at: 12888
+  delete: 2
+  insert: |2
+            type: *id008
+          - action: *id005
+- at: 12898
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 12907
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 12916
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 12925
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 12935
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 12946
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 12955
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 12964
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 12973
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 12996
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 13005
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 13014
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 13024
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 13033
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 13042
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 13051
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 13060
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 13070
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 13081
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 13091
+  delete: 1
+  insert: |2
+          - <<: &id043
+- at: 13102
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 13111
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 13120
+  delete: 1
+  insert: |2
+          - <<: &id044
+- at: 13133
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 13142
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 13151
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 13184
+  delete: 1
+  insert: |2
+          - choices: *id011
+- at: 13239
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 13264
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 13275
+  delete: 1
+  insert: |2
+          - <<: &id045 {choices: {$set: [decode, prefill]}, help: Attention backend for speculative decoding operations (both
+- at: 13288
+  delete: 1
+  insert: |2
+          - choices: *id012
+- at: 13296
+  delete: 1
+  insert: |2
+          - <<: &id046
+- at: 13320
+  delete: 1
+  insert: |2
+          - choices: &id015
+- at: 13349
+  delete: 1
+  insert: |2
+          - <<: &id047
+- at: 13359
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 13371
+  delete: 1
+  insert: |2
+          - choices: *id013
+- at: 13378
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 13388
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 13397
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 13424
+  delete: 1
+  insert: |2
+            type: *id014
+- at: 13431
+  delete: 1
+  insert: |2
+          - <<: &id048 {choices: {$set: [drafter, 'null', verifier]}, help: 'Role in decoupled speculative decoding: ''null''
+- at: 13452
+  delete: 1
+  insert: |2
+          - <<: &id049 {choices: {$set: [BFS, PROB]}, help: The match type for cache tree.}
+- at: 13492
+  delete: 1
+  insert: |2
+          - <<: &id050 {choices: {$set: [ascend_fuseep, ascend_tp, deepep, deepep_v2, flashinfer, flashinfer_megamoe, megamoe,
+- at: 13499
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 13508
+  delete: 1
+  insert: |2
+          - <<: &id051
+- at: 13518
+  delete: 1
+  insert: |2
+          - choices: *id015
+- at: 13525
+  delete: 1
+  insert: |2
+          - <<: &id052
+- at: 13534
+  delete: 1
+  insert: |2
+          - <<: &id053
+- at: 13543
+  delete: 1
+  insert: |2
+          - <<: &id054 {choices: {$set: [1, 2]}, help: 'Select the mode when enable Ascend FuseEP MoE, 1 -> dispatch_gmm_combine_decode
+- at: 13550
+  delete: 1
+  insert: |2
+          - <<: &id055 {choices: {$set: [auto, bf16, fp8, int8, nvfp4]}, help: Select DeepEP dispatcher output dtype}
+- at: 13562
+  delete: 1
+  insert: |2
+          - <<: &id056 {choices: {$set: [dynamic, fake, lp, static]}, help: The algorithm to choose ranks for redundant experts
+- at: 13571
+  delete: 1
+  insert: |2
+          - {action: *id005, const: true, default: false, dest: sglang_enable_eplb, group: options, help: Enable EPLB algorithm,
+- at: 13593
+  delete: 1
+  insert: |2
+          - <<: &id057 {choices: {$set: [per_pass, per_token, stat, stat_approx]}, help: Mode of expert distribution recorder.}
+- at: 13605
+  delete: 1
+  insert: |2
+          - <<: &id058 {choices: {$set: [both, 'off', prometheus, server_log]}, help: 'Where to report expert balancedness. Options:
+- at: 13625
+  delete: 1
+  insert: |2
+          - <<: &id059 {choices: {$set: [mooncake, nixl, none]}, help: Specify the collective communication backend for elastic
+- at: 13632
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 13648
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 13660
+  delete: 1
+  insert: |2
+          - <<: &id060 {choices: {$set: [recover, scale]}, help: Join mode for elastic EP. 'recover' rejoins an existing slot
+- at: 13693
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 13702
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 13713
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 13725
+  delete: 1
+  insert: |2
+          - <<: &id061 {choices: {$set: [bfloat16, float16, float32]}, help: 'The data type of the SSM states in mamba cache.
+- at: 13740
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 13763
+  delete: 1
+  insert: |2
+          - <<: &id062 {choices: {$set: [auto, extra_buffer, extra_buffer_lazy, no_buffer]}, help: The strategy to use for mamba
+- at: 13772
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 13788
+  delete: 1
+  insert: |2
+          - choices: &id016 {$set: [cutedsl, flashinfer, flashkda, helion, intel_xpu, nvidia_kda, ptx_kda, triton]}
+- at: 13796
+  delete: 1
+  insert: |2
+          - choices: *id016
+- at: 13803
+  delete: 1
+  insert: |2
+          - choices: *id016
+- at: 13811
+  delete: 1
+  insert: |2
+          - <<: &id063
+- at: 13821
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 13840
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 13851
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 13860
+  delete: 1
+  insert: |2
+          - <<: &id064
+- at: 13882
+  delete: 1
+  insert: |2
+          - <<: &id065 {choices: {$set: [write_back, write_through, write_through_selective]}, help: The write policy of hierarchical
+- at: 13889
+  delete: 1
+  insert: |2
+          - <<: &id066 {choices: {$set: [direct, kernel, kernel_ascend]}, help: The IO backend for KV cache transfer between CPU
+- at: 13896
+  delete: 1
+  insert: |2
+          - <<: &id067 {choices: {$set: [layer_first, page_first, page_first_direct, page_first_kv_split, page_head]}, help: The
+- at: 13903
+  delete: 1
+  insert: |2
+          - <<: &id068
+- at: 13914
+  delete: 1
+  insert: |2
+          - <<: &id069 {choices: {$set: [best_effort, timeout, wait_complete]}, help: Control when prefetching from the storage
+- at: 13944
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 13953
+  delete: 1
+  insert: |2
+          - <<: &id070 {choices: {$set: [mooncake, mori]}, help: Storage backend for --enable-unified-cache-external-linker.}
+- at: 13959
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 13975
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 13984
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 13993
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 14045
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 14061
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 14070
+  delete: 1
+  insert: |2
+          - <<: &id071 {choices: {$set: [auto, pil, torchvision]}, help: Image processor backend. 'auto' lets Transformers select
+- at: 14077
+  delete: 1
+  insert: |2
+          - <<: &id072 {choices: {$set: [mooncake]}, help: Storage backend for the multimodal global embedding cache. Used when
+- at: 14084
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 14093
+  delete: 1
+  insert: |2
+          - <<: &id073
+- at: 14104
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 14114
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 14140
+  delete: 1
+  insert: |2
+          - <<: &id074
+- at: 14163
+  delete: 1
+  insert: |2
+          - <<: &id075 {choices: {$set: [fifo, lru]}, help: 'LoRA adapter eviction policy when memory pool is full. ''lru'': Least
+- at: 14170
+  delete: 1
+  insert: |2
+          - <<: &id076 {choices: {$set: [ascend, csgmv, torch_native, triton]}, help: Choose the kernel backend for multi-LoRA
+- at: 14177
+  delete: 1
+  insert: |2
+          - <<: &id077 {choices: {$set: [128, 16, 32, 64]}, help: Maximum chunk size for the ChunkedSGMV LoRA backend. Only used
+- at: 14184
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 14194
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 14203
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 14212
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 14231
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 14240
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 14266
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 14277
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 14327
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 14336
+  delete: 1
+  insert: |2
+          - <<: &id078 {choices: {$set: [decode, 'null', prefill]}, help: 'Only used for PD disaggregation. "prefill" for prefill-only
+- at: 14343
+  delete: 1
+  insert: |2
+          - <<: &id079 {choices: {$set: [ascend, fake, mooncake, mooncake_tcp, mori, nixl]}, help: The backend for disaggregation
+- at: 14365
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 14375
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 14384
+  delete: 1
+  insert: |2
+          - <<: &id080
+- at: 14419
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 14428
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 14437
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 14448
+  delete: 1
+  insert: |2
+          - <<: &id081 {choices: {$set: [auto, mooncake, zmq_to_scheduler, zmq_to_tokenizer]}, help: The backend for encoder disaggregation
+- at: 14472
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 14482
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 14495
+  delete: 1
+  insert: |2
+          - <<: &id082
+- at: 14511
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 14520
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 14539
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 14565
+  delete: 2
+  insert: |2
+            type: *id014
+          - <<: &id083 {choices: {$set: [modelexpress, nccl, transfer_engine]}, help: 'The backend for loading weights from remote
+- at: 14573
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 14598
+  delete: 1
+  insert: |2
+          - <<: &id084 {const: '', help: 'Model file integrity verification. If provided without value, uses model-path as HF
+- at: 14606
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 14619
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 14629
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 14688
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 14697
+  delete: 1
+  insert: |2
+          - <<: &id085 {choices: {$set: [fsdp, fsdp_tp]}, help: The training system that SGLang needs to match for true on-policy.}
+- at: 14703
+  delete: 1
+  insert: |2
+          - <<: &id086
+- at: 14714
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 14735
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 14745
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 14770
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 14780
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 14789
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 14798
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 14807
+  delete: 1
+  insert: |2
+          - <<: &id087 {choices: {$set: [full, last]}, help: Set the maximum hidden-state return mode supported by the server.
+- at: 14822
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 14831
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 14841
+  delete: 1
+  insert: |2
+          - <<: &id088
+- at: 14871
+  delete: 1
+  insert: |2
+            type: *id014
+- at: 14878
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 14887
+  delete: 1
+  insert: |2
+          - <<: &id089
+- at: 14906
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 14916
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 14931
+  delete: 1
+  insert: |2
+          - <<: &id090 {choices: {$set: [auto, bf16, mxfp8, nvfp4]}, help: Select FlashInfer A2A dispatcher activation dtype.}
+- at: 14943
+  delete: 1
+  insert: |2
+          - <<: &id091
+- at: 14954
+  delete: 1
+  insert: |2
+          - <<: &id092
+- at: 14980
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 14997
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 15007
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 15018
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 15037
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 15046
+  delete: 1
+  insert: |2
+          - <<: &id093
+- at: 15063
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 15073
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 15083
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 15099
+  delete: 1
+  insert: |2
+          - <<: &id094
+- at: 15108
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 15126
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 15136
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 15146
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 15155
+  delete: 1
+  insert: |2
+          - <<: &id095
+- at: 15164
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 15175
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 15198
+  delete: 1
+  insert: |2
+          - <<: &id096 {choices: {$set: [ascend, flashinfer, intel_xpu, pytorch]}, help: Choose the kernels for sampling layers.}
+- at: 15204
+  delete: 1
+  insert: |2
+          - <<: &id097
+- at: 15253
+  delete: 1
+  insert: |2
+          - <<: &id098
+- at: 15312
+  delete: 1
+  insert: |2
+          - <<: &id099 {choices: {$set: [all, none, partial]}, help: Check the real KV-cache in the canary. 'none' (default) disables
+- at: 15319
+  delete: 2
+  insert: |2
+          - <<: &id100 {help: 'Deprecated. Use --cuda-graph-backend-{decode,prefill}=disabled instead.', new_flag: '--cuda-graph-backend-{decode,prefill}=disabled'}
+            action: &id017 {$callable: sglang.srt.arg_groups.argparse_actions.DeprecatedStoreTrueAction}
+- at: 15328
+  delete: 1
+  insert: |2
+          - <<: &id101 {help: Deprecated. Use --attn-dp-size <dp-size> instead of --dp-size <dp-size> --enable-dp-attention.,
+- at: 15330
+  delete: 1
+  insert: |2
+            action: *id017
+- at: 15338
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 15350
+  delete: 1
+  insert: |2
+          - <<: *id018
+- at: 15356
+  delete: 1
+  insert: |2
+          - <<: *id019
+- at: 15370
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 15378
+  delete: 1
+  insert: |2
+          - choices: *id011
+- at: 15415
+  delete: 2
+  insert: |2
+            type: *id008
+          - action: *id004
+- at: 15424
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 15464
+  delete: 1
+  insert: |2
+          - <<: *id020
+- at: 15470
+  delete: 1
+  insert: |2
+          - choices: *id013
+- at: 15477
+  delete: 1
+  insert: |2
+          - <<: *id021
+- at: 15482
+  delete: 1
+  insert: |2
+          - <<: *id022
+- at: 15488
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 15524
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 15539
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 15572
+  delete: 1
+  insert: |2
+            type: *id008
+- at: 15588
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 15605
+  delete: 1
+  insert: |2
+            type: *id008
+- at: 15612
+  delete: 1
+  insert: |2
+          - <<: *id023
+- at: 15618
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 15626
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 15640
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 15648
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 15663
+  delete: 1
+  insert: |2
+          - <<: *id024
+- at: 15691
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 15699
+  delete: 1
+  insert: |2
+          - <<: *id025
+- at: 15715
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 15727
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 15735
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 15745
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 15755
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 15763
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 15785
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 15832
+  delete: 1
+  insert: |2
+          - <<: *id026
+- at: 15857
+  delete: 1
+  insert: |2
+          - <<: *id027
+- at: 15863
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 15874
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 15882
+  delete: 1
+  insert: |2
+          - <<: *id028
+- at: 15888
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 15898
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 15907
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 15917
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 15926
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 15935
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 15947
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 15956
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 15971
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 15979
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 15989
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16000
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16014
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16042
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16050
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16077
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16085
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16114
+  delete: 1
+  insert: |2
+            type: *id014
+- at: 16123
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16153
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16194
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16218
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16226
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16235
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16252
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16261
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16277
+  delete: 1
+  insert: |2
+          - <<: *id029
+- at: 16304
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16326
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16334
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16342
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16350
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16367
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16375
+  delete: 1
+  insert: |2
+          - <<: *id030
+- at: 16381
+  delete: 1
+  insert: |2
+          - <<: *id031
+- at: 16410
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16418
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16433
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16441
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16531
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16559
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16572
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16593
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16614
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16628
+  delete: 1
+  insert: |2
+          - choices: *id009
+- at: 16635
+  delete: 1
+  insert: |2
+          - choices: *id009
+- at: 16642
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16652
+  delete: 1
+  insert: |2
+          - choices: *id009
+- at: 16659
+  delete: 1
+  insert: |2
+          - <<: *id032
+- at: 16672
+  delete: 1
+  insert: |2
+          - <<: *id033
+- at: 16678
+  delete: 1
+  insert: |2
+          - <<: *id034
+- at: 16684
+  delete: 1
+  insert: |2
+          - <<: *id035
+- at: 16690
+  delete: 1
+  insert: |2
+          - <<: *id036
+- at: 16696
+  delete: 1
+  insert: |2
+          - <<: *id037
+- at: 16702
+  delete: 1
+  insert: |2
+          - <<: *id038
+- at: 16708
+  delete: 1
+  insert: |2
+          - <<: *id039
+- at: 16714
+  delete: 1
+  insert: |2
+          - <<: *id040
+- at: 16720
+  delete: 1
+  insert: |2
+          - choices: *id012
+- at: 16728
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16744
+  delete: 1
+  insert: |2
+          - <<: *id041
+- at: 16750
+  delete: 1
+  insert: |2
+          - <<: *id042
+- at: 16755
+  delete: 1
+  insert: |2
+          - <<: *id010
+- at: 16761
+  delete: 1
+  insert: |2
+          - <<: *id010
+- at: 16802
+  delete: 2
+  insert: |2
+            type: *id008
+          - action: *id004
+- at: 16811
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16819
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16827
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16835
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16844
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16854
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16862
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16870
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16878
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16900
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16908
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16916
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16925
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16933
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16941
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16949
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16957
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16966
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16976
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16985
+  delete: 1
+  insert: |2
+          - <<: *id043
+- at: 16991
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 16999
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 17007
+  delete: 1
+  insert: |2
+          - <<: *id044
+- at: 17013
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 17021
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 17029
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 17065
+  delete: 1
+  insert: |2
+          - choices: *id011
+- at: 17120
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 17144
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 17158
+  delete: 1
+  insert: |2
+          - <<: *id045
+- at: 17170
+  delete: 1
+  insert: |2
+          - choices: *id012
+- at: 17178
+  delete: 1
+  insert: |2
+          - <<: *id046
+- at: 17197
+  delete: 1
+  insert: |2
+          - choices: *id015
+- at: 17206
+  delete: 1
+  insert: |2
+          - <<: *id047
+- at: 17212
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 17224
+  delete: 1
+  insert: |2
+          - choices: *id013
+- at: 17231
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 17240
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 17248
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 17274
+  delete: 1
+  insert: |2
+            type: *id014
+- at: 17281
+  delete: 1
+  insert: |2
+          - <<: *id048
+- at: 17305
+  delete: 1
+  insert: |2
+          - <<: *id049
+- at: 17349
+  delete: 1
+  insert: |2
+          - <<: *id050
+- at: 17355
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 17363
+  delete: 1
+  insert: |2
+          - <<: *id051
+- at: 17369
+  delete: 1
+  insert: |2
+          - choices: *id015
+- at: 17376
+  delete: 1
+  insert: |2
+          - <<: *id052
+- at: 17382
+  delete: 1
+  insert: |2
+          - <<: *id053
+- at: 17388
+  delete: 1
+  insert: |2
+          - <<: *id054
+- at: 17394
+  delete: 1
+  insert: |2
+          - <<: *id055
+- at: 17406
+  delete: 1
+  insert: |2
+          - <<: *id056
+- at: 17414
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 17442
+  delete: 1
+  insert: |2
+          - <<: *id057
+- at: 17454
+  delete: 1
+  insert: |2
+          - <<: *id058
+- at: 17473
+  delete: 1
+  insert: |2
+          - <<: *id059
+- at: 17479
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 17494
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 17505
+  delete: 1
+  insert: |2
+          - <<: *id060
+- at: 17537
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 17545
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 17555
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 17566
+  delete: 1
+  insert: |2
+          - <<: *id061
+- at: 17580
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 17602
+  delete: 1
+  insert: |2
+          - <<: *id062
+- at: 17614
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 17629
+  delete: 1
+  insert: |2
+          - choices: *id016
+- at: 17637
+  delete: 1
+  insert: |2
+          - choices: *id016
+- at: 17644
+  delete: 1
+  insert: |2
+          - choices: *id016
+- at: 17652
+  delete: 1
+  insert: |2
+          - <<: *id063
+- at: 17658
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 17676
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 17686
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 17694
+  delete: 1
+  insert: |2
+          - <<: *id064
+- at: 17713
+  delete: 1
+  insert: |2
+          - <<: *id065
+- at: 17719
+  delete: 1
+  insert: |2
+          - <<: *id066
+- at: 17725
+  delete: 1
+  insert: |2
+          - <<: *id067
+- at: 17731
+  delete: 1
+  insert: |2
+          - <<: *id068
+- at: 17737
+  delete: 1
+  insert: |2
+          - <<: *id069
+- at: 17766
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 17774
+  delete: 1
+  insert: |2
+          - <<: *id070
+- at: 17780
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 17795
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 17803
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 17811
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 17862
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 17877
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 17885
+  delete: 1
+  insert: |2
+          - <<: *id071
+- at: 17891
+  delete: 1
+  insert: |2
+          - <<: *id072
+- at: 17897
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 17905
+  delete: 1
+  insert: |2
+          - <<: *id073
+- at: 17911
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 17920
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 17945
+  delete: 1
+  insert: |2
+          - <<: *id074
+- at: 17965
+  delete: 1
+  insert: |2
+          - <<: *id075
+- at: 17971
+  delete: 1
+  insert: |2
+          - <<: *id076
+- at: 17977
+  delete: 1
+  insert: |2
+          - <<: *id077
+- at: 17983
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 17993
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18001
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18010
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18028
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18036
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18065
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18079
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18136
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18145
+  delete: 1
+  insert: |2
+          - <<: *id078
+- at: 18151
+  delete: 1
+  insert: |2
+          - <<: *id079
+- at: 18172
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18181
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18189
+  delete: 1
+  insert: |2
+          - <<: *id080
+- at: 18220
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18228
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18236
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18246
+  delete: 1
+  insert: |2
+          - <<: *id081
+- at: 18269
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18278
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18290
+  delete: 1
+  insert: |2
+          - <<: *id082
+- at: 18303
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18311
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18329
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18354
+  delete: 2
+  insert: |2
+            type: *id014
+          - <<: *id083
+- at: 18361
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18385
+  delete: 1
+  insert: |2
+          - <<: *id084
+- at: 18392
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18408
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18417
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18475
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18483
+  delete: 1
+  insert: |2
+          - <<: *id085
+- at: 18489
+  delete: 1
+  insert: |2
+          - <<: *id086
+- at: 18501
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18521
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18530
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18558
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18567
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18575
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18583
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18591
+  delete: 1
+  insert: |2
+          - <<: *id087
+- at: 18605
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18613
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18622
+  delete: 1
+  insert: |2
+          - <<: *id088
+- at: 18646
+  delete: 1
+  insert: |2
+            type: *id014
+- at: 18653
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18662
+  delete: 1
+  insert: |2
+          - <<: *id089
+- at: 18676
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18685
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18699
+  delete: 1
+  insert: |2
+          - <<: *id090
+- at: 18711
+  delete: 1
+  insert: |2
+          - <<: *id091
+- at: 18717
+  delete: 1
+  insert: |2
+          - <<: *id092
+- at: 18739
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18755
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18764
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18774
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18792
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18800
+  delete: 1
+  insert: |2
+          - <<: *id093
+- at: 18814
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18823
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18832
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18847
+  delete: 1
+  insert: |2
+          - <<: *id094
+- at: 18853
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18870
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18879
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18888
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18896
+  delete: 1
+  insert: |2
+          - <<: *id095
+- at: 18902
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18913
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 18935
+  delete: 1
+  insert: |2
+          - <<: *id096
+- at: 18941
+  delete: 1
+  insert: |2
+          - <<: *id097
+- at: 18947
+  delete: 1
+  insert: |2
+          - <<: *id098
+- at: 18953
+  delete: 1
+  insert: |2
+          - <<: *id099
+- at: 18959
+  delete: 2
+  insert: |2
+          - <<: *id100
+            action: *id017
+- at: 18968
+  delete: 2
+  insert: |2
+          - <<: *id101
+            action: *id017
+- at: 18977
+  delete: 1
+  insert: |2
+          - action: *id004
+- at: 19066
+  delete: 1
+  insert: |2
+          - {action: *id005, const: true, default: false, dest: use_distributed_post, group: options, help: null, nargs: 0, option_strings: [
+- at: 19086
+  delete: 1
+  insert: |2
+          - {action: *id005, const: true, default: false, dest: group_rm, group: options, help: Whether to do rm on a whole group.,
+- at: 19118
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 19127
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 19153
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 19163
+  delete: 1
+  insert: |2
+          - {default: null, dest: mtp_num_layers, group: options, help: null, option_strings: [--mtp-num-layers], type: {$callable: builtins.int}}
+          - {default: 0.2, dest: mtp_loss_scaling_factor, group: options, help: null, option_strings: [--mtp-loss-scaling-factor],
+            type: {$callable: builtins.float}}
+          - {action: *id005, const: true, default: true, dest: mtp_detach_heads, group: options, help: null, nargs: 0, option_strings: [
+              --mtp-detach-heads], type: null}
+          - <<: *id006
+- at: 19173
+  delete: 1
+  insert: |2
+          - {action: *id005, const: true, default: false, dest: ci_disable_config_snapshot, group: options, help: null, nargs: 0,
+- at: 19178
+  delete: 1
+  insert: |2
+          - {action: *id005, const: true, default: false, dest: ci_test, group: options, help: null, nargs: 0, option_strings: [
+- at: 19186
+  delete: 1
+  insert: |2
+          - {action: *id005, const: true, default: false, dest: ci_disable_kl_checker, group: options, help: null, nargs: 0, option_strings: [
+- at: 19188
+  delete: 1
+  insert: |2
+          - {action: *id005, const: true, default: false, dest: ci_disable_logprobs_checker, group: options, help: null, nargs: 0,
+- at: 19190
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 19213
+  delete: 1
+  insert: |2
+          - {action: *id005, const: true, default: false, dest: ci_save_model_hash, group: options, help: null, nargs: 0, option_strings: [
+- at: 19215
+  delete: 1
+  insert: |2
+          - {action: *id005, const: true, default: false, dest: ci_check_model_hash, group: options, help: null, nargs: 0, option_strings: [
+- at: 19217
+  delete: 1
+  insert: |2
+          - action: *id005
+- at: 19252
+  delete: 0
+  insert: |2
+          - {default: null, dest: load, group: options, help: null, option_strings: [--load], type: {$callable: builtins.str}}
+- at: 19283
+  delete: 1
+  insert: |2
+          allow_abbrev: true
+- at: 19286
+  delete: 1
+  insert: |2
+          description: null
+- at: 19292
+  delete: 1
+  insert: |2
+          prog: FSDP SFT Training (miles)
