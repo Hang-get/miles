@@ -43,7 +43,7 @@ def build_values(
 
 
 def compute_static_connections(specs: list[BaseSpec], *, scaling: ScalingConfig) -> StaticConnConfig:
-    return build_static_conn_config(specs=specs, scaling=scaling)
+    return build_static_conn_config(specs=_deployed_specs(specs, scaling=scaling), scaling=scaling)
 
 
 def _build_run_values(
