@@ -1,0 +1,19 @@
+base: megatron
+base_sha256: dfbd3225e5bd32d03363558436d8515425f9c9467cc3decfb87cd33f5310d47c
+edits:
+- at: 92
+  delete: 1
+  insert: |2
+      debug_train_only: true
+- at: 170
+  delete: 1
+  insert: |2
+      load_debug_rollout_data: $FIXTURES/rollout.pt
+- at: 1151
+  delete: 1
+  insert: |2
+      rollout_num_gpus: 0
+- at: 1800
+  delete: 1
+  insert: |2
+      starts_inference_engines: false

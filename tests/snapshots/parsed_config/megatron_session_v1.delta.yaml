@@ -1,0 +1,15 @@
+base: megatron
+base_sha256: dfbd3225e5bd32d03363558436d8515425f9c9467cc3decfb87cd33f5310d47c
+edits:
+- at: 1169
+  delete: 1
+  insert: |2
+        assignment_mode: min_load
+- at: 1792
+  delete: 1
+  insert: |2
+      sglang_router_policy: manual
+- at: 1855
+  delete: 1
+  insert: |2
+      use_session_server: true

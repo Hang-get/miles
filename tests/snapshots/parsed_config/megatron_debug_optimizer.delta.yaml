@@ -1,0 +1,19 @@
+base: megatron
+base_sha256: dfbd3225e5bd32d03363558436d8515425f9c9467cc3decfb87cd33f5310d47c
+edits:
+- at: 88
+  delete: 1
+  insert: |2
+      debug_disable_optimizer: true
+- at: 832
+  delete: 1
+  insert: |2
+          no_load_optim: true
+- at: 836
+  delete: 1
+  insert: |2
+          no_save_optim: true
+- at: 1062
+  delete: 1
+  insert: |2
+          use_distributed_optimizer: false

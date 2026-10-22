@@ -1,0 +1,20 @@
+base: fsdp
+base_sha256: f3b08a89e657e93f9d7efa42706e9cfbc8d5ed9a8971d30b6863963f76bdc6e7
+edits:
+- at: 1
+  delete: 1
+  insert: |2
+      <<: &id001 {ckpt_step: 7, load: $FIXTURES/ref, wandb_project: null}
+- at: 54
+  delete: 1
+  insert: |2
+      critic_load: $FIXTURES/ref
+- at: 279
+  delete: 2
+  insert: |2
+      ref_ckpt_step: 7
+      ref_load: $FIXTURES/ref
+- at: 283
+  delete: 1
+  insert: |2
+      requested_load: $FIXTURES/missing

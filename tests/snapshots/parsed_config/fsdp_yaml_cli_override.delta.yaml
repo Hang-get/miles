@@ -1,0 +1,19 @@
+base: fsdp
+base_sha256: f3b08a89e657e93f9d7efa42706e9cfbc8d5ed9a8971d30b6863963f76bdc6e7
+edits:
+- at: 55
+  delete: 1
+  insert: |2
+      critic_lr: 7.0e-06
+- at: 266
+  delete: 1
+  insert: |2
+        bf16: true, calculate_per_token_loss: false, clip_grad: 1.0, config: $FIXTURES/fsdp.yaml, context_parallel_size: 1, deterministic_mode: false,
+- at: 269
+  delete: 1
+  insert: |2
+        lr: 7.0e-06, lr_decay_iters: null, lr_decay_style: constant, lr_warmup_fraction: null, lr_warmup_init: 0.0, lr_warmup_iters: 0,
+- at: 274
+  delete: 1
+  insert: |2
+        weight_decay: 0.2, world_size: 1}

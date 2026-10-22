@@ -1,0 +1,19 @@
+base: megatron
+base_sha256: dfbd3225e5bd32d03363558436d8515425f9c9467cc3decfb87cd33f5310d47c
+edits:
+- at: 56
+  delete: 1
+  insert: |2
+      critic_lr: 9.0e-06
+- at: 118
+  delete: 1
+  insert: |2
+      eps_clip: 0.31
+- at: 120
+  delete: 1
+  insert: |2
+      eps_clip_high: 0.31
+- at: 677
+  delete: 1
+  insert: |2
+          lr: 9.0e-06

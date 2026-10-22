@@ -1,0 +1,11 @@
+base: megatron
+base_sha256: dfbd3225e5bd32d03363558436d8515425f9c9467cc3decfb87cd33f5310d47c
+edits:
+- at: 6
+  delete: 1
+  insert: |2
+      advantage_estimator: reinforce_plus_plus
+- at: 222
+  delete: 1
+  insert: |2
+      normalize_advantages: true

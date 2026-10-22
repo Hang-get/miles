@@ -1,0 +1,7 @@
+base: fsdp
+base_sha256: f3b08a89e657e93f9d7efa42706e9cfbc8d5ed9a8971d30b6863963f76bdc6e7
+edits:
+- at: 254
+  delete: 1
+  insert: |2
+      over_sampling_batch_size: 4

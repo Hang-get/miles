@@ -1,0 +1,15 @@
+base: megatron
+base_sha256: dfbd3225e5bd32d03363558436d8515425f9c9467cc3decfb87cd33f5310d47c
+edits:
+- at: 120
+  delete: 1
+  insert: |2
+      eps_clip_high: 0.4
+- at: 137
+  delete: 1
+  insert: |2
+      eval_reward_key: eval_score
+- at: 1131
+  delete: 1
+  insert: |2
+      reward_key: score

@@ -1,0 +1,7 @@
+base: fsdp
+base_sha256: f3b08a89e657e93f9d7efa42706e9cfbc8d5ed9a8971d30b6863963f76bdc6e7
+edits:
+- at: 124
+  delete: 1
+  insert: |2
+      eval_function_path: &id002 {config: null, path: miles.rollout.sglang_rollout.generate_rollout}
