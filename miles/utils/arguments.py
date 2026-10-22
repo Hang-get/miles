@@ -28,7 +28,6 @@ from miles.dashboard.args import validate_dashboard_args
 from miles.ray.specs.train import external_trainer_controller_addrs
 from miles.rollout.checkpoint_eval import is_checkpoint_eval_fn
 from miles.utils.args.configs.fault_tolerance import _DEFAULT_FT_API_SERVER_PORT
-from miles.utils.environ import resolve_train_offload_disk_dir
 from miles.utils.args.configs.router import RouterConfig
 from miles.utils.args.custom_function import add_user_provided_function_arguments, resolve_custom_function_configs
 from miles.utils.args.runtime import AllConfig
@@ -36,7 +35,7 @@ from miles.utils.args.schema import reset_arg
 from miles.utils.audit_utils.config_snapshot.generated_value_registry import generated_value_registry
 from miles.utils.audit_utils.event_logger.logger import EVENTS_DIRNAME
 from miles.utils.chat_template_utils.tito_tokenizer import TITOTokenizerType
-from miles.utils.environ import use_legacy_rollout_v1
+from miles.utils.environ import resolve_train_offload_disk_dir, use_legacy_rollout_v1
 from miles.utils.eval_config import EvalDatasetConfig, build_eval_dataset_configs, ensure_dataset_list
 from miles.utils.file_arg_utils import resolve_file_arg
 from miles.utils.hf_utils.config import is_dsa, load_hf_config

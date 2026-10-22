@@ -235,7 +235,10 @@ class TestExpectedNumCellsAsksTheProvider:
     ) -> None:
         """Only a missing provider answer falls back to the configured cell count."""
         args = parse_fsdp_test_config(
-            "--rollout-num-gpus", "8", "--rollout-num-gpus-per-engine", "4",
+            "--rollout-num-gpus",
+            "8",
+            "--rollout-num-gpus-per-engine",
+            "4",
             "--custom-inference-engine-provider-path",
             "miles.ray.rollout.external_engine_provider.static_inference_engine_provider",
         )
@@ -248,10 +251,14 @@ class TestExpectedNumCellsAsksTheProvider:
     async def test_an_explicit_external_count_omits_the_scaling_fallback(self) -> None:
         """An explicit startup count keeps scaling changes out of the runtime payload."""
         args = parse_fsdp_test_config(
-            "--rollout-num-gpus", "8", "--rollout-num-gpus-per-engine", "4",
+            "--rollout-num-gpus",
+            "8",
+            "--rollout-num-gpus-per-engine",
+            "4",
             "--custom-inference-engine-provider-path",
             "miles.ray.rollout.external_engine_provider.static_inference_engine_provider",
-            "--init-expected-num-cells", "3",
+            "--init-expected-num-cells",
+            "3",
         )
 
         servers = await _servers_of(args, provider=_CountingProvider(7))
