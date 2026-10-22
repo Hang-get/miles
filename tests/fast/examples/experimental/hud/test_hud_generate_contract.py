@@ -9,6 +9,16 @@ from miles.rollout.base_types import GenerateFnInput, GenerateFnOutput
 from miles.utils.types import Sample
 
 
+@pytest.mark.parametrize(("settings", "expected_width"), [({}, 640), ({"hud_shot_width": 512}, 512)])
+def test_hud_screenshot_width_preserves_default_and_explicit_recipe(
+    settings: dict[str, int], expected_width: int
+) -> None:
+    """Omitted screenshot width retains 640 while the 2048 recipe can explicitly select 512."""
+    config = rollout.HudConfig(hud_env_dir="/hud", hud_snapshot_name="snapshot", **settings)
+
+    assert config.hud_shot_width == expected_width
+
+
 @pytest.mark.parametrize("failed", [False, True])
 async def test_episode_result_wraps_the_same_sample_and_uses_supplied_state(
     monkeypatch: pytest.MonkeyPatch, failed: bool

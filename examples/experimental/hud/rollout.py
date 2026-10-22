@@ -59,7 +59,7 @@ class HudConfig(BaseConfig):
     hud_env_dir: A[str, Arg()]
     hud_snapshot_name: A[str, Arg()]
     hud_max_steps: A[int, Arg()] = 24
-    hud_shot_width: A[int, Arg()] = 512
+    hud_shot_width: A[int, Arg()] = 640
     hud_max_tokens_per_turn: A[int, Arg()] = 512
     hud_max_sandboxes: A[int, Arg()] = 32
     hud_episode_timeout_s: A[int, Arg()] = 1800
