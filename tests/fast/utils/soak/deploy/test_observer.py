@@ -165,9 +165,7 @@ class TestDeploymentObserverCommandEvidence:
     ) -> None:
         """Repeated observations retain each pod command once and preserve takeover evidence."""
         commands = {"old-pod": ("serve", "--config-json", '{"save_debug_rollout_data":"old"}')}
-        reads = _FakeDeploymentReads(
-            snapshot=_release_snapshot().model_copy(update={"commands_of_pod_uid": commands})
-        )
+        reads = _FakeDeploymentReads(snapshot=_release_snapshot().model_copy(update={"commands_of_pod_uid": commands}))
         reads.install(monkeypatch)
         observer = _observer()
 
@@ -180,7 +178,9 @@ class TestDeploymentObserverCommandEvidence:
         assert first.details.cluster.commands_of_pod_uid == commands
         assert second.details.cluster.commands_of_pod_uid == {}
         assert third.details.cluster.commands_of_pod_uid == {"new-pod": next_commands["new-pod"]}
-        events = [SoakObservationEvent.model_validate_json(event.model_dump_json()) for event in (first, second, third)]
+        events = [
+            SoakObservationEvent.model_validate_json(event.model_dump_json()) for event in (first, second, third)
+        ]
         evidence = project_hot_restart_evidence(events, release=RELEASE)
         assert evidence.commands_of_pod_uid == next_commands
         assert reads.snapshot.commands_of_pod_uid == next_commands
