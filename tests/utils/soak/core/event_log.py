@@ -36,9 +36,11 @@ class EventLog:
                 if cluster.describes_whole_release and uid not in self._recorded_pod_uids
             }
             snapshot = snapshot.model_copy(
-                update={"details": snapshot.details.model_copy(
-                    update={"cluster": cluster.model_copy(update={"commands_of_pod_uid": commands})}
-                )}
+                update={
+                    "details": snapshot.details.model_copy(
+                        update={"cluster": cluster.model_copy(update={"commands_of_pod_uid": commands})}
+                    )
+                }
             )
             new_pod_uids.update(commands)
         stored = StoredEvent(sequence=len(self._events), event=snapshot)

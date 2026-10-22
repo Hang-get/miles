@@ -164,9 +164,7 @@ class TestDeploymentObserverCommandEvidence:
     ) -> None:
         """A timeout or cancellation after observe cannot consume evidence before it reaches the log."""
         commands = {"pod": ("serve", "--config-json", "payload")}
-        reads = _FakeDeploymentReads(
-            snapshot=_release_snapshot().model_copy(update={"commands_of_pod_uid": commands})
-        )
+        reads = _FakeDeploymentReads(snapshot=_release_snapshot().model_copy(update={"commands_of_pod_uid": commands}))
         reads.install(monkeypatch)
         observer = _observer()
         log = EventLog(tmp_path / "events.jsonl")

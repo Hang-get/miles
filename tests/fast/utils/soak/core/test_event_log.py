@@ -162,7 +162,9 @@ class TestEventLogDeploymentCommands:
         assert log.events[0].details.cluster.commands_of_pod_uid == {}
         assert project_hot_restart_evidence(log.events, release=RELEASE).commands_of_pod_uid == commands
 
-    def test_failed_file_open_does_not_consume_the_command(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_failed_file_open_does_not_consume_the_command(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """A command is deduplicated only after its observation was successfully persisted."""
         log = EventLog(tmp_path / "events.jsonl")
         commands = {"pod": ("serve", "--config-json", "payload")}
