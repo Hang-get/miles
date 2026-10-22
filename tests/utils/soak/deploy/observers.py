@@ -1,7 +1,7 @@
 import asyncio
 import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from functools import cached_property
 from pathlib import Path
@@ -30,6 +30,7 @@ class DeploymentObserver(SoakObserver):
     trainer_id: str
     checkpoint_dir: Path
     events_dir: Path
+    _recorded_pod_uids: set[str] = field(default_factory=set, compare=False, repr=False)
 
     async def observe(self) -> SoakObservationEvent:
         observed_at = datetime.now(timezone.utc)
@@ -49,9 +50,18 @@ class DeploymentObserver(SoakObserver):
         return SoakObservationEvent(
             timestamp=observed_at,
             targets=targets,
-            details=DeploymentObservationDetails(cluster=snapshot),
+            details=DeploymentObservationDetails(cluster=self._record_commands_once(snapshot)),
             errors=errors,
         )
+
+    def _record_commands_once(self, snapshot: ClusterSnapshot) -> ClusterSnapshot:
+        commands = {
+            uid: command
+            for uid, command in snapshot.commands_of_pod_uid.items()
+            if snapshot.describes_whole_release and uid not in self._recorded_pod_uids
+        }
+        self._recorded_pod_uids.update(commands)
+        return snapshot.model_copy(update={"commands_of_pod_uid": commands})
 
     async def _read_cluster(self) -> ClusterSnapshot:
         return await asyncio.to_thread(

@@ -8,6 +8,8 @@ import pytest
 from tests.fast.e2e.deploy.hot_restart.cluster_facts import NAMESPACE, ORCHESTRATOR, RELEASE, ROLLOUT_EXECUTOR, TRAINER
 from tests.fast.utils.soak.deploy.deploy_fakes import _STATE_FILE, _FakeDeploymentReads, _release_snapshot
 from tests.utils.deploy.hot_restart.cluster_observer import ClusterSnapshot, compute_trainer_rpc_url
+from tests.utils.soak.core.events import SoakObservationEvent
+from tests.utils.soak.deploy.checkers.evidence import project_hot_restart_evidence
 from tests.utils.soak.deploy.observers import DeploymentObserver
 from tests.utils.soak.deploy.types import DeploymentObservationDetails, DeploymentTarget
 
@@ -155,6 +157,56 @@ class TestDeploymentObserverTarget:
         assert set(errors) == {"progress"}
         assert not targets[0].ready
         assert (targets[0].saved_iteration, targets[0].finished_rollout_id) == (None, None)
+
+
+class TestDeploymentObserverCommandEvidence:
+    async def test_commands_are_recorded_once_per_pod_without_losing_replay_evidence(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Repeated observations retain each pod command once and preserve takeover evidence."""
+        commands = {"old-pod": ("serve", "--config-json", '{"save_debug_rollout_data":"old"}')}
+        reads = _FakeDeploymentReads(
+            snapshot=_release_snapshot().model_copy(update={"commands_of_pod_uid": commands})
+        )
+        reads.install(monkeypatch)
+        observer = _observer()
+
+        first = await observer.observe()
+        second = await observer.observe()
+        next_commands = commands | {"new-pod": ("serve", "--config-json", '{"save_debug_rollout_data":"new"}')}
+        reads.snapshot = reads.snapshot.model_copy(update={"commands_of_pod_uid": next_commands})
+        third = await observer.observe()
+
+        assert first.details.cluster.commands_of_pod_uid == commands
+        assert second.details.cluster.commands_of_pod_uid == {}
+        assert third.details.cluster.commands_of_pod_uid == {"new-pod": next_commands["new-pod"]}
+        events = [SoakObservationEvent.model_validate_json(event.model_dump_json()) for event in (first, second, third)]
+        evidence = project_hot_restart_evidence(events, release=RELEASE)
+        assert evidence.commands_of_pod_uid == next_commands
+        assert reads.snapshot.commands_of_pod_uid == next_commands
+        assert second.targets == first.targets
+
+    async def test_partial_reads_do_not_consume_commands_needed_by_later_complete_observations(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A command ignored with a partial read remains available to replay from a complete read."""
+        commands = {"pod": ("serve", "--config-json", '{"save_debug_rollout_data":"value"}')}
+        reads = _FakeDeploymentReads(
+            snapshot=_release_snapshot(reads_missing=("statefulsets",)).model_copy(
+                update={"commands_of_pod_uid": commands}
+            )
+        )
+        reads.install(monkeypatch)
+        observer = _observer()
+
+        partial = await observer.observe()
+        reads.snapshot = reads.snapshot.model_copy(update={"reads_missing": ()})
+        complete = await observer.observe()
+
+        assert partial.details.cluster.commands_of_pod_uid == {}
+        assert partial.errors == {"statefulsets": "Read failed"}
+        assert complete.details.cluster.commands_of_pod_uid == commands
+        assert project_hot_restart_evidence([partial, complete], release=RELEASE).commands_of_pod_uid == commands
 
 
 class TestDeploymentObserverIncarnation:
