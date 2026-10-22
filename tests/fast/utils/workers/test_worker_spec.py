@@ -78,6 +78,7 @@ def _make_launch_context(**overrides) -> WorkerLaunchContext:
 def _make_launch_command_context(**overrides) -> LaunchCommandContext:
     kwargs = dict(
         args=None,
+        scaling=_make_scaling(),
         cell_index=0,
         worker_in_cell_index=0,
         num_workers_per_cell=1,
@@ -182,8 +183,8 @@ class TestBaseSpec:
         """Cell meta is opt-in, so an undeclared one must resolve to nothing rather than leak another cell's."""
         spec = _PlainCommandSpec.create(None)
 
-        assert spec.static_meta == StaticMeta()
-        assert spec.static_meta.resolve(cell_index=3) == {}
+        assert spec.partial_static_meta == StaticMeta()
+        assert spec.partial_static_meta.resolve(cell_index=3) == {}
 
     def test_an_incomplete_spec_cannot_be_instantiated(self):
         """A spec missing its scheduling or creation hooks would only fail once a worker is launched."""
@@ -207,6 +208,7 @@ class TestLaunchCommandContext:
         """A default here would let a manager that never probed the worker launch it against the wrong devices."""
         kwargs = dict(
             args=None,
+            scaling=_make_scaling(),
             cell_index=0,
             worker_in_cell_index=0,
             num_workers_per_cell=1,
@@ -215,7 +217,7 @@ class TestLaunchCommandContext:
             pool_addrs={},
         )
 
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValidationError, match="local_gpu_ids"):
             LaunchCommandContext(**kwargs)
 
 
@@ -493,12 +495,14 @@ class TestLaunchCommandContextPoolAddrs:
 
     def test_a_context_without_the_pool_map_is_rejected(self):
         """Making the map optional would let a caller that forgot to wire it render commands against nothing."""
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValidationError, match="pool_addrs"):
             LaunchCommandContext(
                 args=None,
+                scaling=_make_scaling(),
                 cell_index=0,
                 worker_in_cell_index=0,
                 num_workers_per_cell=1,
                 gpu_ids=[],
+                local_gpu_ids=[],
                 self_addrs={"http": HostAndPort(host="127.0.0.1", port=8000)},
             )

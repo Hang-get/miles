@@ -36,7 +36,7 @@ def make_pool_spec(
             num_gpu_slots_per_worker=1,
             num_gpus_per_node=workers_per_pod,
         ),
-        static_meta=static_meta or StaticMeta(),
+        partial_static_meta=static_meta or StaticMeta(),
     )
     if worker_class is None:
         return FakeCommandSpec(**common, command=lambda context: f"python -m {pool_id}")
@@ -84,5 +84,5 @@ def make_trainer_spec(
         ),
         args=BaseLeafConfig(),
         worker_class="miles.fake.TrainWorker",
-        static_meta=StaticMeta(values={"role": "actor"}, include_cell_index=True),
+        partial_static_meta=StaticMeta(values={"role": "actor"}, include_cell_index=True),
     )
