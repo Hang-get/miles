@@ -2,10 +2,14 @@ import os
 from pathlib import Path
 
 import pytest
+from tests.fast.e2e.deploy.hot_restart.cluster_facts import RELEASE
+from tests.fast.utils.soak.deploy.deploy_fakes import _release_snapshot
 from tests.fast.utils.soak.soak_fakes import _at, _cell_target, _observation
 from tests.utils.soak.core import event_log as event_log_module
 from tests.utils.soak.core.event_log import EventLog
-from tests.utils.soak.core.events import SoakCollectionClosedEvent, StoredEvent, read_events
+from tests.utils.soak.core.events import SoakCollectionClosedEvent, SoakObservationEvent, StoredEvent, read_events
+from tests.utils.soak.deploy.checkers.evidence import project_hot_restart_evidence
+from tests.utils.soak.deploy.types import DeploymentObservationDetails
 
 
 class TestEventLogCreation:
@@ -121,3 +125,60 @@ class TestEventLogAppend:
         assert lines[1] == "foreign"
         assert StoredEvent.model_validate_json(lines[2]).sequence == 1
         assert os.path.getsize(log.path) == sum(len(line) + 1 for line in lines)
+
+
+class TestEventLogDeploymentCommands:
+    def test_repeated_pod_commands_are_stored_once_and_replay_keeps_every_incarnation(self, tmp_path: Path) -> None:
+        """Memory and disk deduplicate commands without losing takeover evidence or mutating input."""
+        log = EventLog(tmp_path / "events.jsonl")
+        commands = {"old": ("serve", "--config-json", '{"save_debug_rollout_data":"old"}')}
+        cluster = _release_snapshot().model_copy(update={"commands_of_pod_uid": commands})
+        first = SoakObservationEvent(targets=[], details=DeploymentObservationDetails(cluster=cluster))
+        next_commands = commands | {"new": ("serve", "--config-json", '{"save_debug_rollout_data":"new"}')}
+        next_cluster = cluster.model_copy(update={"commands_of_pod_uid": next_commands})
+        last = SoakObservationEvent(targets=[], details=DeploymentObservationDetails(cluster=next_cluster))
+
+        log.append(first)
+        log.append(first)
+        log.append(last)
+
+        expected = [commands, {}, {"new": next_commands["new"]}]
+        assert [event.details.cluster.commands_of_pod_uid for event in log.events] == expected
+        persisted = read_events(log.path, require_closed=False)
+        assert persisted == log.events
+        assert project_hot_restart_evidence(persisted, release=RELEASE).commands_of_pod_uid == next_commands
+        assert first.details.cluster.commands_of_pod_uid == commands
+        assert last.details.cluster.commands_of_pod_uid == next_commands
+
+    def test_partial_reads_do_not_consume_commands_needed_by_complete_reads(self, tmp_path: Path) -> None:
+        """Replay receives commands when the first complete read follows a partial read."""
+        log = EventLog(tmp_path / "events.jsonl")
+        commands = {"pod": ("serve", "--config-json", "payload")}
+        cluster = _release_snapshot().model_copy(update={"commands_of_pod_uid": commands})
+        partial = cluster.model_copy(update={"reads_missing": ("statefulsets",)})
+        log.append(SoakObservationEvent(targets=[], details=DeploymentObservationDetails(cluster=partial)))
+        log.append(SoakObservationEvent(targets=[], details=DeploymentObservationDetails(cluster=cluster)))
+
+        assert log.events[0].details.cluster.commands_of_pod_uid == {}
+        assert project_hot_restart_evidence(log.events, release=RELEASE).commands_of_pod_uid == commands
+
+    def test_failed_file_open_does_not_consume_the_command(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A command is deduplicated only after its observation was successfully persisted."""
+        log = EventLog(tmp_path / "events.jsonl")
+        commands = {"pod": ("serve", "--config-json", "payload")}
+        cluster = _release_snapshot().model_copy(update={"commands_of_pod_uid": commands})
+        event = SoakObservationEvent(targets=[], details=DeploymentObservationDetails(cluster=cluster))
+
+        def fail_open(*args: object, **kwargs: object) -> None:
+            raise OSError("disk unavailable")
+
+        with monkeypatch.context() as patch:
+            patch.setattr(Path, "open", fail_open)
+            with pytest.raises(OSError, match="disk unavailable"):
+                log.append(event)
+        assert log.events == []
+        log.append(event)
+
+        assert read_events(log.path, require_closed=False)[0].details.cluster.commands_of_pod_uid == commands

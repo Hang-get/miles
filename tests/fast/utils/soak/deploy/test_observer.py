@@ -8,6 +8,7 @@ import pytest
 from tests.fast.e2e.deploy.hot_restart.cluster_facts import NAMESPACE, ORCHESTRATOR, RELEASE, ROLLOUT_EXECUTOR, TRAINER
 from tests.fast.utils.soak.deploy.deploy_fakes import _STATE_FILE, _FakeDeploymentReads, _release_snapshot
 from tests.utils.deploy.hot_restart.cluster_observer import ClusterSnapshot, compute_trainer_rpc_url
+from tests.utils.soak.core.event_log import EventLog
 from tests.utils.soak.deploy.observers import DeploymentObserver
 from tests.utils.soak.deploy.types import DeploymentObservationDetails, DeploymentTarget
 
@@ -155,6 +156,23 @@ class TestDeploymentObserverTarget:
         assert set(errors) == {"progress"}
         assert not targets[0].ready
         assert (targets[0].saved_iteration, targets[0].finished_rollout_id) == (None, None)
+
+
+class TestDeploymentObserverCommandEvidence:
+    async def test_discarded_observation_does_not_hide_commands_from_the_next_persisted_observation(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """A timeout or cancellation after observe cannot consume evidence before it reaches the log."""
+        commands = {"pod": ("serve", "--config-json", "payload")}
+        reads = _FakeDeploymentReads(snapshot=_release_snapshot().model_copy(update={"commands_of_pod_uid": commands}))
+        reads.install(monkeypatch)
+        observer = _observer()
+        log = EventLog(tmp_path / "events.jsonl")
+
+        await observer.observe()
+        log.append(await observer.observe())
+
+        assert log.events[0].details.cluster.commands_of_pod_uid == commands
 
 
 class TestDeploymentObserverIncarnation:
