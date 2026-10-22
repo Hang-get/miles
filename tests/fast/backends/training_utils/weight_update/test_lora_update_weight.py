@@ -92,17 +92,17 @@ class TestWeightUpdaterLoraConfig:
         updater = self._make_updater(is_lora=False, lora_sync_config=None)
         assert updater._lora_sync_config is None
 
-    @pytest.mark.parametrize("dp_attention", [False, True], ids=["tp", "dp-attention"])
-    def test_registration_pins_the_adapter_only_under_dp_attention(self, dp_attention):
-        """SGLang's DP-attention LoRA rejects unpinned adapters; other layouts keep them evictable."""
+    @pytest.mark.parametrize("attention_dp", [False, True], ids=["no-attention-dp", "attention-dp"])
+    def test_registration_pins_the_adapter_only_under_attention_dp(self, attention_dp):
+        """SGLang's attention-DP LoRA rejects unpinned adapters; other layouts keep them evictable."""
         updater = self._make_updater(
             is_lora=True,
             lora_sync_config={"peft_type": "LORA", "r": 8},
-            args=Namespace(sglang_attn_dp_size=1, sglang_enable_dp_attention=dp_attention, sglang_dp_size=8),
+            args=Namespace(sglang_attn_dp_size=8 if attention_dp else 1, sglang_enable_dp_attention=False, sglang_dp_size=1),
         )
         engines = [MagicMock()]
         with patch(f"{_UPDATER_MODULE}.register_lora_adapter") as register:
             updater._register_new_lora_adapters(engines, [("miles_lora", None)])
         register.assert_called_once_with(
-            engines, lora_name="miles_lora", lora_config={"peft_type": "LORA", "r": 8}, pinned=dp_attention
+            engines, lora_name="miles_lora", lora_config={"peft_type": "LORA", "r": 8}, pinned=attention_dp
         )
