@@ -1,6 +1,7 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Self
+
+from typing_extensions import Self
 
 from miles.backends.megatron_utils.megatron_config import MegatronArgsNamespace
 from miles.utils.pydantic_utils import FrozenStrictBaseModel

@@ -1,4 +1,4 @@
-from typing import Self
+from typing_extensions import Self
 
 from miles.backends.megatron_utils.checkpoint_request import MegatronCkptLoadConfig
 from miles.backends.megatron_utils.megatron_config import MegatronTrainerConfig

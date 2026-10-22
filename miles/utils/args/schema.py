@@ -3,10 +3,11 @@ from collections.abc import Callable, Mapping
 from copy import deepcopy
 from dataclasses import dataclass
 from types import UnionType
-from typing import Annotated, Any, Self, TypeVar, Union, get_args, get_origin
+from typing import Annotated, Any, TypeVar, Union, get_args, get_origin
 
 from pydantic import BaseModel, ConfigDict
 from pydantic.fields import FieldInfo
+from typing_extensions import Self
 
 from miles.utils.pydantic_utils import StrictBaseModel
 

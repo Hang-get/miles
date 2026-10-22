@@ -7,7 +7,9 @@ import traceback
 from collections.abc import Awaitable, Callable, Coroutine, Iterable, Sequence
 from contextlib import AsyncExitStack
 from types import TracebackType
-from typing import Any, Self, TypeVar
+from typing import Any, TypeVar
+
+from typing_extensions import Self
 
 logger = logging.getLogger(__name__)
 

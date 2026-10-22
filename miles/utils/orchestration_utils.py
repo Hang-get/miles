@@ -1,7 +1,8 @@
 import sys
 from dataclasses import dataclass
 from functools import partial
-from typing import Self
+
+from typing_extensions import Self
 
 from miles.ray.wiring import compute_backend_capability, launch_worker_manager, shutdown_worker_manager
 from miles.utils import object_store
