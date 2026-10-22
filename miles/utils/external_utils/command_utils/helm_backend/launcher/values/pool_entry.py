@@ -177,6 +177,7 @@ def _launch_context(
     pod_gpu_ids = real_or_sentinel_gpu_ids(spec, is_sub_node=is_sub_node, scaling=scaling)
     return LaunchCommandContext(
         args=args,
+        scaling=scaling,
         cell_index=cell_index,
         worker_in_cell_index=worker_in_cell_index,
         num_workers_per_cell=spec.scheduling(scaling).num_workers_per_cell,
