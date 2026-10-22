@@ -1,3 +1,4 @@
+import asyncio
 import json
 from types import SimpleNamespace
 
@@ -20,8 +21,9 @@ class TestServe:
 
         await with_disposer(serve_tinker.serve, args)
 
+        assert tinker_startup.trainer.request.ckpt_load_config.load == "base-model"
+        assert not tinker_startup.trainer.request.ckpt_load_config.resume_from_ckpt
         assert args.inference_runtime_mut_state.engine_count == 2
-        assert http_utils._http_client is not None
         assert not http_utils._http_clients
         assert http_utils._client_concurrency == 24
         result = await MilesBackend(trainer=tinker_startup.trainer, router_url="http://router:30000").sample(
@@ -35,11 +37,26 @@ class TestServe:
             lora_name=None,
         )
 
+        assert not http_utils._http_clients[asyncio.get_running_loop()].is_closed
         assert result == {"sequences": [{"tokens": [42], "logprobs": [-0.25], "stop_reason": "length"}]}
         [request] = tinker_startup.requests
         assert request.method == "POST"
         assert str(request.url) == "http://router:30000/generate"
         assert json.loads(request.content)["input_ids"] == [1, 2]
+
+    async def test_trainer_receives_tracking_ids_initialized_by_orchestration(
+        self, tinker_startup: SimpleNamespace
+    ) -> None:
+        """The trainer request captures tracking run IDs only after orchestration initializes them."""
+        assert tinker_startup.args.wandb_run_id is None
+        assert tinker_startup.args.mlflow_run_id is None
+
+        await with_disposer(serve_tinker.serve, tinker_startup.args)
+
+        assert len(tinker_startup.orchestration_calls) == 1
+        assert tinker_startup.trainer.request.wandb_run_id == "initialized-wandb-run"
+        assert tinker_startup.trainer.request.mlflow_run_id == "initialized-mlflow-run"
+        assert tinker_startup.trainer.request.ckpt_load_config.load == "base-model"
 
     async def test_topology_query_failure_disposes_the_initialized_controller(
         self, tinker_startup: SimpleNamespace
@@ -51,8 +68,21 @@ class TestServe:
             await with_disposer(serve_tinker.serve, tinker_startup.args)
 
         assert tinker_startup.controller.disposed
-        assert http_utils._http_client is None
+        assert http_utils._http_clients == {}
         assert http_utils._client_concurrency == 0
+
+    async def test_different_resolved_trainer_base_is_rejected_before_startup(
+        self, tinker_startup: SimpleNamespace
+    ) -> None:
+        """A resolved trainer base differing from the engine base prevents gateway startup."""
+        tinker_startup.args.ref_load = "other-model"
+
+        with pytest.raises(AssertionError, match="same frozen HF base"):
+            await with_disposer(serve_tinker.serve, tinker_startup.args)
+
+        assert not tinker_startup.orchestration_calls
+        assert not tinker_startup.controller.initialized
+        assert tinker_startup.trainer.request is None
 
 
 class TestTrainerTokenBudget:
@@ -72,6 +102,7 @@ class TestTrainerTokenBudget:
         if rejected:
             with pytest.raises(AssertionError, match="at least one padding block"):
                 await with_disposer(serve_tinker.serve, args)
+            assert not tinker_startup.orchestration_calls
             assert not tinker_startup.controller.initialized
             assert tinker_startup.trainer.request is None
         else:

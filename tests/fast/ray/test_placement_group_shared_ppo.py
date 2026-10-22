@@ -8,6 +8,7 @@ from tests.fast.fixtures.capability_fixtures import FakeBackendCapability
 from tests.fast.fixtures.megatron_config_fixtures import encode_megatron_config
 from tests.fast.train_parallel_config_utils import make_train_parallel_config
 
+from miles.backends.megatron_utils import megatron_config
 from miles.backends.megatron_utils.megatron_config import resolve_megatron_config
 from miles.ray import placement_group as placement_group_module
 from miles.ray.placement_group import _assert_external_trainer_in_run, _get_placement_group_layout
@@ -295,11 +296,16 @@ def _training_models_args(tmp_path: Path, *, use_critic: bool = True, **updates:
     return config.model_copy(update={"kl_coef": 0.1, **updates})
 
 
-async def test_an_actor_and_a_critic_that_restored_to_different_rollouts_are_refused(monkeypatch, tmp_path):
+@pytest.mark.parametrize(("actor_rollout", "critic_rollout"), [(5, 4), (0, 8), (8, 0)])
+async def test_an_actor_and_a_critic_that_restored_to_different_rollouts_are_refused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, actor_rollout: int, critic_rollout: int
+) -> None:
     """The two checkpoint trees are written one after the other, so a crash between them lands exactly here."""
-    _patch_train_controller_handles(monkeypatch, restored={"actor": [5], "critic": [4]})
+    _patch_train_controller_handles(monkeypatch, restored={"actor": [actor_rollout], "critic": [critic_rollout]})
 
-    with pytest.raises(AssertionError):
+    with pytest.raises(
+        AssertionError, match=f"the actor restored to rollout {actor_rollout} but its critic to {critic_rollout}"
+    ):
         await placement_group_module.create_training_models(
             _training_models_args(tmp_path),
             rollout_executor=_RecordingRolloutExecutor(),
@@ -356,7 +362,9 @@ async def test_a_critic_run_inits_one_controller_per_role(monkeypatch, tmp_path)
     )
 
     assert [handle.trainer_id for handle in handles] == ["actor", "critic"]
-    assert all(handle.inited_with == TrainerControllerInitRequest.from_args(args) for handle in handles)
+    assert [handle.inited_with for handle in handles] == [
+        TrainerControllerInitRequest.from_args(args, trainer=trainer) for trainer in args.raw_megatron.trainers
+    ]
 
 
 def test_the_critic_controller_payload_carries_neutralized_args(tmp_path):
@@ -381,13 +389,17 @@ def test_the_critic_controller_payload_carries_neutralized_args(tmp_path):
     )
 
 
-def test_the_critic_controller_payload_carries_the_critic_checkpoint_and_schedule(tmp_path):
+def test_the_critic_controller_payload_carries_the_critic_checkpoint_and_schedule(tmp_path, monkeypatch):
     """The worker no longer swaps critic_* onto the standard fields, so the args must arrive remapped."""
     args = _training_models_args(tmp_path)
 
     _actor_args, critic_args = TrainerControllerSpec.slice_configs(args)
     backend = critic_args.backend
-    assert (backend.load, backend.save, backend.lr, backend.lr_warmup_iters) == (
+    monkeypatch.setattr(megatron_config, "has_megatron_checkpoint", lambda path: path == "/ckpt/critic")
+    [critic] = [trainer for trainer in args.raw_megatron.trainers if trainer.role == "critic"]
+    request = TrainerControllerInitRequest.from_args(args, trainer=critic)
+    assert "load" not in vars(backend)
+    assert (request.ckpt_load_config.load, backend.save, backend.lr, backend.lr_warmup_iters) == (
         "/ckpt/critic",
         "/ckpt/run_critic",
         2e-6,

@@ -975,7 +975,7 @@ def initialize_model_and_optimizer(
     role: str = "actor",
     checkpointing_context=None,
     *,
-    resume_from_ckpt: bool = True,
+    resume_from_ckpt: bool,
 ) -> tuple[list[DDP], MegatronOptimizer | None, OptimizerParamScheduler | None, LoadCheckpointOutput]:
     """Initialize model(s), optimizer, scheduler, and load from checkpoint.
 
@@ -1026,7 +1026,7 @@ def load_model_state(
     opt_param_scheduler: OptimizerParamScheduler | None,
     role: str,
     checkpointing_context: dict | None,
-    resume_from_ckpt: bool = True,
+    resume_from_ckpt: bool,
 ) -> LoadCheckpointOutput:
     if is_multi_lora_enabled(args):
         # Hide adapter params so the bridge's conversion-task walk doesn't see them
