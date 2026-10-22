@@ -3,35 +3,62 @@ import logging
 import os
 import random
 from argparse import Namespace
+from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any, Literal
+from typing import Literal
 
 import ray
 import torch
 import torch.distributed as dist
 
 import miles.utils.eval_config
-from miles.backends.megatron_utils.ft.types import TrainStepOutput
+from miles.backends.training_utils.types import TrainStepOutput
+from miles.platforms import current_platform
 from miles.ray.rollout.inference_controller import UpdatableEngines
 from miles.utils import object_store
 from miles.utils.audit_utils.process_identity import TrainProcessIdentity
 from miles.utils.audit_utils.witness.allocator import WitnessInfo
-from miles.utils.distributed_utils import init_gloo_group
+from miles.utils.distributed_utils import init_gloo_group, one_rank_at_a_time
+from miles.utils.dp_schedule import TrainParallelConfig
 from miles.utils.ft_utils.heartbeat_utils import HeartbeatStatus, SimpleHeartbeat
 from miles.utils.ft_utils.indep_dp import IndepDPInfo
+from miles.utils.hf_utils.config import load_hf_config
 from miles.utils.init_once import InitOnce, init_once
 from miles.utils.logging_utils import configure_logger, rebind_env_reporting
 from miles.utils.memory_utils import clear_memory, print_memory
 from miles.utils.misc import NodeProbeMixin, get_current_node_ip, get_free_port
 from miles.utils.object_store import StoreObjectRef
+from miles.utils.processing_utils import load_processor, load_tokenizer
 from miles.utils.test_utils.det_process_group import DET_NCCL_BACKEND_NAME, register_det_nccl_backend
-from miles.utils.test_utils.fault_injector import inject_fault as _inject_fault
+from miles.utils.test_utils.fault_injector.controller import FaultHookCommand, fault_hook_controller
+from miles.utils.test_utils.fault_injector.models import FaultHookRecord
 from miles.utils.workers.env_vars import CELL_INDEX_ENV_VAR
 from miles.utils.workers.rpc.common.metadata import rpc
 from miles.utils.workers.rpc.common.wire_types import Pickled
 from miles.utils.workers.serving.worker_identity import read_worker_in_pod_index
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class WeightUpdateOutput:
+    weight_version: int | None
+    failed_cell_ids: tuple[str, ...]
+    debug_trainer_load_state_timestamp: float | None = None
+    debug_weight_update_id: str | None = None
+
+    @classmethod
+    def merge(cls, outputs: list["WeightUpdateOutput"]) -> "WeightUpdateOutput":
+        if not outputs:
+            return cls(weight_version=None, failed_cell_ids=())
+        weight_versions = {output.weight_version for output in outputs if output.weight_version is not None}
+        assert len(weight_versions) <= 1, f"trainer cells disagree on the weight version: {weight_versions}"
+        failed_cell_ids = [cell_id for output in outputs for cell_id in output.failed_cell_ids]
+        assert len(failed_cell_ids) == len(
+            set(failed_cell_ids)
+        ), f"a cell failed under more than one trainer cell: {failed_cell_ids}"
+        [weight_version] = weight_versions or {None}
+        return cls(weight_version=weight_version, failed_cell_ids=tuple(failed_cell_ids))
 
 
 def get_local_gpu_id():
@@ -43,6 +70,12 @@ def get_local_gpu_id():
         return ray.get_gpu_ids()[0]
     else:
         return cvd.split(",").index(str(ray.get_gpu_ids()[0]))
+
+
+def _get_nvml_pci_bus_id(device: int) -> str:
+    props = torch.cuda.get_device_properties(device)
+    # NVML's canonical nvmlPciInfo_t.busId form: 8-hex-digit domain, uppercase, function 0
+    return f"{props.pci_domain_id:08X}:{props.pci_bus_id:02X}:{props.pci_device_id:02X}.0"
 
 
 class TrainRayActor(NodeProbeMixin):
@@ -81,6 +114,15 @@ class TrainRayActor(NodeProbeMixin):
 
         object_store.init_instance(args)
 
+    def load_hf_assets(self, *, with_processor: bool = False) -> None:
+        with one_rank_at_a_time():
+            self.hf_config = load_hf_config(self.args.hf_checkpoint)
+            self.tokenizer = load_tokenizer(
+                self.args.hf_checkpoint, chat_template_path=self.args.chat_template_path, trust_remote_code=True
+            )
+            if with_processor and hasattr(self.hf_config, "vision_config"):
+                self.processor = load_processor(self.args.hf_checkpoint, trust_remote_code=True)
+
     def propose_master_addr_and_port(self) -> tuple[str, int]:
         return get_current_node_ip(), get_free_port(start_port=random.randint(20000, 21000))
 
@@ -112,8 +154,7 @@ class TrainRayActor(NodeProbeMixin):
 
         torch.serialization.add_safe_globals([miles.utils.eval_config.EvalDatasetConfig])
 
-        local_rank = int(os.environ.get("LOCAL_RANK", 0))
-        torch.cuda.set_device(f"cuda:{local_rank}")
+        current_platform.bind_device_before_process_group(int(os.environ.get("LOCAL_RANK", 0)))
 
         if args.debug_deterministic_collective:
             register_det_nccl_backend()
@@ -131,6 +172,7 @@ class TrainRayActor(NodeProbeMixin):
             backend=backend,
             timeout=timedelta(minutes=args.distributed_timeout_minutes),
         )
+        current_platform.bind_device_after_process_group()
         init_gloo_group()
 
         args.rank = dist.get_rank()
@@ -138,7 +180,9 @@ class TrainRayActor(NodeProbeMixin):
         rebind_env_reporting(args)
 
         try:
-            if torch.version.hip is not None:
+            if not current_platform.nvml_numa_affinity:
+                logger.info(f"{current_platform.device_type} trainer: no NVML device to bind NUMA affinity to")
+            elif torch.version.hip is not None:
                 logger.info("Detected ROCm/HIP environment, skipping NUMA affinity setup")
                 # will find the coresponding API to implement ROCm version as below
             else:
@@ -146,12 +190,15 @@ class TrainRayActor(NodeProbeMixin):
 
                 pynvml.nvmlInit()
 
-                local_rank = int(os.environ["RANK"]) % args.num_gpus_per_node
-
-                handle = pynvml.nvmlDeviceGetHandleByIndex(local_rank)
+                # NVML indexes GPUs physically and ignores CUDA_VISIBLE_DEVICES, so resolve the device this
+                # process bound above by its PCI bus id rather than by a rank-derived index.
+                device = torch.cuda.current_device()
+                bus_id = _get_nvml_pci_bus_id(device)
+                handle = pynvml.nvmlDeviceGetHandleByPciBusId(bus_id)
+                nvml_index = pynvml.nvmlDeviceGetIndex(handle)
                 pynvml.nvmlDeviceSetCpuAffinity(handle)
 
-                logger.info(f"Set NUMA affinity for GPU {local_rank}")
+                logger.info(f"Set NUMA affinity for cuda:{device} (NVML index {nvml_index}, PCI bus id {bus_id})")
                 pynvml.nvmlShutdown()
 
         except ImportError:
@@ -172,8 +219,8 @@ class TrainRayActor(NodeProbeMixin):
         return self._heartbeat.status()
 
     @rpc(concurrency_group="fault_injector")
-    def inject_fault(self, mode: str) -> None:
-        _inject_fault(mode=mode)
+    def control_fault_hook(self, command: FaultHookCommand) -> FaultHookRecord:
+        return fault_hook_controller.apply(command)
 
     @rpc(concurrency_group="kill_self")
     def kill_self(self) -> None:
@@ -212,12 +259,14 @@ class TrainRayActor(NodeProbeMixin):
         raise NotImplementedError(f"{type(self).__name__} does not support HF export")
 
     @abc.abstractmethod
-    def update_weights(self, info: UpdatableEngines) -> int | None:
+    def update_weights(
+        self, info: UpdatableEngines, debug_weight_update_id: str, rollout_id: int | None
+    ) -> WeightUpdateOutput:
         raise NotImplementedError
 
     @abc.abstractmethod
     def _get_parallel_config(self):
         raise NotImplementedError
 
-    def get_train_parallel_config(self) -> dict[str, Any]:
+    def get_train_parallel_config(self) -> TrainParallelConfig | None:
         return self.train_parallel_config

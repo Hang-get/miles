@@ -39,8 +39,10 @@ NUM_LAYERS: int = 5
 
 _RUN_DIR: Path = Path(tempfile.mkdtemp(prefix="test_run_megatron_"))
 
-register_cuda_ci(est_time=200, suite="stage-c-8-gpu-h100", labels=["short"], hardware=["hopper", "blackwell"])
-register_rocm_ci(est_time=2000, suite="nightly-stage-c-8-gpu-mi350", labels=["short"])
+register_cuda_ci(
+    est_time=300, suite="stage-c-8-gpu-h100", labels=["short"], hardware=["hopper", "blackwell"], num_gpus=8
+)
+register_rocm_ci(est_time=300, suite="nightly-stage-c-8-gpu-mi350", labels=["short"])
 
 
 @dataclasses.dataclass(frozen=True)
@@ -119,7 +121,7 @@ def run(
         f"python -m miles.utils.debug_utils.run_megatron run-and-compare "
         f"--model-type {MODEL_TYPE} "
         f"--hf-checkpoint /root/models/{MODEL_NAME} "
-        f"--ref-load /root/{MODEL_NAME}_torch_dist "
+        f"--ref-load /root/models/{MODEL_NAME}_torch_dist "
         f"--output-base-dir {dump_dir} "
         f"--baseline '{config.baseline_args}' "
         f"--target '{config.target_args}' "

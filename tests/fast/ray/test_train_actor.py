@@ -1,11 +1,14 @@
 import os
 import socket
+import sys
 from types import SimpleNamespace
 
 import pytest
+from tests.fast.train_parallel_config_utils import make_train_parallel_config
 
 from miles.ray import placement_group, train_actor
-from miles.ray.train_actor import TrainRayActor
+from miles.ray.train_actor import TrainRayActor, WeightUpdateOutput
+from miles.utils.dp_schedule import TrainParallelConfig
 from miles.utils.init_once import InitOnce
 from miles.utils.workers.env_vars import CELL_INDEX_ENV_VAR, SUBPROCESS_INDEX_ENV_VAR
 
@@ -108,18 +111,18 @@ class TestConfigureMasterAddrAndPort:
 class TestTrainParallelConfigWiring:
     async def test_the_driver_passes_the_resolved_actor_config_to_the_rollout_executor(self, monkeypatch):
         """The driver resolves the actor config before handing it to the rollout executor."""
-        train_parallel_config = {"dp_size": 4, "topology": {"tp_size": 2}}
+        train_parallel_config = make_train_parallel_config(dp_size=4)
         trainer_config = SimpleNamespace(role="actor", trainer_id="actor")
 
         class FakeActorHandle:
-            async def get_train_parallel_config(self):
+            async def get_train_parallel_config(self) -> TrainParallelConfig | None:
                 return train_parallel_config
 
         class FakeRolloutExecutor:
             def __init__(self):
                 self.received_config = None
 
-            async def set_train_parallel_config(self, config):
+            async def set_train_parallel_config(self, config: TrainParallelConfig | None) -> None:
                 assert not isinstance(config, FakeActorHandle)
                 self.received_config = config
 
@@ -239,3 +242,165 @@ class TestTheLocalGpuIsFoundWithoutRay:
         monkeypatch.setattr(train_actor.ray, "get_gpu_ids", lambda: [5])
 
         assert train_actor.get_local_gpu_id() == 5
+
+
+# PCI bus numbers of the eight GPUs on an HGX H200 board, in NVML (physical) index order.
+_PHYSICAL_GPU_PCI_BUSES = [0x18, 0x2A, 0x3A, 0x5D, 0x9A, 0xAB, 0xBA, 0xDB]
+
+
+class _FakeCuda:
+    """torch.cuda under a device mask: local device i is the i-th physical GPU of the mask."""
+
+    def __init__(self, *, visible_physical_gpus: list[int]) -> None:
+        self._visible_physical_gpus = visible_physical_gpus
+        self._current_device: int | None = None
+
+    def set_device(self, device: str) -> None:
+        self._current_device = int(device.removeprefix("cuda:"))
+
+    def current_device(self) -> int:
+        return self._current_device
+
+    def get_device_properties(self, device: int) -> SimpleNamespace:
+        bus = _PHYSICAL_GPU_PCI_BUSES[self._visible_physical_gpus[device]]
+        return SimpleNamespace(pci_domain_id=0, pci_bus_id=bus, pci_device_id=0)
+
+
+class _FakeNvml:
+    """NVML indexes every GPU on the host physically, whatever CUDA_VISIBLE_DEVICES says.
+
+    Bus ids are matched in the canonical form NVML itself reports (nvmlPciInfo_t.busId).
+    """
+
+    def __init__(self) -> None:
+        self._bus_ids = [f"00000000:{bus:02X}:00.0" for bus in _PHYSICAL_GPU_PCI_BUSES]
+        self.affinity_set_for: list[int] = []
+
+    def nvmlInit(self) -> None:
+        pass
+
+    def nvmlShutdown(self) -> None:
+        pass
+
+    def nvmlDeviceGetHandleByIndex(self, index: int) -> int:
+        return index
+
+    def nvmlDeviceGetHandleByPciBusId(self, bus_id: str) -> int:
+        return self._bus_ids.index(bus_id)
+
+    def nvmlDeviceGetIndex(self, handle: int) -> int:
+        return handle
+
+    def nvmlDeviceSetCpuAffinity(self, handle: int) -> None:
+        self.affinity_set_for.append(handle)
+
+
+class TestNumaAffinity:
+    def test_a_masked_rank_takes_the_cpus_of_the_gpu_it_runs_on(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Under mask 4,5,6,7 local rank 0 runs on GPU 4, so it must take GPU 4's NUMA node, not GPU 0's."""
+        args = SimpleNamespace(
+            debug_deterministic_collective=False,
+            distributed_backend="nccl",
+            distributed_timeout_minutes=1,
+            fsdp_cpu_offload=False,
+            num_gpus_per_node=4,
+        )
+        actor = _ActorWithoutReloadSupport.__new__(_ActorWithoutReloadSupport)
+        actor._init_once = InitOnce("TrainRayActor")
+        actor._heartbeat = SimpleNamespace(bump=lambda: None)
+        cuda = _FakeCuda(visible_physical_gpus=[4, 5, 6, 7])
+        nvml = _FakeNvml()
+        monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "4,5,6,7")
+        monkeypatch.setenv("LOCAL_RANK", "0")
+        monkeypatch.setenv("RANK", "0")
+        monkeypatch.setitem(sys.modules, "pynvml", nvml)
+        monkeypatch.setattr(train_actor.torch.version, "hip", None)
+        monkeypatch.setattr(train_actor.torch.cuda, "set_device", cuda.set_device)
+        monkeypatch.setattr(train_actor.torch.cuda, "current_device", cuda.current_device)
+        monkeypatch.setattr(train_actor.torch.cuda, "get_device_properties", cuda.get_device_properties)
+        monkeypatch.setattr(train_actor.dist, "init_process_group", lambda **_kwargs: None)
+        monkeypatch.setattr(train_actor.dist, "get_rank", lambda: 0)
+        monkeypatch.setattr(train_actor.dist, "get_world_size", lambda: 4)
+        monkeypatch.setattr(train_actor, "init_gloo_group", lambda: None)
+        monkeypatch.setattr(train_actor, "rebind_env_reporting", lambda _args: None)
+
+        actor._init_common(args=args, role="actor")
+
+        assert nvml.affinity_set_for == [4]
+
+
+class TestWeightUpdateOutputMerge:
+    def test_merging_nothing_answers_an_empty_report(self):
+        """An update window with no engines runs no trainer cell, and that is not a failure."""
+        assert WeightUpdateOutput.merge([]) == WeightUpdateOutput(weight_version=None, failed_cell_ids=())
+
+    def test_trainer_cells_that_all_succeeded_publish_one_version_and_no_failure(self):
+        """The driver publishes this version to the executor, so a merge must not invent a second one."""
+        outputs = [
+            WeightUpdateOutput(weight_version=5, failed_cell_ids=()),
+            WeightUpdateOutput(weight_version=5, failed_cell_ids=()),
+        ]
+
+        assert WeightUpdateOutput.merge(outputs) == WeightUpdateOutput(weight_version=5, failed_cell_ids=())
+
+    def test_the_failed_cell_ids_of_every_trainer_cell_are_concatenated(self):
+        """A dropped id leaves an engine serving half-written weights in service."""
+        outputs = [
+            WeightUpdateOutput(weight_version=5, failed_cell_ids=("rollout-1",)),
+            WeightUpdateOutput(weight_version=5, failed_cell_ids=("rollout-3", "rollout-4")),
+        ]
+
+        merged = WeightUpdateOutput.merge(outputs)
+
+        assert merged.weight_version == 5
+        assert set(merged.failed_cell_ids) == {"rollout-1", "rollout-3", "rollout-4"}
+
+    def test_one_rollout_cell_blamed_by_two_trainer_cells_is_rejected(self):
+        """The targets are split disjointly, so the same id twice means the split leaked."""
+        outputs = [
+            WeightUpdateOutput(weight_version=5, failed_cell_ids=("rollout-1",)),
+            WeightUpdateOutput(weight_version=5, failed_cell_ids=("rollout-1",)),
+        ]
+
+        with pytest.raises(AssertionError, match="more than one trainer cell"):
+            WeightUpdateOutput.merge(outputs)
+
+    def test_every_target_failing_still_merges_into_one_report(self):
+        """The caller decides what a total failure means, so merge itself must not raise on it."""
+        outputs = [
+            WeightUpdateOutput(weight_version=None, failed_cell_ids=("rollout-1",)),
+            WeightUpdateOutput(weight_version=None, failed_cell_ids=("rollout-2",)),
+        ]
+
+        merged = WeightUpdateOutput.merge(outputs)
+
+        assert merged.weight_version is None
+        assert set(merged.failed_cell_ids) == {"rollout-1", "rollout-2"}
+
+    def test_a_trainer_cell_that_published_no_version_does_not_erase_a_surviving_ones(self):
+        """A dead trainer's report carries no version, and answering None would republish nothing to the engines."""
+        outputs = [
+            WeightUpdateOutput(weight_version=None, failed_cell_ids=("rollout-1",)),
+            WeightUpdateOutput(weight_version=9, failed_cell_ids=()),
+        ]
+
+        assert WeightUpdateOutput.merge(outputs).weight_version == 9
+
+    def test_trainer_cells_that_disagree_on_the_version_are_rejected(self):
+        """Two live versions mean the engines now serve different weights under one version number."""
+        outputs = [
+            WeightUpdateOutput(weight_version=5, failed_cell_ids=()),
+            WeightUpdateOutput(weight_version=6, failed_cell_ids=()),
+        ]
+
+        with pytest.raises(AssertionError, match="disagree on the weight version"):
+            WeightUpdateOutput.merge(outputs)
+
+    def test_a_skipped_broadcast_from_every_trainer_cell_answers_no_version(self):
+        """--debug-skip-weight-update returns None everywhere, which must reach the driver as None."""
+        outputs = [
+            WeightUpdateOutput(weight_version=None, failed_cell_ids=()),
+            WeightUpdateOutput(weight_version=None, failed_cell_ids=()),
+        ]
+
+        assert WeightUpdateOutput.merge(outputs) == WeightUpdateOutput(weight_version=None, failed_cell_ids=())

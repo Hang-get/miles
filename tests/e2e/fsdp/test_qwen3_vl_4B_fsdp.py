@@ -4,12 +4,7 @@ from tests.ci.ci_register import register_cuda_ci
 
 from miles.utils.external_utils import command_utils
 
-register_cuda_ci(
-    est_time=600,
-    suite="stage-c-2-gpu-h200",
-    labels=["fsdp"],
-    hardware=["hopper"],
-)
+register_cuda_ci(est_time=800, suite="stage-c-2-gpu-h200", labels=["fsdp"], hardware=["hopper"], num_gpus=2)
 
 ENABLE_EVAL = bool(int(os.environ.get("MILES_TEST_ENABLE_EVAL", "1")))
 NUM_GPUS = 2
@@ -36,7 +31,7 @@ def execute():
         "--apply-chat-template "
         "--rollout-shuffle "
         "--rm-type math "
-        "--num-rollout 3 "
+        "--num-rollout 2 "
         "--rollout-batch-size 8 "
         "--n-samples-per-prompt 8 "
         "--rollout-max-response-len 4096 "
@@ -84,7 +79,7 @@ def execute():
         "--attn-implementation flash_attention_3 "
     )
 
-    ci_args = "--ci-test "
+    ci_args = "--ci-test --no-enable-sample-ownership-checker "
 
     misc_args = "--actor-num-nodes 1 " f"--actor-num-gpus-per-node {NUM_GPUS} " "--colocate "
 

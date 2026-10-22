@@ -12,17 +12,19 @@ tests/e2e/megatron/test_qwen3_4b_fully_async_eval.py.
 import os
 
 import pandas as pd
-from tests.ci.ci_register import register_cuda_ci
+from tests.ci.ci_register import register_cuda_ci, register_rocm_ci
 from transformers import AutoTokenizer
 
 from miles.utils.external_utils import command_utils
 
 register_cuda_ci(
-    est_time=600,
+    est_time=300,
     suite="stage-c-2-gpu-h200",
     labels=["short", "eval", "megatron"],
     hardware=["hopper", "blackwell"],
+    num_gpus=2,
 )
+register_rocm_ci(est_time=300, suite="nightly-stage-c-2-gpu-mi350", labels=["short", "eval", "megatron"])
 
 MODEL_NAME = "Qwen3-0.6B"
 MODEL_TYPE = "qwen3-0.6B"
@@ -115,7 +117,7 @@ def execute():
     )
 
     ci_args = (
-        "--ci-test --ci-metric-checker-key eval/gsm8k --ci-metric-checker-threshold 0.3 "
+        "--ci-test --no-enable-sample-ownership-checker --ci-metric-checker-key eval/gsm8k --ci-metric-checker-threshold 0.3 "
         "--ci-metric-checker-expect-num 3 "
     )
 

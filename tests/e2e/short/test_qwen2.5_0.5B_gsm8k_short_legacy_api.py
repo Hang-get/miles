@@ -1,6 +1,6 @@
 import os
 
-from tests.ci.ci_register import register_cuda_ci
+from tests.ci.ci_register import register_cuda_ci, register_rocm_ci
 
 import miles.utils.external_utils.command_utils.legacy as U
 
@@ -10,7 +10,9 @@ register_cuda_ci(
     suite="stage-c-8-gpu-h100",
     labels=["short", "mooncake"],
     hardware=["hopper", "blackwell"],
+    num_gpus=8,
 )
+register_rocm_ci(est_time=300, suite="nightly-stage-c-8-gpu-mi350", labels=["short", "mooncake"])
 
 FEW_GPU = U.get_bool_env_var("MILES_TEST_FEW_GPU", "0")
 
@@ -87,8 +89,7 @@ def execute():
 
     ci_args = "--ci-test "
 
-    fault_tolerance_args = (
-        "--use-fault-tolerance "
+    health_check_args = (
         "--rollout-health-check-interval 5 "
         "--rollout-health-check-timeout 10 "
         "--rollout-health-check-first-wait 0 "
@@ -117,7 +118,7 @@ def execute():
         f"{eval_args} "
         f"{sglang_args} "
         f"{ci_args} "
-        f"{fault_tolerance_args} "
+        f"{health_check_args} "
         f"{misc_args} "
     )
 

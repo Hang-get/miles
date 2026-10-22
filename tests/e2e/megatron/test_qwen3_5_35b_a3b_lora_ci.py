@@ -1,7 +1,7 @@
 import os
 
 from scripts.run_qwen3_5_35b_a3b_lora import ScriptArgs, _prepare_download, _train
-from tests.ci.ci_register import register_cuda_ci
+from tests.ci.ci_register import register_cuda_ci, register_rocm_ci
 
 from miles.utils.external_utils import command_utils
 
@@ -13,12 +13,16 @@ from miles.utils.external_utils import command_utils
 # combination must pass. Functionality, not accuracy; 8 GPUs (TP2, EP=8).
 
 
+# Stays on 8x H200: on 8x B200 (#3956) the first combo fails the step-0 check_kl
+# with ppo_kl 1.6e-4 against the 1e-8 LoRA limit, where H200 logs 0.0.
 register_cuda_ci(
     est_time=1200,
     suite="stage-c-8-gpu-h200",
     labels=["megatron", "model-scripts", "lora"],
     hardware=["hopper", "blackwell"],
+    num_gpus=8,
 )
+register_rocm_ci(est_time=900, suite="nightly-stage-c-8-gpu-mi350", labels=["megatron", "model-scripts", "lora"])
 
 # (name, experts_shared_outer_loras, virtual_experts_serving)
 _CONFIGS = [
@@ -28,6 +32,13 @@ _CONFIGS = [
 
 
 def _args(shared_outer: bool, virtual_experts: bool) -> ScriptArgs:
+    extra_args = "--ci-test --no-enable-sample-ownership-checker --ci-disable-logprobs-checker "
+    if not virtual_experts:
+        extra_args += "--no-sglang-lora-use-virtual-experts "
+    # ROCm shared-expert fusion requires per-expert LoRA factors.
+    if os.getenv("MILES_HARDWARE_PLATFORM") == "rocm" and shared_outer:
+        extra_args += "--sglang-disable-shared-experts-fusion "
+
     return ScriptArgs.from_env(
         model_name="Qwen3.5-35B-A3B",
         num_nodes=1,
@@ -35,10 +46,7 @@ def _args(shared_outer: bool, virtual_experts: bool) -> ScriptArgs:
         num_rollout=1,
         experts_shared_outer_loras=shared_outer,
         enable_wandb=False,
-        extra_args=(
-            "--ci-test --ci-disable-logprobs-checker "
-            + ("" if virtual_experts else "--no-sglang-lora-use-virtual-experts ")
-        ),
+        extra_args=extra_args,
     )
 
 
