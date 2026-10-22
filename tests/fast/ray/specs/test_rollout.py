@@ -99,6 +99,18 @@ class TestRolloutExecutorSpec:
 
         assert kwargs["session_server_provider"] is None
 
+    def test_train_only_run_does_not_resolve_an_undeployed_session_pool(self) -> None:
+        """A run without inference models must not look up a disabled session server."""
+        capability = FakeBackendCapability(static_provider=object())
+        config = make_rollout_config(use_session_server=True, debug_train_only=True)
+        config = config.model_copy(update={"sglang": config.sglang.model_copy(update={"models": []})})
+        spec = RolloutExecutorSpec.create(config)
+
+        kwargs = spec.ctor_kwargs(_context(spec, capability))
+
+        assert kwargs["session_server_provider"] is None
+        assert "session-server" not in capability.requested_static_pool_ids
+
     def test_the_executor_is_given_the_way_to_reach_the_inference_controller(self):
         """Pinning the eval fleet is a call on the controller, so the executor must be able to address it."""
         capability = FakeBackendCapability(static_provider=object())
