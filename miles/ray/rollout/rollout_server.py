@@ -61,6 +61,8 @@ def _compute_init_expected_num_cells(args, engine_provider: BaseWorkerProvider, 
         return declared
     if (answered := engine_provider.expected_num_cells(group_id=model_cfg.name)) is not None:
         return answered
+    if (fallback := args.fallback_init_expected_num_cells) is not None:
+        return fallback[model_cfg.name]
     return _DEFAULT_INIT_EXPECTED_NUM_CELLS
 
 
