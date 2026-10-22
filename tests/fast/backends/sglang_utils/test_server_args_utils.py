@@ -17,6 +17,7 @@ from sglang.srt.server_args import ServerArgs
 
 from miles.backends.sglang_utils.server_args_utils import parse_server_args_argv, server_args_to_argv
 from miles.backends.sglang_utils.sglang_api_client import WorkerType
+from miles.backends.sglang_utils import sglang_engine as sglang_engine_module
 from miles.backends.sglang_utils.sglang_engine import _compute_server_args
 from miles.utils.workers.argv_utils import _actions_by_dest, _record_field_names, _render_action_argv, _resolve_action
 
@@ -218,8 +219,11 @@ class TestServerArgsToArgv:
         assert "--cuda-graph-config" not in argv
         _assert_roundtrips(server_args)
 
-    def test_lora_adapter_paths_roundtrip(self):
-        """The name=path lora mapping survives the argv boundary."""
+    @pytest.mark.parametrize("pinned", [False, True], ids=["name-equals-path", "pinned-object"])
+    def test_lora_adapter_paths_roundtrip(self, pinned, monkeypatch):
+        """The startup adapter reaches SGLang in the form miles chose, pinned flag included."""
+        # attention DP itself needs a multi-GPU engine shape; only the rendering of its pinned adapter is under test
+        monkeypatch.setattr(sglang_engine_module, "lora_adapter_pinned", lambda args: pinned)
         server_args = _server_args(
             args=_args(
                 lora_rank=8, target_modules=["linear_qkv"], lora_adapter_path="/fake/adapter", debug_rollout_only=True
