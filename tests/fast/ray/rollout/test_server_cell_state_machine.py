@@ -396,6 +396,27 @@ class TestTick:
         assert cell_env["memory_calls"] == [("release", dict(tags=None)), ("resume", dict(tags=["weights"]))]
         assert isinstance(cell._state, StatePendingWeights)
 
+    async def test_a_cell_disposed_mid_release_sends_its_engine_nothing_more(self, cell_env, monkeypatch):
+        """Fault handling disposes a cell whose engine may already be gone or replaced."""
+        released = asyncio.Event()
+
+        async def _slow_release(self, tags=None):
+            _RecordingApiClient.calls.append(("release", dict(tags=tags)))
+            await released.wait()
+
+        monkeypatch.setattr(_RecordingApiClient, "release_memory_occupation", _slow_release)
+        cell = _make_cell(needs_offload=True)
+        await cell.init()
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(cell.tick(), timeout=0.05)
+        release = cell._post_launch_release
+
+        await cell.dispose()
+        released.set()
+        await asyncio.gather(release, return_exceptions=True)
+
+        assert cell_env["memory_calls"] == [("release", dict(tags=None))]
+
     async def test_the_weight_checker_snapshots_before_the_memory_is_handed_back(self, cell_env):
         """Releasing the occupation discards the loaded weights, so a later snapshot records garbage."""
         cell = _make_cell(needs_offload=True, args_overrides=dict(check_weight_update_equal=True))

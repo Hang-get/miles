@@ -264,6 +264,8 @@ class ServerCell:
         )
 
     async def dispose(self) -> None:
+        if self._post_launch_release is not None:
+            self._post_launch_release.cancel()
         try:
             await self._leave_service()
         except Exception:
