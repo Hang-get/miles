@@ -69,7 +69,11 @@ class TestGeneratedPathNormalization:
         actual = normalize_record(record)["args"]["raw_megatron"]["trainers"][0]["overrides"]
         expected_path = "/checkpoints/$RUN_ID_0000/critic" if registered else path
         assert actual == {"save": expected_path, "load": expected_path, "custom": {"save": path}}
-        assert record.config["args"]["raw_megatron"]["trainers"][0]["overrides"] == overrides
+        assert record.config["args"]["raw_megatron"]["trainers"][0]["overrides"] == {
+            "save": path,
+            "load": path,
+            "custom": {"save": path},
+        }
 
     @pytest.mark.parametrize("typed_backend", [False, True])
     def test_derived_critic_save_preserves_parent_and_role_across_generated_runs(
