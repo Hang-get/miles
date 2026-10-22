@@ -88,6 +88,7 @@ class TestNativeInklingReload:
                 opt_param_scheduler=None,
                 role="actor",
                 checkpointing_context=None,
+                resume_from_ckpt=False,
             )
 
         torch.testing.assert_close(adapter.head_A, torch.full_like(adapter.head_A, 3))
