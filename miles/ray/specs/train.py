@@ -241,7 +241,7 @@ def compute_trainer_env_vars(args, ctx: WorkerLaunchContext, *, fp8_scales: str)
             env_vars["TMS_INIT_ENABLE_DISK_BACKUP"] = "1"
             env_vars["TMS_DISK_BACKUP_CHUNK_MB"] = str(args.offload_train_disk_chunk_mb)
             env_vars["TMS_DISK_BACKUP_DIR"] = os.path.join(
-                resolve_train_offload_disk_dir(args.offload_train_disk_dir),
+                resolve_train_offload_disk_dir(args.offload_train_disk_dir, environment=dict(os.environ) | env_vars),
                 f"cell{format_name_index(ctx.cell_index)}_rank{format_name_index(ctx.worker_in_cell_index)}",
             )
         else:

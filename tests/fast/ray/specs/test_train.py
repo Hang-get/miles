@@ -489,8 +489,9 @@ class TestEnvironmentVariables:
         assert directories == ["/tmp/offload/cell00001_rank00000", "/tmp/offload/cell00001_rank00001"]
 
     @pytest.mark.parametrize("explicit_directory", [None, "/explicit-nvme"])
+    @pytest.mark.parametrize("trainer_scratch", [None, "/trainer-nvme"])
     def test_disk_default_uses_the_pod_environment(
-        self, monkeypatch: pytest.MonkeyPatch, explicit_directory: str | None
+        self, monkeypatch: pytest.MonkeyPatch, explicit_directory: str | None, trainer_scratch: str | None
     ) -> None:
         """A serialized trainer resolves an omitted directory on its own node."""
         monkeypatch.setenv("SCRATCH", "/launcher-scratch")
@@ -499,6 +500,8 @@ class TestEnvironmentVariables:
         if explicit_directory is not None:
             argv.extend(["--offload-train-disk-dir", explicit_directory])
         config = parse_megatron_test_config(*argv)
+        if trainer_scratch is not None:
+            config = replace_config_values(config, train_env_vars={"SCRATCH": trainer_scratch})
         (spec,) = specs_trainer(config)
         payload = spec.args.model_dump_json()
 
@@ -508,7 +511,7 @@ class TestEnvironmentVariables:
         spec = TrainerSpec.create(TrainerSpec.config_class.model_validate_json(payload))
         env_vars = spec.env_var(_make_context(spec, config))
 
-        expected = explicit_directory or "/pod-nvme/miles_train_offload_0"
+        expected = explicit_directory or f"{trainer_scratch or '/pod-nvme'}/miles_train_offload_0"
         assert env_vars["TMS_DISK_BACKUP_DIR"] == f"{expected}/cell00000_rank00000"
 
     def test_a_library_without_the_disk_backend_is_rejected(self, monkeypatch):
