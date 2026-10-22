@@ -12,6 +12,13 @@ import torch.distributed as dist
 logger = logging.getLogger(__name__)
 
 
+def initialize_training_state(args: Namespace) -> None:
+    if args.start_rollout_id == 0 or (args.start_rollout_id is None and not args.resume_from_ckpt):
+        assert args.finetune and args.no_load_optim and args.no_load_rng, "Expected fresh training state"
+        assert args.load == args.hf_checkpoint, "Expected initialization from original HF weights"
+        logger.info("WORKPLACE_FRESH_HF_REQUEST %s", json.dumps({"rank": dist.get_rank(), "fresh_hf": True}))
+
+
 def before_train_step(
     args: Namespace,
     rollout_id: int,
@@ -39,9 +46,7 @@ def before_train_step(
     assert not args.enable_mtp_training, "MTP training must be disabled"
     if rollout_id == 0 and step_id == 0:
         assert args.start_rollout_id in (None, 0), "Expected a fresh rollout cursor"
-        assert args.finetune and args.no_load_optim and args.no_load_rng, "Expected fresh training state"
-        assert args.load == args.hf_checkpoint, "Expected initialization from original HF weights"
         logger.info(
             "WORKPLACE_MTP_DISABLED %s",
-            json.dumps({"rank": dist.get_rank(), "mtp_layers": None, "mtp_parameters": 0, "fresh_hf": True}),
+            json.dumps({"rank": dist.get_rank(), "mtp_layers": None, "mtp_parameters": 0}),
         )
