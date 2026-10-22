@@ -16,7 +16,7 @@ from miles.backends.training_utils.weight_update.protocol import WeightTransferP
 from miles.backends.training_utils.weight_update.rollout_cell_updater import create_rollout_cell_updaters
 from miles.backends.training_utils.weight_update.session import check_weight_sync_results
 from miles.utils import async_utils
-from miles.utils.lora.utils import lora_rollout_enabled, lora_sync_sends_base
+from miles.utils.lora.utils import lora_rollout_enabled
 
 try:
     from sglang.srt.weight_sync.tensor_bucket import FlattenedTensorBucket  # type: ignore[import]
@@ -163,9 +163,9 @@ class UpdateWeightFromTensor(WeightTransferProtocol):
         # collective among the group's members.
         self.is_sender = self._ipc_gather_group is not None
 
-        # Remote engines (use_distribute) keep the base as well; the trainer's host backup
-        # decides from lora_sync_sends_base alone, which never skips a base this sends.
-        self.needs_base_resync_for_lora = lora_sync_sends_base(self.args) and (
+        # Remote engines (use_distribute) keep the base as well. Never true unless
+        # args.lora_sync_sends_base, which is all the trainer's host backup reads.
+        self.needs_base_resync_for_lora = self.args.lora_sync_sends_base and (
             self.args.check_weight_update_equal or not self.use_distribute
         )
 

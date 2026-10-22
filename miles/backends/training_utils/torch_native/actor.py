@@ -98,7 +98,7 @@ class TorchNativeTrainRayActor(TrainRayActor):
         return WeightUpdater(
             self.args,
             model,
-            weights_getter=lambda *, include_base: None,
+            weights_getter=lambda: None,
             model_name=model_name,
             quantization_config=getattr(self.hf_config, "quantization_config", None),
             iterator_factory=iterator_factory,

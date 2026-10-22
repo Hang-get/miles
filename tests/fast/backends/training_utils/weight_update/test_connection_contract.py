@@ -21,7 +21,7 @@ def _build_updater(supports_receiver_pools=False) -> WeightUpdater:
         return WeightUpdater(
             Namespace(),
             [],
-            weights_getter=lambda *, include_base: {},
+            weights_getter=lambda: {},
             model_name="test-model",
             quantization_config=None,
             iterator_factory=lambda *a, **k: MagicMock(name="hf_weight_iterator"),

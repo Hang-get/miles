@@ -129,7 +129,7 @@ class TestUpdateWeightsEmptyBaseIteration:
             updater = WeightUpdater(
                 args,
                 [MagicMock()],
-                weights_getter=lambda *, include_base: {},
+                weights_getter=lambda: {},
                 model_name="qwen",
                 quantization_config=None,
                 iterator_factory=lambda *a, **k: empty_iterator,

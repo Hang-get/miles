@@ -49,7 +49,7 @@ class WeightUpdater:
         args: Namespace,
         model: Sequence[torch.nn.Module],
         *,
-        weights_getter: Callable[..., Mapping[str, torch.Tensor] | None],
+        weights_getter: Callable[[], Mapping[str, torch.Tensor] | None],
         model_name: str,
         quantization_config: dict | None,
         iterator_factory: Callable,
@@ -71,7 +71,6 @@ class WeightUpdater:
             model_name=model_name,
             quantization_config=quantization_config,
         )
-        # Called with include_base: whether this sync streams the base; a getter that cannot provide it raises.
         self.weights_getter = weights_getter
         self.is_lora = is_lora
         if is_lora:
@@ -160,7 +159,7 @@ class WeightUpdater:
         with timer("update_weights_implementation"):
             pbar = tqdm(desc=f"[{protocol.group_name}] Update weights", total=0) if protocol.is_sender else None
             for bucket in self._hf_weight_iterator.iter_hf_weights(
-                self.weights_getter(include_base=sync_base),
+                self.weights_getter(),
                 include_base=sync_base,
                 adapters=adapters,
                 materialize=protocol.is_sender,
@@ -186,9 +185,7 @@ class WeightUpdater:
         return True
 
     def _iter_base_buckets(self, *, materialize: bool):
-        return self._hf_weight_iterator.iter_hf_weights(
-            self.weights_getter(include_base=True), materialize=materialize
-        )
+        return self._hf_weight_iterator.iter_hf_weights(self.weights_getter(), materialize=materialize)
 
     def _get_updated_adapters(self) -> list[tuple[str, object]]:
         """``(lora_name, adapter_or_None)`` pairs for this sync; the push set is

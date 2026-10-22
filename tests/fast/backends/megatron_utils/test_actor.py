@@ -170,49 +170,19 @@ def _colocated_lora_actor(actor_module: ModuleType, monkeypatch: pytest.MonkeyPa
     return train_actor
 
 
-@pytest.mark.parametrize(
-    "lora_base_cpu_backup,check_weight_update_equal,sync_sends_base",
-    [(True, False, False), (False, False, True), (True, True, True)],
-    ids=["engine-keeps-base", "engine-drops-base", "weight-checker"],
-)
+@pytest.mark.parametrize("sync_sends_base", [False, True], ids=["sync-skips-base", "sync-sends-base"])
 def test_colocated_lora_host_backup_holds_the_frozen_base_only_when_the_sync_sends_it(
-    actor_module: ModuleType,
-    monkeypatch: pytest.MonkeyPatch,
-    lora_base_cpu_backup: bool,
-    check_weight_update_equal: bool,
-    sync_sends_base: bool,
+    actor_module: ModuleType, monkeypatch: pytest.MonkeyPatch, sync_sends_base: bool
 ) -> None:
     """The weight sync reads this backup while the trainer is offloaded. A frozen base the sync
     never sends would cost the whole model per rank in pinned host memory."""
-    train_actor = _colocated_lora_actor(
-        actor_module,
-        monkeypatch,
-        lora_base_cpu_backup=lora_base_cpu_backup,
-        check_weight_update_equal=check_weight_update_equal,
-    )
+    train_actor = _colocated_lora_actor(actor_module, monkeypatch, lora_sync_sends_base=sync_sends_base)
 
     backed_up = set(train_actor.weights_backuper.get("actor"))
 
     assert {"vp_stages.0.adapter", "vp_stages.0.trained_base"} <= backed_up
     assert any("model_companion" in name for name in backed_up)
     assert ("vp_stages.0.frozen_base" in backed_up) is sync_sends_base
-
-
-def test_a_base_sync_from_a_trainable_only_backup_fails_loudly(
-    actor_module: ModuleType, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Some weight iterators stream a missing tensor from the live, offloaded model instead of
-    raising, so a sync asking for the base must not get a backup that skipped it."""
-    train_actor = _colocated_lora_actor(
-        actor_module, monkeypatch, lora_base_cpu_backup=True, check_weight_update_equal=False
-    )
-
-    assert set(train_actor._get_actor_weights(include_base=False)) == {
-        "vp_stages.0.trained_base",
-        "vp_stages.0.adapter",
-    }
-    with pytest.raises(RuntimeError, match="sync and the backup disagree"):
-        train_actor._get_actor_weights(include_base=True)
 
 
 class TestSendCheckpoint:
