@@ -1,7 +1,9 @@
 import logging
 import os
 import shlex
-from typing import Any, ClassVar, Self
+from typing import Any, ClassVar
+
+from typing_extensions import Self
 
 from miles.backends.sglang_utils.router_args_utils import compute_sglang_router_args, router_args_to_argv
 from miles.backends.sglang_utils.sglang_api_client import WorkerType

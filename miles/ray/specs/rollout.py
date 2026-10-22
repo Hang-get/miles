@@ -1,4 +1,6 @@
-from typing import Any, ClassVar, Self
+from typing import Any, ClassVar
+
+from typing_extensions import Self
 
 from miles.ray.specs.inference import (
     SESSION_SERVER_POOL_ID,

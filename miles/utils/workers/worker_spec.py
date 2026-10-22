@@ -1,7 +1,8 @@
 from abc import ABC, abstractmethod
-from typing import Any, ClassVar, Literal, Self
+from typing import Any, ClassVar, Literal
 
 from pydantic import ConfigDict, model_validator
+from typing_extensions import Self
 
 from miles.utils.args.configs.scaling import ScalingConfig
 from miles.utils.args.runtime_base import BaseLeafConfig
