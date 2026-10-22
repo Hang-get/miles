@@ -140,6 +140,41 @@ class TestCustomArgumentRegistration:
 
 
 class TestPerTrainerHookOverrides:
+    def test_changed_path_preserves_fields_already_moved_into_resolved_hooks(self) -> None:
+        """A replacement hook inherits parsed values after the flat custom fields are removed."""
+
+        class RunConfig(BaseConfig):
+            custom_model_provider_path: CustomFunctionConfig
+
+        args = argparse.Namespace(custom_model_provider_path="old-hook", threshold=0.9)
+        with (
+            function_registry.temporary("old-hook", SimpleNamespace(config_class=_HookConfig)),
+            function_registry.temporary("new-hook", SimpleNamespace(config_class=_HookConfig)),
+        ):
+            resolve_custom_function_configs(args, config_class=RunConfig)
+            original = args.custom_model_provider_path
+            assert not hasattr(args, "threshold")
+            resolved = resolve_custom_function_overrides({"custom_model_provider_path": "new-hook"}, args=args)
+
+        assert resolved["custom_model_provider_path"].path == "new-hook"
+        assert resolved["custom_model_provider_path"].config.threshold == 0.9
+        assert args.custom_model_provider_path is original
+        assert original.config.threshold == 0.9
+        assert not hasattr(args, "threshold")
+
+    def test_replacement_hook_can_reuse_fields_registered_by_another_hook(self) -> None:
+        """Shared CLI fields remain available even when the replaced hook has no schema."""
+        args = argparse.Namespace(
+            custom_model_provider_path=CustomFunctionConfig(path="old-hook"),
+            another_hook=CustomFunctionConfig(path="other-hook", config=_HookConfig(threshold=0.8)),
+        )
+        with function_registry.temporary("new-hook", SimpleNamespace(config_class=_HookConfig)):
+            resolved = resolve_custom_function_overrides({"custom_model_provider_path": "new-hook"}, args=args)
+
+        assert resolved["custom_model_provider_path"].config.threshold == 0.8
+        assert args.custom_model_provider_path.path == "old-hook"
+        assert args.another_hook.config.threshold == 0.8
+
     def test_changed_path_uses_merged_custom_fields_without_mutating_either_input(self) -> None:
         """A trainer's replacement hook receives override values while the shared run stays unchanged."""
         original = CustomFunctionConfig(path="old-hook", config=_HookConfig(threshold=0.2))
