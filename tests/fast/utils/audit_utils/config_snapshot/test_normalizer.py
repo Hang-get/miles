@@ -2,6 +2,7 @@ import os
 from collections.abc import Callable
 
 import pytest
+from tests.fast.fixtures.args_fixtures import parse_megatron_test_config
 
 from miles.utils.args.trainer_utils import compute_trainer_config
 from miles.utils.audit_utils.config_snapshot.converter import ConfigSnapshotConverter
@@ -14,7 +15,6 @@ from miles.utils.audit_utils.config_snapshot.normalizer import normalize_record
 from miles.utils.audit_utils.process_identity import SimpleProcessIdentity
 from miles.utils.env_report.redaction import redact_arg
 from miles.utils.test_utils.snapshot import SNAPSHOT_RECORD_DIR_ENV_VAR, dump_snapshot
-from tests.fast.utils.args.helpers import parse_megatron_test_config
 
 
 class TestGeneratedValueRegistration:
@@ -68,9 +68,7 @@ class TestGeneratedPathNormalization:
             generated_value_registry.register(kind="run_id", value="generated")
         path = "/checkpoints/generated_critic"
         flags = ["--critic-save", path] if explicit_critic_save else []
-        args = parse_megatron_test_config(
-            "--advantage-estimator", "ppo", "--save", "/checkpoints/generated/", *flags
-        )
+        args = parse_megatron_test_config("--advantage-estimator", "ppo", "--save", "/checkpoints/generated/", *flags)
         trainer = compute_trainer_config(args, args.raw_megatron.trainers[1])
         record = make_record(config={"backend": {"save": trainer.backend.save}}).model_copy(
             update={"generated_values": generated_value_registry.read()}
