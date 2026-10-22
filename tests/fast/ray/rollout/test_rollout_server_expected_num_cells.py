@@ -4,6 +4,7 @@ from argparse import Namespace
 from pathlib import Path
 
 import pytest
+from tests.fast.fixtures.args_fixtures import parse_fsdp_test_config
 from tests.fast.ray.rollout.conftest import make_args
 
 from miles.ray.rollout.rollout_server import RolloutServer, create_rollout_servers
@@ -233,7 +234,11 @@ class TestExpectedNumCellsAsksTheProvider:
         self, provider_count: int | None, expected: int
     ) -> None:
         """Only a missing provider answer falls back to the configured cell count."""
-        args = make_args(rollout_num_gpus=8, rollout_num_gpus_per_engine=4, rollout_external=True)
+        args = parse_fsdp_test_config(
+            "--rollout-num-gpus", "8", "--rollout-num-gpus-per-engine", "4",
+            "--custom-inference-engine-provider-path",
+            "miles.ray.rollout.external_engine_provider.static_inference_engine_provider",
+        )
         provider = _StubProvider() if provider_count is None else _CountingProvider(provider_count)
 
         servers = await _servers_of(args, provider=provider)
@@ -242,8 +247,11 @@ class TestExpectedNumCellsAsksTheProvider:
 
     async def test_an_explicit_external_count_omits_the_scaling_fallback(self) -> None:
         """An explicit startup count keeps scaling changes out of the runtime payload."""
-        args = make_args(
-            rollout_num_gpus=8, rollout_num_gpus_per_engine=4, rollout_external=True, init_expected_num_cells=3
+        args = parse_fsdp_test_config(
+            "--rollout-num-gpus", "8", "--rollout-num-gpus-per-engine", "4",
+            "--custom-inference-engine-provider-path",
+            "miles.ray.rollout.external_engine_provider.static_inference_engine_provider",
+            "--init-expected-num-cells", "3",
         )
 
         servers = await _servers_of(args, provider=_CountingProvider(7))
