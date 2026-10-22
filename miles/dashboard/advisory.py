@@ -86,9 +86,10 @@ def _fmt_duration(seconds: float) -> str:
 def _stall_advisories(store: MetricStore) -> list[Advisory]:
     """Open phases far beyond their own median closed duration.
 
-    Judged at the newest data timestamp over the whole run (not the query
-    window): a stall is a statement about the current state, and the open
-    marker may be arbitrarily older than any window the viewer looks at."""
+    Judged at the newest data timestamp, not over the query window: a stall
+    is a statement about the current state. Every open phase counts however
+    old its marker; the median comes from intervals closed in the trailing
+    ``MAX_WINDOW_S``."""
     time_range = store.time_range()
     if time_range is None:
         return []
@@ -100,7 +101,8 @@ def _stall_advisories(store: MetricStore) -> list[Advisory]:
     # phases_by_lane anchors the synthesized initialize band to). It also keeps
     # the previous attempt's closed durations out of the median baseline.
     attempt_start = store.meta.start_ts if store.meta else float("-inf")
-    events = [event for event in store.phase_events() if event.t0 >= attempt_start]
+    recent_events = store.phase_events(t0=edge - MetricStore.MAX_WINDOW_S, t1=edge)
+    events = [event for event in recent_events if event.t0 >= attempt_start]
     closed_keys = {(e.node, e.rank, e.name, e.t0) for e in events if not e.open}
     durations: dict[str, list[float]] = {}
     open_ages: dict[str, list[float]] = {}

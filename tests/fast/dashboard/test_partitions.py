@@ -250,3 +250,45 @@ def test_concurrent_refresh_does_not_duplicate_records(tmp_path):
     for thread in threads:
         thread.join()
     assert reader.window(None, None) == list(range(150))
+
+
+def _hourly_phases_with_old_stall(tmp_path, *, hours: int) -> MetricStore:
+    """One closed train_wait per hour for ``hours`` hours, plus a train_wait
+    opened in hour 0 that never closes: a stall older than any query window."""
+    writer = MetricStore(tmp_path)
+    writer.write_meta(Meta(run_name="day", start_ts=BASE, args={}))
+    writer.append(
+        PhaseEvent(name="train_wait", t0=BASE + 10, t1=PhaseEvent.OPEN_T1, node="n", gpus=[1], rank=1, role=Role.TRAIN)
+    )
+    for hour in range(hours):
+        t0 = BASE + hour * HOUR + 100
+        writer.append(PhaseEvent(name="train_wait", t0=t0, t1=t0 + 10, node="n", gpus=[0], rank=0, role=Role.TRAIN))
+        writer.append(GpuSample(ts=t0, node="n", gpu=0, util=1, mem_mb=1, power_w=1))
+    writer.flush()
+    return MetricStore.load(tmp_path)
+
+
+def test_windowed_phase_query_stays_within_its_partitions_past_the_cache_size(tmp_path, monkeypatch):
+    """More hours than the partition cache holds must not turn every request
+    into a re-parse of the whole history."""
+    hours = MetricStore.PARTITION_CACHE_BLOCKS + 6
+    store = _hourly_phases_with_old_stall(tmp_path, hours=hours)
+    parsed_partitions = []
+    parse = store._parse_object_lines
+    monkeypatch.setattr(store, "_parse_object_lines", lambda *a: parsed_partitions.append(a[2].stem) or parse(*a))
+
+    last_hour = (BASE + (hours - 1) * HOUR, BASE + hours * HOUR)
+    store.phases_by_lane(t0=last_hour[0], t1=last_hour[1])
+    first = len(parsed_partitions)
+    store.phases_by_lane(t0=last_hour[0], t1=last_hour[1])
+    assert first <= 6, f"a 1 h window parsed {first} partitions"
+    assert len(parsed_partitions) == first, "a repeated window re-parsed partitions it had cached"
+
+
+def test_phase_opened_before_the_window_is_still_open_in_it(tmp_path):
+    hours = MetricStore.PARTITION_CACHE_BLOCKS + 6
+    store = _hourly_phases_with_old_stall(tmp_path, hours=hours)
+    phases = store.phases_by_lane(t0=BASE + (hours - 1) * HOUR, t1=BASE + hours * HOUR)
+    stalled = [p for p in phases if p["gpu"] == 1]
+    assert [p["name"] for p in stalled] == ["train_wait"]
+    assert stalled[0]["t0"] == BASE + 10

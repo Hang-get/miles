@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import polars as pl
 from tests.fast.dashboard.dummy_dump import blank_samples, dump_dummy_run
 
@@ -442,3 +444,18 @@ def test_blank_newest_step_does_not_break_rollout_advisories(tmp_path):
     blank_samples(dump_dir, 1)
     store = _store(tmp_path, args={}, engine_samples=[])
     assert compute_advisories(store, DumpReader(dump_dir)) == []
+
+
+def test_stall_older_than_the_baseline_window_is_still_judged(tmp_path):
+    """The stalled marker is a day older than every closed interval the
+    median comes from."""
+    writer = MetricStore(tmp_path)
+    writer.write_meta(Meta(run_name="day-old-stall", start_ts=0.0, args={}))
+    writer.append(_phase("train_wait", 10.0, PhaseEvent.OPEN_T1))
+    day = 86400.0
+    for closed in _closed_steps(n=5, start=day):
+        writer.append(replace(closed, rank=1))
+    writer.flush()
+
+    [advisory] = compute_advisories(MetricStore.load(tmp_path))
+    assert advisory.level == "critical" and "train_wait" in advisory.message

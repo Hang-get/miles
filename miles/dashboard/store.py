@@ -387,6 +387,58 @@ class _PartitionReader:
         return stamps
 
 
+class _OpenPhaseIndex:
+    """Phase intervals opened and not yet closed, across every partition of
+    the phases stream: a stall can be older than any window a query reads.
+
+    Each partition's bytes are folded in once and later calls read only what
+    was appended. An open marker always lands before its close: the sink
+    pushes it at ``Timer.start`` while the close waits for a batch."""
+
+    _INTERVAL_KEY_FIELD_PREFIXES: ClassVar[tuple[bytes, ...]] = (b'"name":', b'"t0":', b'"node":', b'"rank":')
+    _OPEN_T1_BYTES: ClassVar[bytes] = json.dumps(PhaseEvent.OPEN_T1).encode()
+
+    def __init__(self, reader: _PartitionReader):
+        self._reader = reader
+        self._offsets: dict[str, int] = {}
+        # only the few still-open lines are ever json-parsed: one writer
+        # serializes equal values identically, so the key is matched as bytes
+        self._open_line_by_interval_key: dict[tuple[bytes, ...], bytes] = {}
+        self._open_event_by_line: dict[bytes, PhaseEvent] = {}
+        self._lock = threading.Lock()
+
+    def events(self) -> list[PhaseEvent]:
+        with self._lock:
+            for key, path in self._reader.files():
+                offset = self._offsets.get(key, 0)
+                if path.stat().st_size <= offset:
+                    continue
+                with open(path, "rb") as f:
+                    f.seek(offset)
+                    appended = f.read()
+                complete_nbytes = appended.rfind(b"\n") + 1
+                for line in appended[:complete_nbytes].splitlines():
+                    interval_key = tuple(_raw_field_value(line, field) for field in self._INTERVAL_KEY_FIELD_PREFIXES)
+                    if _raw_field_value(line, b'"t1":') == self._OPEN_T1_BYTES:
+                        self._open_line_by_interval_key[interval_key] = line
+                    else:
+                        self._open_line_by_interval_key.pop(interval_key, None)
+                self._offsets[key] = offset + complete_nbytes
+            open_lines = set(self._open_line_by_interval_key.values())
+            self._open_event_by_line = {
+                line: self._open_event_by_line.get(line) or PhaseEvent.from_dict(json.loads(line))
+                for line in open_lines
+            }
+            return list(self._open_event_by_line.values())
+
+
+def _raw_field_value(line: bytes, prefix: bytes) -> bytes:
+    """The raw value after ``prefix`` in one compact JSON line."""
+    start = line.index(prefix) + len(prefix)
+    end = line.find(b",", start)
+    return line[start : end if end >= 0 else line.rindex(b"}")].strip()
+
+
 class MetricStore:
     COLUMNAR_STREAMS: ClassVar[tuple[Stream, ...]] = (Stream.GPU_UTIL, Stream.ENGINE_SERIES)
     PARTITIONED_STREAMS: ClassVar[tuple[Stream, ...]] = (
@@ -417,6 +469,7 @@ class MetricStore:
         self._offsets: dict[Stream, int] = {s: 0 for s in Stream if s not in self.PARTITIONED_STREAMS}
         self._readers: dict[Stream, _PartitionReader] = {s: self._make_reader(s) for s in self.PARTITIONED_STREAMS}
         self.unserializable_dropped = 0
+        self._open_phases = _OpenPhaseIndex(self._readers[Stream.PHASES])
         self._catalog: dict[str, dict] | None = None  # write-side lane catalog accumulator
         # full-window engine query cache, versioned by partition file sizes so
         # appended scrapes invalidate it; the lock is load-bearing because sync
@@ -750,8 +803,12 @@ class MetricStore:
         return self._phase_events(t0, t1)
 
     def _phase_events(self, t0: float | None, t1: float | None) -> list[PhaseEvent]:
+        """Closed intervals that can overlap [t0, t1] plus every interval still
+        open. Closes key by end hour, so none ending at or after t0 sits in an
+        earlier partition; the upper slack covers intervals ending after t1."""
         upper = None if t1 is None else t1 + self.MAX_WINDOW_S
-        return self._readers[Stream.PHASES].window(None, upper)
+        closed = [event for event in self._readers[Stream.PHASES].window(t0, upper) if not event.open]
+        return closed + self._open_phases.events()
 
     def has_stream(self, stream: Stream) -> bool:
         if stream in self.PARTITIONED_STREAMS:
