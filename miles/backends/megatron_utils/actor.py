@@ -3,7 +3,6 @@ import logging
 import os
 import shutil
 from contextlib import ExitStack, nullcontext
-from functools import partial
 
 import torch
 import torch.distributed as dist
@@ -52,7 +51,7 @@ from miles.utils.context_utils import with_defer
 from miles.utils.distributed_utils import get_gloo_group
 from miles.utils.ft_utils.indep_dp import IndepDPInfo
 from miles.utils.logging_utils import rebind_env_reporting
-from miles.utils.lora.utils import build_lora_config, is_multi_lora_enabled
+from miles.utils.lora.utils import build_lora_config, is_multi_lora_enabled, lora_sync_sends_base
 from miles.utils.memory_utils import clear_memory, print_memory
 from miles.utils.misc import partition
 from miles.utils.object_store import StoreObjectRef, ValueSpec
@@ -248,7 +247,7 @@ class MegatronTrainRayActor(TrainRayActor):
             main_cast_ctx = build_main_cast_context(args, model=self.model, optimizer=self.optimizer)
 
         self.weights_backuper = TensorBackuper.create(
-            source_getter=partial(self._named_actor_weights, include_model_companion=True),
+            source_getter=self._actor_weights_to_back_up,
             main_cast_ctx=main_cast_ctx,
         )
         self._active_model_tag: str | None = "actor"
@@ -533,6 +532,28 @@ class MegatronTrainRayActor(TrainRayActor):
             and is_lora_enabled(self.args)
             and self.args.offload_train_target == "cpu"
             and not (self.with_ref or self.with_opd_teacher or self.args.keep_old_actor)
+        )
+
+    @property
+    def _host_backup_skips_frozen_params(self) -> bool:
+        """Colocated LoRA whose sync never sends the frozen base (the engines keep it) and that
+        switches no models: a host copy of frozen params is never read, and costs the whole
+        base per rank, which is what an --offload-train-target=disk run cannot afford."""
+        return (
+            self.args.colocate
+            and is_lora_enabled(self.args)
+            and not lora_sync_sends_base(self.args)
+            and not (self.with_ref or self.with_opd_teacher or self.args.keep_old_actor)
+        )
+
+    def _actor_weights_to_back_up(self):
+        weights = self._named_actor_weights(include_model_companion=True)
+        if not self._host_backup_skips_frozen_params:
+            return weights
+        return (
+            (name, tensor)
+            for name, tensor in weights
+            if tensor.requires_grad or ModelCompanionInstallationUtils.is_companion_parameter(name)
         )
 
     @property
@@ -911,13 +932,20 @@ class MegatronTrainRayActor(TrainRayActor):
             include_model_companion=include_model_companion,
         )
 
-    def _get_actor_weights(self, *, include_model_companion: bool = False) -> dict[str, torch.Tensor]:
+    def _get_actor_weights(
+        self, *, include_base: bool = True, include_model_companion: bool = False
+    ) -> dict[str, torch.Tensor]:
         if self._weight_sync_reads_tms_backup:
             return dict(
                 self._named_actor_weights(translate_gpu_to_cpu=True, include_model_companion=include_model_companion)
             )
         # use cpu backup only when weight is not live on gpu
         if self.args.colocate or self._asleep or self._active_model_tag != "actor":
+            if include_base and self._host_backup_skips_frozen_params:
+                raise RuntimeError(
+                    "The weight sync asks for the frozen base, but the host backup holds trainable "
+                    "params only because lora_sync_sends_base() is False; the sync and the backup disagree."
+                )
             return {
                 name: tensor
                 for name, tensor in self.weights_backuper.get("actor").items()
@@ -927,7 +955,7 @@ class MegatronTrainRayActor(TrainRayActor):
 
     def _get_actor_weight_version(self) -> int:
         return ModelCompanionWeightVersionUtils.from_params(
-            self._get_actor_weights(include_model_companion=True).items()
+            self._get_actor_weights(include_base=False, include_model_companion=True).items()
         )
 
     @with_logs
