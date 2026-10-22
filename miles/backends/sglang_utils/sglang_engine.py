@@ -157,8 +157,7 @@ def _compute_server_args(
         )
     elif lora_rollout_enabled(args):
         kwargs["enable_lora"] = True
-        # SGLang's DP-attention LoRA only serves pinned adapters, and a pinned adapter
-        # needs a second slot: the anti-starvation check keeps one for the base model.
+        # SGLang never pins the last slot: it stays free for the base model
         kwargs["max_loras_per_batch"] = 2 if lora_adapter_pinned(args) else 1
         kwargs["max_lora_rank"] = max(getattr(args, "lora_rank", 0), 1)
         kwargs["lora_target_modules"] = (

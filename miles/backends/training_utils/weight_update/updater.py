@@ -207,7 +207,6 @@ class WeightUpdater:
                 rollout_engines,
                 lora_name=lora_name,
                 lora_config=config,
-                # SGLang's DP-attention LoRA needs the adapter in the same slot on every DP rank.
                 pinned=lora_adapter_pinned(self.args),
             )
             self._registered_adapters.add(lora_name)
