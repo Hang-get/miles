@@ -7,6 +7,7 @@ from typing import Any
 import uvicorn
 
 from miles.ray.specs.entrypoint import SERVE_SPEC_CLASSES
+from miles.utils.args.schema import validate_complete_config
 from miles.utils.function_registry import load_function
 from miles.utils.workers.backend_capability.base import BackendCapability, DeferredBackendCapability
 from miles.utils.workers.backend_capability.factory import get_backend_capability
@@ -27,7 +28,9 @@ def main() -> None:
 
     worker_config = parse_serve_worker_config(own_args.config)
     spec_class = SERVE_SPEC_CLASSES[worker_config.worker_type]
-    spec = spec_class.create(spec_class.config_class.model_validate(worker_config.args))
+    spec = spec_class.create(
+        validate_complete_config(config_class=spec_class.config_class, payload=worker_config.args)
+    )
     worker = create_worker(spec, static_connections=worker_config.static_connections)
     _log(f"pool_id={spec.name} worker_class={spec.worker_class}")
 
