@@ -2,6 +2,7 @@ import logging
 from typing import Any
 
 from miles.backends.megatron_utils.lora.native import resolve_adapter_targets, validate_native_lora_args
+from miles.backends.sglang_utils.arguments import sglang_attention_dp_enabled
 from miles.utils.hf_utils.config import load_hf_config
 from miles.utils.hf_utils.weight_mapping import HfWeightMapping
 from miles.utils.lora.hf_lora_targets import (
@@ -13,7 +14,7 @@ from miles.utils.lora.hf_lora_targets import (
     parse_lora_targets,
     resolve_hf_lora_targets,
 )
-from miles.utils.lora.utils import is_lora_enabled, lora_adapter_pinned, matches_lora_target, targets_expert_leaves
+from miles.utils.lora.utils import is_lora_enabled, matches_lora_target, targets_expert_leaves
 
 logger = logging.getLogger(__name__)
 
@@ -273,7 +274,7 @@ def validate_multi_lora_args(args: Any) -> None:
         "Multi-LoRA requires --sglang-tokenizer-worker-num 1: dynamic adapter loading "
         "requires a single tokenizer-side LoRA registry."
     )
-    assert not lora_adapter_pinned(args), (
+    assert not sglang_attention_dp_enabled(args), (
         "Multi-LoRA cannot run on SGLang attention DP: SGLang serves only pinned adapters there, and a pinned "
         "adapter is never evicted, so the engine could not swap adapters through its LoRA slots. "
         "Drop --sglang-attn-dp-size / --sglang-enable-dp-attention for multi-LoRA."

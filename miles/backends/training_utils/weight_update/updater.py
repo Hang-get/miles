@@ -16,6 +16,7 @@ import torch
 import torch.distributed as dist
 from tqdm import tqdm
 
+from miles.backends.sglang_utils.arguments import sglang_attention_dp_enabled
 from miles.backends.sglang_utils.sglang_api_client import SGLangApiClient
 from miles.backends.training_utils.parallel import ParallelState
 from miles.backends.training_utils.weight_update.conn_status import ConnStatusManager
@@ -34,7 +35,7 @@ from miles.backends.training_utils.weight_update.session import (
 from miles.backends.training_utils.weight_update.utils import record_lora_checksums
 from miles.utils import async_utils
 from miles.utils.distributed_utils import get_gloo_group
-from miles.utils.lora.utils import LORA_ADAPTER_NAME, lora_adapter_pinned
+from miles.utils.lora.utils import LORA_ADAPTER_NAME
 from miles.utils.timer import timer
 
 if TYPE_CHECKING:
@@ -207,7 +208,7 @@ class WeightUpdater:
                 rollout_engines,
                 lora_name=lora_name,
                 lora_config=config,
-                pinned=lora_adapter_pinned(self.args),
+                pinned=sglang_attention_dp_enabled(self.args),
             )
             self._registered_adapters.add(lora_name)
 
