@@ -3,6 +3,7 @@ from collections.abc import Callable
 
 import pytest
 
+from miles.utils.args.trainer_utils import compute_trainer_config
 from miles.utils.audit_utils.config_snapshot.converter import ConfigSnapshotConverter
 from miles.utils.audit_utils.config_snapshot.generated_value_registry import (
     GENERATED_VALUES_ENV_VAR,
@@ -13,6 +14,7 @@ from miles.utils.audit_utils.config_snapshot.normalizer import normalize_record
 from miles.utils.audit_utils.process_identity import SimpleProcessIdentity
 from miles.utils.env_report.redaction import redact_arg
 from miles.utils.test_utils.snapshot import SNAPSHOT_RECORD_DIR_ENV_VAR, dump_snapshot
+from tests.fast.utils.args.helpers import parse_megatron_test_config
 
 
 class TestGeneratedValueRegistration:
@@ -51,6 +53,33 @@ class TestGeneratedValueRegistration:
 
 
 class TestGeneratedPathNormalization:
+    @pytest.mark.parametrize("registered", [False, True])
+    @pytest.mark.parametrize("explicit_critic_save", [False, True])
+    def test_derived_critic_identity_survives_trainer_backend_migration(
+        self,
+        make_record: Callable,
+        monkeypatch: pytest.MonkeyPatch,
+        registered: bool,
+        explicit_critic_save: bool,
+    ) -> None:
+        """Only a critic path derived from a registered identity normalizes after moving into the backend."""
+        monkeypatch.setenv(SNAPSHOT_RECORD_DIR_ENV_VAR, "/snapshot/records")
+        if registered:
+            generated_value_registry.register(kind="run_id", value="generated")
+        path = "/checkpoints/generated_critic"
+        flags = ["--critic-save", path] if explicit_critic_save else []
+        args = parse_megatron_test_config(
+            "--advantage-estimator", "ppo", "--save", "/checkpoints/generated/", *flags
+        )
+        trainer = compute_trainer_config(args, args.raw_megatron.trainers[1])
+        record = make_record(config={"backend": {"save": trainer.backend.save}}).model_copy(
+            update={"generated_values": generated_value_registry.read()}
+        )
+
+        expected = "/checkpoints/$RUN_ID_0000_critic" if registered and not explicit_critic_save else path
+        assert normalize_record(record)["args"]["backend"]["save"] == expected
+        assert record.config["args"]["backend"]["save"] == path
+
     @pytest.mark.parametrize("registered", [False, True])
     def test_trainer_overrides_normalize_only_registered_paths(self, make_record: Callable, registered: bool) -> None:
         """Trainer paths normalize registered identities without changing custom values or source records."""
