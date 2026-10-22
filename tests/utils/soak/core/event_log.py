@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 
-from tests.utils.soak.core.events import SoakCollectionClosedEvent, SoakEvent, StoredEvent
+from tests.utils.soak.core.events import SoakCollectionClosedEvent, SoakEvent, SoakObservationEvent, StoredEvent
 
 
 class EventLog:
@@ -12,6 +12,7 @@ class EventLog:
 
         self._events: list[SoakEvent] = []
         self._path = path
+        self._recorded_pod_uids: set[str] = set()
 
     @property
     def events(self) -> list[SoakEvent]:
@@ -26,6 +27,15 @@ class EventLog:
             self._events[-1], SoakCollectionClosedEvent
         ), "Soak evidence is closed"
         snapshot = type(event).model_validate(event.model_dump(mode="json"))
+        new_pod_uids: set[str] = set()
+        if isinstance(snapshot, SoakObservationEvent) and snapshot.details is not None:
+            cluster = snapshot.details.cluster
+            commands = cluster.commands_of_pod_uid
+            for uid in list(commands):
+                if not cluster.describes_whole_release or uid in self._recorded_pod_uids:
+                    del commands[uid]
+            new_pod_uids.update(commands)
+
         stored = StoredEvent(sequence=len(self._events), event=snapshot)
         with self._path.open("r+b") as stream:
             stream.seek(0, os.SEEK_END)
@@ -33,3 +43,4 @@ class EventLog:
             stream.flush()
             os.fsync(stream.fileno())
         self._events.append(snapshot)
+        self._recorded_pod_uids.update(new_pod_uids)
