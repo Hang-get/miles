@@ -20,6 +20,7 @@ Components:
 import logging
 
 from miles.rollout.base_types import RolloutFnTrainInput, RolloutFnTrainOutput
+from miles.rollout.filter_hub.base_types import iter_samples
 from miles.rollout.inference_rollout.inference_rollout_common import InferenceRolloutFn
 from miles.utils.types import Sample
 
@@ -100,7 +101,7 @@ class RolloutFn(InferenceRolloutFn):
         all_samples = []
         for group in output.samples:
             if isinstance(group, list):
-                all_samples.extend(group)
+                all_samples.extend(iter_samples(group))
             else:
                 all_samples.append(group)
 
