@@ -1,6 +1,5 @@
-from typing import Self
-
 from pydantic import model_validator
+from typing_extensions import Self
 
 from miles.backends.megatron_utils.checkpoint_request import CHECKPOINT_LOAD_FIELDS
 

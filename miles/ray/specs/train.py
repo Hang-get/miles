@@ -1,6 +1,8 @@
 import os
 from pathlib import Path
-from typing import Any, ClassVar, Self
+from typing import Any, ClassVar
+
+from typing_extensions import Self
 
 from miles.backends.megatron_utils.megatron_config import ACTOR_ROLE, CRITIC_ROLE, MegatronTrainerConfig
 from miles.ray.utils import NOSET_VISIBLE_DEVICES_ENV_VARS_LIST
