@@ -307,15 +307,19 @@ def _compute_critic_trainer(args: Namespace, *, policy: MegatronTrainerConfig) -
 
 
 def _compute_critic_overrides(args: Namespace) -> dict[str, Any]:
-    return {
+    overrides = {
         "kl_coef": 0,
         "use_opd": False,
         "disable_param_buffers_cpu_backup": False,
-        "load": args.critic_load,
         "save": args.critic_save,
         "lr": args.critic_lr,
         "lr_warmup_iters": args.critic_lr_warmup_iters,
     }
+    if (x := args.critic_load) is not None:
+        overrides["load"] = x
+        # TODO: Separate fresh initialization weights from reference-model weights instead of overloading ref_load.
+        overrides["ref_load"] = x
+    return overrides
 
 
 def _resolve_raw_megatron_config(value: str | None) -> "_RawMegatronConfig | None":
@@ -385,7 +389,8 @@ def compute_trainer_args(args: Namespace, trainer: MegatronTrainerConfig) -> Nam
         ans.save_hf = compute_trainer_checkpoint_dir(base_dir=ans.save_hf, trainer_id=trainer.trainer_id)
 
     # TODO: a --use-critic critic keeps the actor's requested_load, so a hot restart reads the actor's checkpoint.
-    if trainer.model_id is not None:
+    if trainer.model_id is not None and ans.train_backend != "megatron":
+        # TODO: After zhichen's refactor, align non-Megatron backends with Megatron's runtime checkpoint load inputs.
         resolve_args_checkpoint_load(ans)
 
     ans.trainer_init_expected_num_cells = _resolve_trainer_init_expected_num_cells(ans, base=args, trainer=trainer)
