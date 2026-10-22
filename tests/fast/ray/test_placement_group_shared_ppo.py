@@ -255,6 +255,15 @@ def _patch_train_controller_handles(monkeypatch, *, restored: dict[str, list[int
     return handles
 
 
+async def _create_training_models(
+    args: AllConfig, rollout_executor: _RecordingRolloutExecutor, *, capability: FakeBackendCapability
+) -> tuple[Any, Any]:
+    handles = placement_group_module.create_trainer_handles(
+        args, trainer_configs=placement_group_module.compute_trainer_configs(args), capability=capability
+    )
+    return await placement_group_module.create_training_models(args, rollout_executor, handles=handles)
+
+
 def _training_models_args(tmp_path: Path, *, use_critic: bool = True, **updates: Any) -> AllConfig:
     run_dir = tmp_path / "run"
     run_dir.mkdir(exist_ok=True)
@@ -306,7 +315,7 @@ async def test_an_actor_and_a_critic_that_restored_to_different_rollouts_are_ref
     with pytest.raises(
         AssertionError, match=f"the actor restored to rollout {actor_rollout} but its critic to {critic_rollout}"
     ):
-        await placement_group_module.create_training_models(
+        await _create_training_models(
             _training_models_args(tmp_path),
             rollout_executor=_RecordingRolloutExecutor(),
             capability=FakeBackendCapability(),
@@ -318,7 +327,7 @@ async def test_an_explicit_start_rollout_id_does_not_hide_a_mismatch(monkeypatch
     _patch_train_controller_handles(monkeypatch, restored={"actor": [5], "critic": [4]})
 
     with pytest.raises(AssertionError):
-        await placement_group_module.create_training_models(
+        await _create_training_models(
             _training_models_args(tmp_path, start_rollout_id=9),
             rollout_executor=_RecordingRolloutExecutor(),
             capability=FakeBackendCapability(),
@@ -331,9 +340,7 @@ async def test_an_actor_and_a_critic_that_agree_set_the_start_rollout_id(monkeyp
     args = _training_models_args(tmp_path)
     rollout_executor = _RecordingRolloutExecutor()
 
-    await placement_group_module.create_training_models(
-        args, rollout_executor=rollout_executor, capability=FakeBackendCapability()
-    )
+    await _create_training_models(args, rollout_executor=rollout_executor, capability=FakeBackendCapability())
 
     assert args.start_rollout_id == 5
     assert rollout_executor.loaded_rollout_id == 4
@@ -345,7 +352,7 @@ async def test_a_run_without_a_critic_takes_the_actor_position(monkeypatch, tmp_
     _patch_train_controller_handles(monkeypatch, restored={"actor": [5]})
     args = _training_models_args(tmp_path, use_critic=False)
 
-    await placement_group_module.create_training_models(
+    await _create_training_models(
         args, rollout_executor=_RecordingRolloutExecutor(), capability=FakeBackendCapability()
     )
 
@@ -357,7 +364,7 @@ async def test_a_critic_run_inits_one_controller_per_role(monkeypatch, tmp_path)
     handles = _patch_train_controller_handles(monkeypatch)
     args = _training_models_args(tmp_path)
 
-    await placement_group_module.create_training_models(
+    await _create_training_models(
         args, rollout_executor=_RecordingRolloutExecutor(), capability=FakeBackendCapability()
     )
 
@@ -418,7 +425,7 @@ async def test_the_controllers_are_inited_before_the_driver_calls_them(monkeypat
     """init() is what hands a controller its runtime inputs, so any earlier call reaches a controller without them."""
     handles = _patch_train_controller_handles(monkeypatch)
 
-    await placement_group_module.create_training_models(
+    await _create_training_models(
         _training_models_args(tmp_path),
         rollout_executor=_RecordingRolloutExecutor(),
         capability=FakeBackendCapability(),
@@ -431,7 +438,7 @@ async def test_a_run_without_a_critic_starts_only_the_actor_controller(monkeypat
     """A critic controller nobody asked for would sit waiting for cells that are never scheduled."""
     handles = _patch_train_controller_handles(monkeypatch)
 
-    await placement_group_module.create_training_models(
+    await _create_training_models(
         _training_models_args(tmp_path, use_critic=False),
         rollout_executor=_RecordingRolloutExecutor(),
         capability=FakeBackendCapability(),
@@ -445,7 +452,7 @@ async def test_train_parallel_config_travels_from_trainer_to_rollout_executor(mo
     _patch_train_controller_handles(monkeypatch)
     rollout_executor = _RecordingRolloutExecutor()
 
-    await placement_group_module.create_training_models(
+    await _create_training_models(
         _training_models_args(tmp_path, use_critic=False),
         rollout_executor=rollout_executor,
         capability=FakeBackendCapability(),
@@ -460,7 +467,7 @@ async def test_train_parallel_config_comes_from_the_actor_not_the_critic(monkeyp
     _patch_train_controller_handles(monkeypatch)
     rollout_executor = _RecordingRolloutExecutor()
 
-    await placement_group_module.create_training_models(
+    await _create_training_models(
         _training_models_args(tmp_path, use_critic=True),
         rollout_executor=rollout_executor,
         capability=FakeBackendCapability(),
@@ -488,7 +495,7 @@ class TestTheRunWaitsForEveryTrainerItReachesByAddress:
             tmp_path, trainer_controller_addrs=["actor=10.0.0.1:8000", "critic=10.0.0.2:9000"]
         )
 
-        await placement_group_module.create_training_models(
+        await _create_training_models(
             args, rollout_executor=_RecordingRolloutExecutor(), capability=FakeBackendCapability()
         )
 
@@ -498,7 +505,7 @@ class TestTheRunWaitsForEveryTrainerItReachesByAddress:
         """It installs the trainer itself, so there is no other deployment whose readiness it could dial."""
         dialled = self._patched(monkeypatch)
 
-        await placement_group_module.create_training_models(
+        await _create_training_models(
             _training_models_args(tmp_path),
             rollout_executor=_RecordingRolloutExecutor(),
             capability=FakeBackendCapability(),
@@ -563,7 +570,7 @@ class TestEveryAddressedTrainerIsCheckedBeforeAnyInitRuns:
         )
 
         with pytest.raises(AssertionError, match="drives run"):
-            await placement_group_module.create_training_models(
+            await _create_training_models(
                 _split_run_args(tmp_path),
                 rollout_executor=_RecordingRolloutExecutor(),
                 capability=FakeBackendCapability(),
@@ -580,7 +587,7 @@ class TestEveryAddressedTrainerIsCheckedBeforeAnyInitRuns:
         )
 
         with pytest.raises(AssertionError, match="nothing but the trainer"):
-            await placement_group_module.create_training_models(
+            await _create_training_models(
                 _split_run_args(tmp_path),
                 rollout_executor=_RecordingRolloutExecutor(),
                 capability=FakeBackendCapability(),
