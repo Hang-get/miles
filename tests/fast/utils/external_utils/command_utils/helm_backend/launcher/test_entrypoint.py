@@ -114,10 +114,28 @@ class TestWandbRunIdReachesEveryPod:
         monkeypatch.setattr(entrypoint, "_generate_wandb_run_id", lambda: "preallocated0")
 
         _, args = _compute_train_argv(
-            monkeypatch, "--use-wandb", installed_payload={"args": {"wandb_run_id": "installed0"}}
+            monkeypatch,
+            "--use-wandb",
+            installed_payload={"args": {"run_uuid": "0123456789abcdef", "wandb_run_id": "installed0"}},
         )
 
         assert args.wandb_run_id == "installed0"
+
+    @pytest.mark.parametrize("explicit_id", [None, "chosen0"])
+    def test_new_run_does_not_implicitly_join_the_previous_tracking_run(
+        self, monkeypatch: pytest.MonkeyPatch, explicit_id: str | None
+    ) -> None:
+        """A changed run identity allocates fresh tracking unless the operator selects an ID."""
+        monkeypatch.setattr(entrypoint, "_generate_wandb_run_id", lambda: "preallocated0")
+        flags = "--use-wandb" + (f" --wandb-run-id {explicit_id}" if explicit_id is not None else "")
+
+        _, args = _compute_train_argv(
+            monkeypatch,
+            flags,
+            installed_payload={"args": {"run_uuid": "fedcba9876543210", "wandb_run_id": "installed0"}},
+        )
+
+        assert args.wandb_run_id == (explicit_id or "preallocated0")
 
     def test_a_run_without_wandb_is_told_no_run_id(self, monkeypatch):
         """Minting an id for a run that tracks nothing would make every pod resume a run nobody created."""

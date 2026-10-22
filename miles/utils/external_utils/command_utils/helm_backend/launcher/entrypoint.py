@@ -348,7 +348,11 @@ def _resolve_wandb_run_id(args: Any, *, installed_payload: dict[str, Any] | None
     if (given := args.wandb_run_id) is not None:
         return given
 
-    if installed_payload is not None and (installed := installed_payload["args"]["wandb_run_id"]) is not None:
+    if (
+        installed_payload is not None
+        and installed_payload["args"]["run_uuid"] == args.run_uuid
+        and (installed := installed_payload["args"]["wandb_run_id"]) is not None
+    ):
         return installed
 
     return _generate_wandb_run_id()
