@@ -47,6 +47,8 @@ from typing import TYPE_CHECKING, NamedTuple
 import torch
 from megatron.core.fp8_utils import is_float8tensor
 
+from miles.utils.environ import resolve_train_offload_disk_dir
+
 
 if TYPE_CHECKING:
     from megatron.core.optimizer.distrib_optimizer import DistributedOptimizer
@@ -681,7 +683,7 @@ def setup_muon_state_on_disk(args) -> None:
 
 
 def _state_dir_root(args) -> str:
-    return os.path.join(args.offload_train_disk_dir, "optimizer_state")
+    return str(resolve_train_offload_disk_dir(args.offload_train_disk_dir) / "optimizer_state")
 
 
 def _purge_rank_dir(dir_root: str) -> str:

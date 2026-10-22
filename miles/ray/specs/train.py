@@ -10,7 +10,7 @@ from miles.utils.args.configs.backend_fields import RawTrainerBackendConfig
 from miles.utils.args.configs.scaling import ScalingConfig
 from miles.utils.args.runtime import TrainerConfig
 from miles.utils.args.trainer_utils import compute_trainer_config, compute_trainer_total_gpus
-from miles.utils.environ import default_fp8_block_scaling_fp32_scales
+from miles.utils.environ import default_fp8_block_scaling_fp32_scales, resolve_train_offload_disk_dir
 from miles.utils.lora.utils import is_multi_lora_enabled
 from miles.utils.math_utils import exact_div
 from miles.utils.megatron_args_utils import compute_trainer_num_cells
@@ -241,7 +241,7 @@ def compute_trainer_env_vars(args, ctx: WorkerLaunchContext, *, fp8_scales: str)
             env_vars["TMS_INIT_ENABLE_DISK_BACKUP"] = "1"
             env_vars["TMS_DISK_BACKUP_CHUNK_MB"] = str(args.offload_train_disk_chunk_mb)
             env_vars["TMS_DISK_BACKUP_DIR"] = os.path.join(
-                args.offload_train_disk_dir,
+                resolve_train_offload_disk_dir(args.offload_train_disk_dir, environment=dict(os.environ) | env_vars),
                 f"cell{format_name_index(ctx.cell_index)}_rank{format_name_index(ctx.worker_in_cell_index)}",
             )
         else:

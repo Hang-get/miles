@@ -35,7 +35,7 @@ from miles.utils.args.schema import reset_arg
 from miles.utils.audit_utils.config_snapshot.generated_value_registry import generated_value_registry
 from miles.utils.audit_utils.event_logger.logger import EVENTS_DIRNAME
 from miles.utils.chat_template_utils.tito_tokenizer import TITOTokenizerType
-from miles.utils.environ import use_legacy_rollout_v1
+from miles.utils.environ import resolve_train_offload_disk_dir, use_legacy_rollout_v1
 from miles.utils.eval_config import EvalDatasetConfig, build_eval_dataset_configs, ensure_dataset_list
 from miles.utils.file_arg_utils import resolve_file_arg
 from miles.utils.hf_utils.config import is_dsa, load_hf_config
@@ -1361,10 +1361,9 @@ def miles_validate_args(args):
     _validate_rematerialize_param_from_master_weight(args)
 
     if (args.offload_train_target == "disk" or args.stream_optimizer_state_to_disk) and (
-        args.offload_train_disk_dir is None
+        args.offload_train_disk_dir is None and args.cluster_backend != "kubernetes"
     ):
-        uid = os.getuid() if hasattr(os, "getuid") else 0  # config-access-exempt: os.getuid is platform-dependent
-        args.offload_train_disk_dir = os.path.join(os.environ.get("SCRATCH", "/scratch"), f"miles_train_offload_{uid}")
+        args.offload_train_disk_dir = str(resolve_train_offload_disk_dir(None))
 
     if args.offload_train_target == "disk":
         assert args.offload_train, "--offload-train-target=disk requires --offload-train"
