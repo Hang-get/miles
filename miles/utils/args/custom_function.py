@@ -75,7 +75,13 @@ def resolve_custom_function_configs(args: argparse.Namespace, *, config_class: t
 
 def resolve_custom_function_overrides(overrides: dict[str, Any], *, args: argparse.Namespace) -> dict[str, Any]:
     resolved = overrides.copy()
-    values = copy.deepcopy(argparse.Namespace(**(vars(args) | overrides)))
+    custom_values = {
+        name: value
+        for original in vars(args).values()
+        if isinstance(original, CustomFunctionConfig) and original.config is not None
+        for name, value in dict(original.config).items()
+    }
+    values = copy.deepcopy(argparse.Namespace(**(custom_values | vars(args) | overrides)))
     for info in _compute_custom_function_field_infos(argparse.Namespace(**overrides), field_names=overrides.keys()):
         original = vars(args)[info.name]
         resolved[info.name] = (
