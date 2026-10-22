@@ -28,6 +28,7 @@ from miles.dashboard.args import validate_dashboard_args
 from miles.ray.specs.train import external_trainer_controller_addrs
 from miles.rollout.checkpoint_eval import is_checkpoint_eval_fn
 from miles.utils.args.configs.fault_tolerance import _DEFAULT_FT_API_SERVER_PORT
+from miles.utils.environ import resolve_train_offload_disk_dir
 from miles.utils.args.configs.router import RouterConfig
 from miles.utils.args.custom_function import add_user_provided_function_arguments, resolve_custom_function_configs
 from miles.utils.args.runtime import AllConfig
@@ -1361,10 +1362,9 @@ def miles_validate_args(args):
     _validate_rematerialize_param_from_master_weight(args)
 
     if (args.offload_train_target == "disk" or args.stream_optimizer_state_to_disk) and (
-        args.offload_train_disk_dir is None
+        args.offload_train_disk_dir is None and args.cluster_backend != "kubernetes"
     ):
-        uid = os.getuid() if hasattr(os, "getuid") else 0  # config-access-exempt: os.getuid is platform-dependent
-        args.offload_train_disk_dir = os.path.join(os.environ.get("SCRATCH", "/scratch"), f"miles_train_offload_{uid}")
+        args.offload_train_disk_dir = str(resolve_train_offload_disk_dir(None))
 
     if args.offload_train_target == "disk":
         assert args.offload_train, "--offload-train-target=disk requires --offload-train"

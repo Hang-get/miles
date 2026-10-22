@@ -5,6 +5,7 @@ keeps working against pinned host memory while the log still claims otherwise.
 """
 
 import os
+from argparse import Namespace
 
 import pytest
 import torch
@@ -79,3 +80,17 @@ def test_disk_buffer_preserves_dtype(tmp_path, dtype):
 
     assert buf.dtype is dtype
     assert buf.numel() == src.numel()
+
+
+@pytest.mark.parametrize("explicit_directory", [None, "/explicit-nvme"])
+def test_optimizer_directory_uses_the_worker_environment(
+    monkeypatch: pytest.MonkeyPatch, explicit_directory: str | None
+) -> None:
+    """Streaming state uses the same worker-local default as disk offload."""
+    monkeypatch.setenv("SCRATCH", "/pod-nvme")
+    monkeypatch.setattr(os, "getuid", lambda: 0)
+
+    directory = nvme_stream._state_dir_root(Namespace(offload_train_disk_dir=explicit_directory))
+
+    expected = explicit_directory or "/pod-nvme/miles_train_offload_0"
+    assert directory == f"{expected}/optimizer_state"
