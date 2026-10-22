@@ -31,7 +31,7 @@ import os
 import threading
 import time
 from collections import OrderedDict
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, ClassVar
@@ -387,6 +387,28 @@ class _PartitionReader:
         return stamps
 
 
+class _AppendCursor:
+    """One consumer's read offsets over a partitioned stream, for consumers
+    that fold every byte of the stream once rather than cache windows of it."""
+
+    def __init__(self, reader: _PartitionReader):
+        self._reader = reader
+        self._offsets: dict[str, int] = {}
+
+    def appended(self) -> Iterator[tuple[Path, int, bytes]]:
+        """(path, offset, complete lines) per partition that grew since the last
+        call. A partition's offset advances only once the consumer's loop body
+        returns, so a fold that raises re-reads the same bytes next time."""
+        for key, path in self._reader.files():
+            offset = self._offsets.get(key, 0)
+            if path.stat().st_size <= offset:
+                continue
+            complete_lines = _read_complete_lines(path, offset)
+            if complete_lines:
+                yield path, offset, complete_lines
+            self._offsets[key] = offset + len(complete_lines)
+
+
 class _LongPhaseIndex:
     """Phase intervals a windowed read can miss, across every partition of the
     phases stream: those still open (a stall can be older than any window) and
@@ -401,9 +423,8 @@ class _LongPhaseIndex:
     _OPEN_T1_BYTES: ClassVar[bytes] = json.dumps(PhaseEvent.OPEN_T1).encode()
 
     def __init__(self, reader: _PartitionReader, *, longer_than_s: float):
-        self._reader = reader
+        self._cursor = _AppendCursor(reader)
         self._longer_than_s = longer_than_s
-        self._offsets: dict[str, int] = {}
         # only the few still-open or long lines are ever json-parsed: one writer
         # serializes equal values identically, so the key is matched as bytes
         self._open_line_by_interval_key: dict[tuple[bytes, ...], bytes] = {}
@@ -414,15 +435,8 @@ class _LongPhaseIndex:
 
     def events(self) -> list[PhaseEvent]:
         with self._lock:
-            for key, path in self._reader.files():
-                offset = self._offsets.get(key, 0)
-                if path.stat().st_size <= offset:
-                    continue
-                with open(path, "rb") as f:
-                    f.seek(offset)
-                    appended = f.read()
-                complete_nbytes = appended.rfind(b"\n") + 1
-                for line in appended[:complete_nbytes].splitlines():
+            for _, _, complete_lines in self._cursor.appended():
+                for line in complete_lines.splitlines():
                     interval_key = tuple(_raw_field_value(line, field) for field in self._INTERVAL_KEY_FIELD_PREFIXES)
                     t1_bytes = _raw_field_value(line, b'"t1":')
                     if t1_bytes == self._OPEN_T1_BYTES:
@@ -431,7 +445,6 @@ class _LongPhaseIndex:
                     self._open_line_by_interval_key.pop(interval_key, None)
                     if float(t1_bytes) - float(interval_key[1]) > self._longer_than_s:
                         self._long_closed_event_by_interval_key[interval_key] = PhaseEvent.from_dict(json.loads(line))
-                self._offsets[key] = offset + complete_nbytes
             open_lines = set(self._open_line_by_interval_key.values())
             self._open_event_by_line = {
                 line: self._open_event_by_line.get(line) or PhaseEvent.from_dict(json.loads(line))
