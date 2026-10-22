@@ -311,3 +311,13 @@ def test_phase_longer_than_the_window_slack_shows_once_in_every_window_it_spans(
     for t0, t1 in [(BASE + HOUR, BASE + 2 * HOUR), (BASE + 9.5 * HOUR, BASE + 10.5 * HOUR)]:
         stalled = [p for p in store.phases_by_lane(t0=t0, t1=t1) if p["gpu"] == 1]
         assert [p["t0"] for p in stalled] == [BASE + 10], (t0, stalled)
+
+
+def test_time_range_edge_is_the_newest_row_not_the_last_written(tmp_path):
+    """One flush writes a batch in arrival order: its last line need not be its newest."""
+    writer = MetricStore(tmp_path)
+    writer.write_meta(Meta(run_name="edge", start_ts=BASE, args={}))
+    for ts in (BASE + 20, BASE + 30, BASE + 10):
+        writer.append(GpuSample(ts=ts, node="n", gpu=0, util=1, mem_mb=1, power_w=1))
+    writer.flush()
+    assert MetricStore.load(tmp_path).time_range()[1] == BASE + 30
