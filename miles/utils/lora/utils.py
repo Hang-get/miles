@@ -32,8 +32,10 @@ def lora_rollout_enabled(args: Namespace) -> bool:
 
 
 def lora_adapter_pinned(args: Namespace) -> bool:
-    """SGLang's DP-attention LoRA keeps an adapter in the same slot on every DP rank, so it serves only pinned adapters."""
-    return getattr(args, "sglang_enable_dp_attention", False)
+    """SGLang serves LoRA under attention DP only from pinned adapters, which hold the same slot on every DP rank
+    (sgl-project/sglang#36389)."""
+    # `--dp-size N --enable-dp-attention` is the deprecated spelling of `--attn-dp-size N`
+    return args.sglang_attn_dp_size > 1 or (args.sglang_enable_dp_attention and args.sglang_dp_size > 1)
 
 
 def engine_loads_adapter_from_disk(args: Namespace) -> bool:

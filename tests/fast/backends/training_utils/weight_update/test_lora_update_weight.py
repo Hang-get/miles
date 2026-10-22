@@ -98,7 +98,7 @@ class TestWeightUpdaterLoraConfig:
         updater = self._make_updater(
             is_lora=True,
             lora_sync_config={"peft_type": "LORA", "r": 8},
-            args=Namespace(sglang_enable_dp_attention=dp_attention),
+            args=Namespace(sglang_attn_dp_size=1, sglang_enable_dp_attention=dp_attention, sglang_dp_size=8),
         )
         engines = [MagicMock()]
         with patch(f"{_UPDATER_MODULE}.register_lora_adapter") as register:

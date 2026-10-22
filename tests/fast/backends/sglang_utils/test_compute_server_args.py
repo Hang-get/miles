@@ -20,6 +20,7 @@ def make_args(**overrides: object) -> SimpleNamespace:
         offload_rollout=False,
         sglang_dp_size=1,
         sglang_enable_dp_attention=False,
+        sglang_attn_dp_size=1,
         sglang_pp_size=1,
         sglang_ep_size=1,
         sglang_mem_fraction_static=0.7,
