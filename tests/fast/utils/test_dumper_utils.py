@@ -437,6 +437,28 @@ class TestCleanupDumpDir:
 
 
 class TestConfigureSglang:
+    @pytest.mark.parametrize("expected", [None, {}, {"other": 5}])
+    async def test_external_engines_without_declared_count_wait_for_nonempty_roster(
+        self, tmp_path: Path, expected: dict[str, int] | None
+    ) -> None:
+        """An unspecified count still waits for external engines and configures every discovered URL."""
+        args = self._make_args(tmp_path)
+        args.init_expected_num_cells = expected
+        args.sglang = SimpleNamespace(models=[SimpleNamespace(name="default")])
+        urls = ["http://a:1", "http://b:2"]
+        get_worker_urls = AsyncMock(side_effect=[[], urls])
+        post = AsyncMock()
+
+        with (
+            patch("miles.rollout.inference_rollout.inference_rollout_train.get_worker_urls", new=get_worker_urls),
+            patch("miles.utils.http_utils.post", new=post),
+            patch("miles.utils.dumper_utils._cleanup_dump_dir"),
+        ):
+            await dumper_utils.configure_sglang(args)
+
+        assert get_worker_urls.await_count == 2
+        assert [call.args[0] for call in post.await_args_list] == [f"{url}/dumper/configure" for url in urls]
+
     @staticmethod
     def _make_args(tmp_path: Path) -> SimpleNamespace:
         return SimpleNamespace(
