@@ -203,7 +203,13 @@ class WeightUpdater:
             config = self._lora_sync_config
             if adapter is not None:
                 config = config | {"r": adapter.rank, "lora_alpha": adapter.alpha}
-            register_lora_adapter(rollout_engines, lora_name=lora_name, lora_config=config)
+            # SGLang serves LoRA under DP attention only from pinned adapters
+            register_lora_adapter(
+                rollout_engines,
+                lora_name=lora_name,
+                lora_config=config,
+                pinned=self.args.sglang_enable_dp_attention,
+            )
             self._registered_adapters.add(lora_name)
 
 
