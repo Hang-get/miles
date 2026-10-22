@@ -171,28 +171,22 @@ class TestAdapterOwnership:
         assert server_args["lora_paths"] == ["miles_lora=/fake/adapter"]
 
 
-class TestDpAttentionLoRA:
-    """SGLang's DP-attention LoRA serves only pinned adapters, and a pinned adapter needs a slot besides the base model's."""
+_ATTENTION_DP_SPELLINGS = [
+    pytest.param(dict(sglang_attn_dp_size=8), True, id="attn-dp-size"),
+    pytest.param(dict(sglang_enable_dp_attention=True, sglang_dp_size=8), True, id="deprecated-enable-dp-attention"),
+    pytest.param(dict(sglang_enable_dp_attention=True, sglang_dp_size=1), False, id="enable-dp-attention-at-dp-1"),
+    pytest.param({}, False, id="no-attention-dp"),
+]
 
-    def test_dp_attention_reserves_a_slot_beside_the_base_model(self):
-        server_args = compute(make_args(lora_rank=8, sglang_enable_dp_attention=True, sglang_dp_size=8))
 
-        assert server_args["max_loras_per_batch"] == 2
-
-    def test_without_dp_attention_the_engine_keeps_a_single_slot(self):
-        server_args = compute(make_args(lora_rank=8))
-
-        assert server_args["max_loras_per_batch"] == 1
-
-    def test_dp_attention_pins_the_adapter_the_engine_loads_itself(self):
+class TestAttentionDpLoRA:
+    @pytest.mark.parametrize(("parallel", "attention_dp"), _ATTENTION_DP_SPELLINGS)
+    def test_attention_dp_pins_the_adapter_beside_a_base_model_slot(self, parallel, attention_dp):
+        """SGLang's attention-DP LoRA admits only pinned adapters, and never pins the slot it keeps for the base model."""
         server_args = compute(
-            make_args(
-                lora_rank=8,
-                lora_adapter_path="/fake/adapter",
-                debug_rollout_only=True,
-                sglang_enable_dp_attention=True,
-                sglang_dp_size=8,
-            )
+            make_args(lora_rank=8, lora_adapter_path="/fake/adapter", debug_rollout_only=True, **parallel)
         )
 
-        assert server_args["lora_paths"] == [{"lora_name": "miles_lora", "lora_path": "/fake/adapter", "pinned": True}]
+        pinned = {"lora_name": "miles_lora", "lora_path": "/fake/adapter", "pinned": True}
+        assert server_args["lora_paths"] == [pinned if attention_dp else "miles_lora=/fake/adapter"]
+        assert server_args["max_loras_per_batch"] == (2 if attention_dp else 1)
