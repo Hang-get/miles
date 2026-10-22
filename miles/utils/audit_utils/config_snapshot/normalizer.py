@@ -128,6 +128,12 @@ def _config_objects(config: JsonValue) -> Iterator[dict[str, JsonValue]]:
         for key in path:
             child = child.get(key) if isinstance(child, dict) else None
         yield from _config_objects(child)
+    if isinstance(raw_megatron := config.get("raw_megatron"), dict) and isinstance(
+        trainers := raw_megatron.get("trainers"), list
+    ):
+        for trainer in trainers:
+            if isinstance(trainer, dict):
+                yield from _config_objects(trainer.get("overrides"))
 
 
 def _normalize_field(

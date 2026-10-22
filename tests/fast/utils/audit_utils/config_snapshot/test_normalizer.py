@@ -51,6 +51,30 @@ class TestGeneratedValueRegistration:
 
 
 class TestGeneratedPathNormalization:
+    @pytest.mark.parametrize("registered", [False, True])
+    def test_trainer_overrides_normalize_only_registered_paths(self, make_record: Callable, registered: bool) -> None:
+        """Trainer paths normalize registered identities without changing custom values or source records."""
+        path = "/checkpoints/generated/critic"
+        overrides = {"save": path, "load": path, "custom": {"save": path}}
+        record = make_record(
+            config={"raw_megatron": {"base_args": {}, "trainers": [{"overrides": overrides}]}}
+        ).model_copy(
+            update={
+                "generated_values": (
+                    [ConfigSnapshotGeneratedValue(kind="run_id", name="0000", value="generated")] if registered else []
+                )
+            }
+        )
+
+        actual = normalize_record(record)["args"]["raw_megatron"]["trainers"][0]["overrides"]
+        expected_path = "/checkpoints/$RUN_ID_0000/critic" if registered else path
+        assert actual == {"save": expected_path, "load": expected_path, "custom": {"save": path}}
+        assert record.config["args"]["raw_megatron"]["trainers"][0]["overrides"] == {
+            "save": path,
+            "load": path,
+            "custom": {"save": path},
+        }
+
     @pytest.mark.parametrize("typed_backend", [False, True])
     def test_derived_critic_save_preserves_parent_and_role_across_generated_runs(
         self, make_record: Callable, typed_backend: bool
