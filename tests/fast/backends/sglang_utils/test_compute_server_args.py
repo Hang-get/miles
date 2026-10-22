@@ -19,6 +19,7 @@ def make_args(**overrides: object) -> SimpleNamespace:
         rollout_num_gpus_per_engine=1,
         offload_rollout=False,
         sglang_dp_size=1,
+        sglang_enable_dp_attention=False,
         sglang_pp_size=1,
         sglang_ep_size=1,
         sglang_mem_fraction_static=0.7,

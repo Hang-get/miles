@@ -156,7 +156,8 @@ def _compute_server_args(
         )
     elif lora_rollout_enabled(args):
         kwargs["enable_lora"] = True
-        kwargs["max_loras_per_batch"] = 1
+        # DP attention needs the adapter pinned, and SGLang keeps one slot unpinned for base requests
+        kwargs["max_loras_per_batch"] = 2 if args.sglang_enable_dp_attention else 1
         kwargs["max_lora_rank"] = max(getattr(args, "lora_rank", 0), 1)
         kwargs["lora_target_modules"] = (
             ["all"] if args.lora_adapter_targets == "all-linear" else args.lora_adapter_targets
