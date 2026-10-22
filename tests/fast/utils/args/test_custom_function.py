@@ -142,6 +142,7 @@ class TestCustomArgumentRegistration:
 class TestPerTrainerHookOverrides:
     def test_changed_path_preserves_fields_already_moved_into_resolved_hooks(self) -> None:
         """A replacement hook inherits parsed values after the flat custom fields are removed."""
+
         class RunConfig(BaseConfig):
             custom_model_provider_path: CustomFunctionConfig
 
