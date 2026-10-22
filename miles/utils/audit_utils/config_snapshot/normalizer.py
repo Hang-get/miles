@@ -140,7 +140,9 @@ def _normalize_field(
     value: str, *, key: str, values: list[ConfigSnapshotGeneratedValue], config: dict[str, JsonValue]
 ) -> str:
     for entry in values:
-        token = f"$RUN_ID_{entry.name}_critic" if entry.kind == "critic_run_id" else f"${entry.kind.upper()}_{entry.name}"
+        token = (
+            f"$RUN_ID_{entry.name}_critic" if entry.kind == "critic_run_id" else f"${entry.kind.upper()}_{entry.name}"
+        )
         if key == "wandb_key":
             if entry.kind == "wandb_key" and value == entry.value:
                 return token

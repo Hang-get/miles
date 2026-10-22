@@ -21,7 +21,14 @@ class GeneratedValueRegistry:
         self,
         *,
         kind: Literal[
-            "run_id", "critic_run_id", "temporary_directory", "ci_commit_name", "host", "port", "external_host", "wandb_key"
+            "run_id",
+            "critic_run_id",
+            "temporary_directory",
+            "ci_commit_name",
+            "host",
+            "port",
+            "external_host",
+            "wandb_key",
         ],
         value: str,
         name: str | None = None,
