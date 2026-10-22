@@ -12,6 +12,7 @@ from tests.fast.utils.external_utils.command_utils.helm_backend.launcher.values.
 )
 from tests.fast.utils.workers.worker_provider.kubernetes.run_specs import _RELEASE, make_engine_spec, make_trainer_spec
 
+from miles.utils.args.runtime import TrainerConfig
 from miles.utils.external_utils.command_utils.helm_backend import naming
 from miles.utils.external_utils.command_utils.helm_backend.launcher.values import builder
 from miles.utils.external_utils.command_utils.helm_backend.launcher.values.misc import LaunchPlan
@@ -192,6 +193,14 @@ class TestBuildValues:
 
 
 class TestServedWorkerBootstrap:
+    def test_oversized_served_payload_is_rejected_before_installation(self) -> None:
+        """Serve commands reject configs that a Linux pod cannot exec as one argument."""
+        spec = trainer(num_cells=1, gpus_per_cell=1)
+        spec = spec.model_copy(update={"args": TrainerConfig.model_construct(env_report="x" * 131072)})
+
+        with pytest.raises(AssertionError, match="ServeWorkerConfig.*bytes in one command argument"):
+            build_values_as_launched([spec], LAYOUT, scaling=SCALING)
+
     def test_names_the_spec_the_pod_has_to_rebuild(self):
         """A served pod constructs its worker from the spec, which its command is the only record of."""
         command = build_values_as_launched(

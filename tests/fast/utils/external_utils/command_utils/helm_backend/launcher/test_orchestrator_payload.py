@@ -12,6 +12,14 @@ from miles.utils.workers.worker_spec import DEFAULT_RPC_PORT_INFO
 
 
 class TestOrchestratorPayload:
+    def test_oversized_orchestrator_payload_is_rejected_before_installation(self) -> None:
+        """Orchestrator commands enforce the same exec argument limit as served workers."""
+        args = parse_fsdp_test_config()
+        args = args.model_copy(update={"wandb_group": "x" * 131072})
+
+        with pytest.raises(AssertionError, match="OrchestratorWorkerConfig.*bytes in one command argument"):
+            _compute_orchestrator_command("train.py", args=args, static_connections=StaticConnConfig())
+
     def test_a_launcher_payload_starts_without_scaling_or_rollout_only_fields_and_reads_the_pod_report(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
