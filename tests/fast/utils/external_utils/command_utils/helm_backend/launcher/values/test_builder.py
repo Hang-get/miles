@@ -17,6 +17,7 @@ from miles.utils.external_utils.command_utils.helm_backend.launcher.values impor
 from miles.utils.external_utils.command_utils.helm_backend.launcher.values.misc import LaunchPlan
 from miles.utils.workers.connection_config import build_static_conn_config
 from miles.utils.workers.serving.worker_config import ServeWorkerConfig
+from miles.utils.workers.worker_provider.static import StaticWorkerProvider
 from miles.utils.workers.worker_spec import BaseSpec
 
 _STAMP = "2026-08-12T09:00:00+00:00"
@@ -192,6 +193,17 @@ class TestBuildValues:
 
 
 class TestServedWorkerBootstrap:
+    def test_zero_cell_static_pool_remains_discoverable_without_deploying_pods(self) -> None:
+        """Disabled static pools yield empty providers instead of missing-pool failures."""
+        specs = [session_server(num_cells=0), trainer(num_cells=1, gpus_per_cell=1)]
+        run = build_values_as_launched(specs, LAYOUT, scaling=SCALING).as_values()["run"]
+        payload = _served_config(run["trainerEngines"][0]["command"])
+        pool = payload.static_connections.static_conn_infos["session-server"]
+        provider = StaticWorkerProvider.of_release(release=LAYOUT.release, config=pool)
+
+        assert provider.expected_num_cells() == 0
+        assert run["staticWorkers"] == []
+
     def test_names_the_spec_the_pod_has_to_rebuild(self):
         """A served pod constructs its worker from the spec, which its command is the only record of."""
         command = build_values_as_launched(
